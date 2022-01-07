@@ -1,7 +1,13 @@
+use std::borrow::Borrow;
 use std::convert::TryInto;
+use std::mem::size_of;
 
 use solana_program::program_error::ProgramError;
-use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
+use solana_program::{
+    pubkey::{Pubkey, PUBKEY_BYTES},
+    instruction::AccountMeta,
+};
+use solana_program::instruction::Instruction;
 
 use crate::model::wallet_config::AllowedDestination;
 use crate::model::multisig_op::ApprovalDisposition;
@@ -98,6 +104,20 @@ pub enum ProgramInstruction {
 }
 
 impl ProgramInstruction {
+    pub fn pack(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(size_of::<Self>());
+        match self {
+            &ProgramInstruction::Init {
+                ref config_update
+            } => {
+                buf.push(0);
+                config_update.pack(&mut buf);
+            }
+            _ => ()
+        }
+        buf
+    }
+
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
         let (tag, rest) = input.split_first().ok_or(ProgramError::InvalidInstructionData)?;
 
@@ -198,7 +218,6 @@ impl ProgramInstruction {
         })
     }
 }
-
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProgramConfigUpdate {
@@ -347,3 +366,29 @@ fn unpack_wallet_guid_hash(bytes: &[u8]) -> Result<[u8; 32], ProgramError> {
         .ok_or(ProgramError::InvalidInstructionData)
 }
 
+pub fn program_init(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    assistant_account: &Pubkey,
+    config_approvers: Vec<Pubkey>,
+    approvals_required_for_config: u8,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::Init {
+        config_update: ProgramConfigUpdate {
+            approvals_required_for_config,
+            add_approvers: config_approvers,
+            remove_approvers: Vec::new(),
+        }
+    }.borrow().pack();
+
+    let accounts = vec![
+        AccountMeta::new(*program_config_account, false),
+        AccountMeta::new_readonly(*assistant_account, true),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data
+    })
+}
