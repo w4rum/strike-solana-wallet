@@ -45,7 +45,7 @@ $ make build
 $ solana-test-validator
 ```
 
-## **3. In a new terminal, run the test suite
+## **3. In a new terminal, run the test suite**
 
 ```bash
 $ make deploy_and_test
