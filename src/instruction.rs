@@ -3,11 +3,9 @@ use std::convert::TryInto;
 use std::mem::size_of;
 
 use solana_program::program_error::ProgramError;
-use solana_program::{
-    pubkey::{Pubkey, PUBKEY_BYTES},
-    instruction::AccountMeta,
-};
+use solana_program::{pubkey::{Pubkey, PUBKEY_BYTES}, instruction::AccountMeta};
 use solana_program::instruction::Instruction;
+use solana_program::system_program;
 
 use crate::model::wallet_config::AllowedDestination;
 use crate::model::multisig_op::ApprovalDisposition;
@@ -43,7 +41,8 @@ pub enum ProgramInstruction {
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[writable]` The wallet config account
+    /// 1. `[]` The program config account
+    /// 2. `[writable]` The wallet config account
     /// 2. `[signer]` The rent collector account
     FinalizeWalletCreation {
         wallet_guid_hash: [u8; 32],
@@ -110,10 +109,91 @@ impl ProgramInstruction {
             &ProgramInstruction::Init {
                 ref config_update
             } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
                 buf.push(0);
-                config_update.pack(&mut buf);
+                buf.extend_from_slice(&config_update_bytes);
             }
-            _ => ()
+            &ProgramInstruction::InitConfigUpdate {
+                ref config_update
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(1);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::FinalizeConfigUpdate {
+                ref config_update
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(2);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::SetApprovalDisposition {
+                ref disposition
+            } => {
+                buf.push(9);
+                buf.push(disposition.to_u8());
+            }
+            &ProgramInstruction::InitWalletCreation {
+                ref wallet_guid_hash,
+                ref config_update
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(3);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::FinalizeWalletCreation {
+                ref wallet_guid_hash,
+                ref config_update
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(4);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::InitWalletConfigUpdate {
+                ref wallet_guid_hash,
+                ref config_update
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(5);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::FinalizeWalletConfigUpdate {
+                ref wallet_guid_hash,
+                ref config_update
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(6);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::InitTransfer {
+                ref amount,
+                ref destination_name_hash,
+                ref token_mint,
+            } => {
+                buf.push(7);
+                buf.extend_from_slice(&amount.to_le_bytes());
+                buf.extend_from_slice(destination_name_hash);
+                buf.extend_from_slice(&token_mint.to_bytes())
+            }
+            &ProgramInstruction::FinalizeTransfer {
+                ref amount,
+                ref token_mint,
+            } => {
+                buf.push(8);
+                buf.extend_from_slice(&amount.to_le_bytes());
+                buf.extend_from_slice(&token_mint.to_bytes())
+            }
         }
         buf
     }
@@ -373,12 +453,12 @@ pub fn program_init(
     config_approvers: Vec<Pubkey>,
     approvals_required_for_config: u8,
 ) -> Result<Instruction, ProgramError> {
+    let config_update = ProgramConfigUpdate {
+        approvals_required_for_config,
+        add_approvers: config_approvers.clone(),
+        remove_approvers: Vec::new(), };
     let data = ProgramInstruction::Init {
-        config_update: ProgramConfigUpdate {
-            approvals_required_for_config,
-            add_approvers: config_approvers,
-            remove_approvers: Vec::new(),
-        }
+        config_update
     }.borrow().pack();
 
     let accounts = vec![
@@ -390,5 +470,286 @@ pub fn program_init(
         program_id: *program_id,
         accounts,
         data
+    })
+}
+
+fn init_multisig_op(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    assistant_account: &Pubkey,
+    data: Vec<u8>,
+    wallet_config_account: Option<&Pubkey>,
+) -> Result<Instruction, ProgramError> {
+    let mut accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+    ];
+    if wallet_config_account.is_some() {
+        accounts.push(
+        AccountMeta::new_readonly(*wallet_config_account.unwrap(), false),
+        )
+    }
+    accounts.push(
+        AccountMeta::new_readonly(*program_config_account, false),
+    );
+    accounts.push(
+        AccountMeta::new_readonly(*assistant_account, true),
+    );
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    })
+}
+
+pub fn program_init_config_update(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    assistant_account: &Pubkey,
+    approvals_required_for_config: u8,
+    add_approvers: Vec<Pubkey>,
+    remove_approvers: Vec<Pubkey>,
+) -> Result<Instruction, ProgramError> {
+    let config_update = ProgramConfigUpdate {
+        approvals_required_for_config,
+        add_approvers: add_approvers.clone(),
+        remove_approvers: remove_approvers.clone(), };
+    let data = ProgramInstruction::InitConfigUpdate {
+        config_update
+    }.borrow().pack();
+
+    init_multisig_op(program_id, program_config_account, multisig_op_account, assistant_account, data, None)
+}
+
+pub fn set_approval_disposition(
+    program_id: &Pubkey,
+    multisig_op_account: &Pubkey,
+    approver: &Pubkey,
+    payer: &Pubkey,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::SetApprovalDisposition {
+        disposition: ApprovalDisposition::APPROVE
+    }.borrow().pack();
+
+    let accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new_readonly(*approver, true),
+        AccountMeta::new_readonly(*payer, true),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data
+    })
+}
+
+pub fn finalize_config_update(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    rent_collector_account: &Pubkey,
+    config_update: ProgramConfigUpdate,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::FinalizeConfigUpdate {
+        config_update
+    }.borrow().pack();
+
+    let accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new(*program_config_account, false),
+        AccountMeta::new_readonly(*rent_collector_account, true),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data
+    })
+}
+
+pub fn init_wallet_creation(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    assistant_account: &Pubkey,
+    wallet_guid_hash: [u8; 32],
+    name_hash: [u8; 32],
+    approvals_required_for_transfer: u8,
+    approvers: Vec<Pubkey>,
+    allowed_destinations: Vec<AllowedDestination>,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::InitWalletCreation {
+        wallet_guid_hash,
+        config_update: WalletConfigUpdate {
+            name_hash,
+            approvals_required_for_transfer,
+            add_approvers: approvers,
+            remove_approvers: vec![],
+            add_allowed_destinations: allowed_destinations,
+            remove_allowed_destinations: vec![]
+        },
+    }.borrow().pack();
+
+    init_multisig_op(program_id, program_config_account, multisig_op_account, assistant_account, data, None)
+}
+
+pub fn finalize_wallet_creation(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    wallet_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    rent_collector_account: &Pubkey,
+    wallet_guid_hash: [u8; 32],
+    config_update: WalletConfigUpdate,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::FinalizeWalletCreation {
+        wallet_guid_hash,
+        config_update
+    }.borrow().pack();
+
+    let accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new(*wallet_config_account, false),
+        AccountMeta::new_readonly(*rent_collector_account, true),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data
+    })
+}
+
+pub fn init_wallet_config_update(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    assistant_account: &Pubkey,
+    wallet_account: &Pubkey,
+    wallet_guid_hash: [u8; 32],
+    name_hash: [u8; 32],
+    approvals_required_for_transfer: u8,
+    add_approvers: Vec<Pubkey>,
+    remove_approvers: Vec<Pubkey>,
+    add_allowed_destinations: Vec<AllowedDestination>,
+    remove_allowed_destinations: Vec<AllowedDestination>,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::InitWalletConfigUpdate {
+        wallet_guid_hash,
+        config_update: WalletConfigUpdate {
+            name_hash,
+            approvals_required_for_transfer,
+            add_approvers,
+            remove_approvers,
+            add_allowed_destinations,
+            remove_allowed_destinations,
+        },
+    }.borrow().pack();
+
+    init_multisig_op(program_id, program_config_account, multisig_op_account, assistant_account, data, Some(wallet_account))
+}
+
+
+pub fn finalize_wallet_config_update(
+    program_id: &Pubkey,
+    wallet_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    rent_collector_account: &Pubkey,
+    wallet_guid_hash: [u8; 32],
+    config_update: WalletConfigUpdate,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::FinalizeWalletConfigUpdate {
+        wallet_guid_hash,
+        config_update
+    }.borrow().pack();
+
+    let accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new(*wallet_config_account, false),
+        AccountMeta::new_readonly(*rent_collector_account, true),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data
+    })
+}
+
+pub fn init_transfer(
+    program_id: &Pubkey,
+    program_config_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    assistant_account: &Pubkey,
+    wallet_account: &Pubkey,
+    source_account: &Pubkey,
+    destination_account: &Pubkey,
+    amount: u64,
+    destination_name_hash: [u8; 32],
+    token_mint: &Pubkey,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::InitTransfer {
+        amount,
+        destination_name_hash,
+        token_mint: *token_mint,
+    }.borrow().pack();
+
+    let accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new_readonly(*wallet_account, false),
+        AccountMeta::new_readonly(*source_account, false),
+        AccountMeta::new_readonly(*destination_account, false),
+        AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new_readonly(*assistant_account, true),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    })
+}
+
+pub fn finalize_transfer(
+    program_id: &Pubkey,
+    multisig_op_account: &Pubkey,
+    source_account: &Pubkey,
+    destination_account: &Pubkey,
+    wallet_config_account: &Pubkey,
+    rent_collector_account: &Pubkey,
+    amount: u64,
+    token_mint: &Pubkey,
+    token_authority: Option<&Pubkey>,
+) -> Result<Instruction, ProgramError> {
+    let data = ProgramInstruction::FinalizeTransfer {
+        amount,
+        token_mint: *token_mint,
+    }.borrow().pack();
+
+    let mut accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new(*source_account, false),
+        AccountMeta::new(*destination_account, false),
+        AccountMeta::new_readonly(*wallet_config_account, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new_readonly(*rent_collector_account, true),
+    ];
+    if *token_mint != system_program::id() { // SPL
+        accounts.extend_from_slice(&[
+            AccountMeta::new(spl_associated_token_account::get_associated_token_address(source_account, &spl_token::id()), false),
+            AccountMeta::new(spl_associated_token_account::get_associated_token_address(destination_account, &spl_token::id()), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(*token_authority.unwrap(), false),
+        ])
+    }
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
     })
 }

@@ -217,7 +217,7 @@ impl Processor {
             }
         )?;
         MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
-        
+
         Ok(())
     }
 
