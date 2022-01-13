@@ -1118,6 +1118,19 @@ async fn test_transfer_sol() {
 }
 
 #[tokio::test]
+async fn test_transfer_wrong_destination_name_hash() {
+    let(mut context, wallet_account, balance_account) = setup_wallet_tests_and_finalize(None).await;
+
+    context.destination_name_hash = [0; 32];
+
+    let(_, result) = setup_transfer_test(context.borrow_mut(), &wallet_account, &balance_account, None, None).await;
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
+    )
+}
+
+#[tokio::test]
 async fn test_transfer_requires_multisig() {
     let(mut context, wallet_account, balance_account) = setup_wallet_tests_and_finalize(None).await;
     let(multisig_op_account, result) = setup_transfer_test(context.borrow_mut(), &wallet_account, &balance_account, None, None).await;
