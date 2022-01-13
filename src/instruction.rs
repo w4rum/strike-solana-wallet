@@ -740,8 +740,8 @@ pub fn finalize_transfer(
     ];
     if *token_mint != system_program::id() { // SPL
         accounts.extend_from_slice(&[
-            AccountMeta::new(spl_associated_token_account::get_associated_token_address(source_account, &spl_token::id()), false),
-            AccountMeta::new(spl_associated_token_account::get_associated_token_address(destination_account, &spl_token::id()), false),
+            AccountMeta::new(spl_associated_token_account::get_associated_token_address(source_account, &token_mint), false),
+            AccountMeta::new(spl_associated_token_account::get_associated_token_address(destination_account, &token_mint), false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(*token_authority.unwrap(), false),
         ])
