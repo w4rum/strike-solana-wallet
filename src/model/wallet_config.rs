@@ -1,12 +1,12 @@
+use crate::instruction::WalletConfigUpdate;
+use crate::model::program_config::{validate_initiator, ProgramConfig};
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::account_info::AccountInfo;
-use solana_program::program_pack::{Sealed, IsInitialized, Pack};
-use solana_program::program_error::ProgramError;
-use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
-use crate::instruction::WalletConfigUpdate;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
-use crate::model::program_config::{ProgramConfig, validate_initiator};
+use solana_program::program_error::ProgramError;
+use solana_program::program_pack::{IsInitialized, Pack, Sealed};
+use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 
 #[derive(Debug)]
 pub struct WalletConfig {
@@ -16,17 +16,24 @@ pub struct WalletConfig {
     pub wallet_name_hash: [u8; 32],
     pub approvals_required_for_transfer: u8,
     pub approvers: Vec<Pubkey>,
-    pub allowed_destinations: Vec<AllowedDestination>
+    pub allowed_destinations: Vec<AllowedDestination>,
 }
 
 impl WalletConfig {
     pub const MAX_DESTINATIONS: usize = 100;
 
     pub fn destination_allowed(&self, address: &Pubkey, name_hash: &[u8; 32]) -> bool {
-        self.allowed_destinations.contains(&AllowedDestination { address: *address, name_hash: *name_hash })
+        self.allowed_destinations.contains(&AllowedDestination {
+            address: *address,
+            name_hash: *name_hash,
+        })
     }
 
-    pub fn validate_initiator(&self, initiator: &AccountInfo, assistant_key: &Pubkey) -> ProgramResult {
+    pub fn validate_initiator(
+        &self,
+        initiator: &AccountInfo,
+        assistant_key: &Pubkey,
+    ) -> ProgramResult {
         return validate_initiator(initiator, assistant_key, &self.approvers);
     }
 
@@ -34,22 +41,28 @@ impl WalletConfig {
         let approvers_after_update = len_after_update(
             &self.approvers,
             &config_update.add_approvers,
-            &config_update.remove_approvers
+            &config_update.remove_approvers,
         );
 
         let destinations_after_update = len_after_update(
             &self.allowed_destinations,
             &config_update.add_allowed_destinations,
-            &config_update.remove_allowed_destinations
+            &config_update.remove_allowed_destinations,
         );
 
         if approvers_after_update > ProgramConfig::MAX_APPROVERS {
-            msg!("Wallet config supports up to {} approvers", ProgramConfig::MAX_APPROVERS);
+            msg!(
+                "Wallet config supports up to {} approvers",
+                ProgramConfig::MAX_APPROVERS
+            );
             return Err(ProgramError::InvalidArgument);
         }
 
         if destinations_after_update > WalletConfig::MAX_DESTINATIONS {
-            msg!("Wallet config supports up to {} allowed destinations", WalletConfig::MAX_DESTINATIONS);
+            msg!(
+                "Wallet config supports up to {} allowed destinations",
+                WalletConfig::MAX_DESTINATIONS
+            );
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -72,16 +85,20 @@ impl WalletConfig {
 
         if config_update.add_approvers.len() > 0 || config_update.remove_approvers.len() > 0 {
             for approver_to_remove in &config_update.remove_approvers {
-                self.approvers.retain(|approver| approver != approver_to_remove);
+                self.approvers
+                    .retain(|approver| approver != approver_to_remove);
             }
             for approver_to_add in &config_update.add_approvers {
                 self.approvers.push(*approver_to_add);
             }
         }
 
-        if config_update.add_allowed_destinations.len() > 0 || config_update.remove_allowed_destinations.len() > 0 {
+        if config_update.add_allowed_destinations.len() > 0
+            || config_update.remove_allowed_destinations.len() > 0
+        {
             for destination_to_remove in &config_update.remove_allowed_destinations {
-                self.allowed_destinations.retain(|destination| destination != destination_to_remove);
+                self.allowed_destinations
+                    .retain(|destination| destination != destination_to_remove);
             }
             for destination_to_add in &config_update.add_allowed_destinations {
                 self.allowed_destinations.push(*destination_to_add);
@@ -120,8 +137,19 @@ impl Pack for WalletConfig {
             configured_approvers_count_dst,
             approvers_dst,
             configured_allowed_destinations_count_dst,
-            allowed_destinations_dst
-        ) = mut_array_refs![dst, 1, PUBKEY_BYTES, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 1, AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS];
+            allowed_destinations_dst,
+        ) = mut_array_refs![
+            dst,
+            1,
+            PUBKEY_BYTES,
+            32,
+            32,
+            1,
+            1,
+            PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
+            1,
+            AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS
+        ];
 
         is_initialized_dst[0] = self.is_initialized as u8;
         program_config_address_dst.copy_from_slice(&self.program_config_address.to_bytes());
@@ -159,8 +187,19 @@ impl Pack for WalletConfig {
             configured_approvers_count,
             approvers_bytes,
             configured_allowed_destinations_count,
-            allowed_destinations_bytes
-        ) = array_refs![src, 1, PUBKEY_BYTES, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 1, AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS];
+            allowed_destinations_bytes,
+        ) = array_refs![
+            src,
+            1,
+            PUBKEY_BYTES,
+            32,
+            32,
+            1,
+            1,
+            PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
+            1,
+            AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS
+        ];
         let is_initialized = match is_initialized {
             [0] => false,
             [1] => true,
@@ -177,7 +216,8 @@ impl Pack for WalletConfig {
                 approvers.push(approver);
             });
 
-        let configured_allowed_destinations_count = usize::from(configured_allowed_destinations_count[0]);
+        let configured_allowed_destinations_count =
+            usize::from(configured_allowed_destinations_count[0]);
         let mut allowed_destinations = Vec::with_capacity(WalletConfig::MAX_DESTINATIONS);
         allowed_destinations_bytes
             .chunks_exact(AllowedDestination::LEN)
@@ -194,7 +234,7 @@ impl Pack for WalletConfig {
             wallet_name_hash: *name_hash,
             approvals_required_for_transfer: approvals_required_for_transfer[0],
             approvers,
-            allowed_destinations
+            allowed_destinations,
         })
     }
 }
@@ -202,7 +242,7 @@ impl Pack for WalletConfig {
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct AllowedDestination {
     pub address: Pubkey,
-    pub name_hash: [u8; 32]
+    pub name_hash: [u8; 32],
 }
 
 impl AllowedDestination {
@@ -210,10 +250,7 @@ impl AllowedDestination {
 
     pub fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, AllowedDestination::LEN];
-        let (
-            address_dst,
-            name_hash_dst
-        ) = mut_array_refs![dst, 32, 32];
+        let (address_dst, name_hash_dst) = mut_array_refs![dst, 32, 32];
 
         address_dst.copy_from_slice(self.address.as_ref());
         name_hash_dst.copy_from_slice(&self.name_hash);
@@ -221,19 +258,20 @@ impl AllowedDestination {
 
     pub fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, AllowedDestination::LEN];
-        let (
-            address_bytes,
-            name_hash_bytes
-        ) = array_refs![src, 32, 32];
+        let (address_bytes, name_hash_bytes) = array_refs![src, 32, 32];
 
         Ok(AllowedDestination {
             address: Pubkey::new_from_array(*address_bytes),
-            name_hash: *name_hash_bytes
+            name_hash: *name_hash_bytes,
         })
     }
 }
 
-pub fn len_after_update<A: PartialEq>(current_items: &Vec<A>, add_items: &Vec<A>, remove_items: &Vec<A>) -> usize {
+pub fn len_after_update<A: PartialEq>(
+    current_items: &Vec<A>,
+    add_items: &Vec<A>,
+    remove_items: &Vec<A>,
+) -> usize {
     let mut result = 0;
     for item in current_items {
         if !remove_items.contains(&item) {
@@ -247,4 +285,3 @@ pub fn len_after_update<A: PartialEq>(current_items: &Vec<A>, add_items: &Vec<A>
     }
     result
 }
-

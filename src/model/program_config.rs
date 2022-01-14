@@ -1,13 +1,13 @@
+use crate::error::WalletError;
+use crate::instruction::ProgramConfigUpdate;
+use crate::model::wallet_config::len_after_update;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::account_info::AccountInfo;
-use solana_program::program_pack::{Sealed, IsInitialized, Pack};
-use solana_program::program_error::ProgramError;
-use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
-use crate::instruction::ProgramConfigUpdate;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
-use crate::error::WalletError;
-use crate::model::wallet_config::len_after_update;
+use solana_program::program_error::ProgramError;
+use solana_program::program_pack::{IsInitialized, Pack, Sealed};
+use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 
 #[derive(Debug)]
 pub struct ProgramConfig {
@@ -25,8 +25,12 @@ impl IsInitialized for ProgramConfig {
     }
 }
 
-pub fn validate_initiator(initiator: &AccountInfo, assistant_key: &Pubkey, approvers: &Vec<Pubkey>) -> ProgramResult {
-    if ! initiator.is_signer {
+pub fn validate_initiator(
+    initiator: &AccountInfo,
+    assistant_key: &Pubkey,
+    approvers: &Vec<Pubkey>,
+) -> ProgramResult {
+    if !initiator.is_signer {
         return Err(WalletError::InvalidSignature.into());
     }
     if initiator.key == assistant_key || approvers.contains(initiator.key) {
@@ -40,7 +44,11 @@ pub fn validate_initiator(initiator: &AccountInfo, assistant_key: &Pubkey, appro
 impl ProgramConfig {
     pub const MAX_APPROVERS: usize = 25;
 
-    pub fn validate_initiator(&self, initiator: &AccountInfo, assistant_key: &Pubkey) -> ProgramResult {
+    pub fn validate_initiator(
+        &self,
+        initiator: &AccountInfo,
+        assistant_key: &Pubkey,
+    ) -> ProgramResult {
         return validate_initiator(initiator, assistant_key, &self.config_approvers);
     }
 
@@ -48,11 +56,14 @@ impl ProgramConfig {
         let approvers_after_update = len_after_update(
             &self.config_approvers,
             &config_update.add_approvers,
-            &config_update.remove_approvers
+            &config_update.remove_approvers,
         );
 
         if approvers_after_update > ProgramConfig::MAX_APPROVERS {
-            msg!("Program config supports up to {} approvers", ProgramConfig::MAX_APPROVERS);
+            msg!(
+                "Program config supports up to {} approvers",
+                ProgramConfig::MAX_APPROVERS
+            );
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -68,14 +79,14 @@ impl ProgramConfig {
         Ok(())
     }
 
-
     pub fn update(&mut self, config_update: &ProgramConfigUpdate) -> ProgramResult {
         self.validate_update(config_update)?;
         self.approvals_required_for_config = config_update.approvals_required_for_config;
 
         if config_update.add_approvers.len() > 0 || config_update.remove_approvers.len() > 0 {
             for approver_to_remove in &config_update.remove_approvers {
-                self.config_approvers.retain(|approver| approver != approver_to_remove);
+                self.config_approvers
+                    .retain(|approver| approver != approver_to_remove);
             }
             for approver_to_add in &config_update.add_approvers {
                 self.config_approvers.push(*approver_to_add);
@@ -100,7 +111,14 @@ impl Pack for ProgramConfig {
             config_approvers_count_dst,
             config_approvers_dst,
             assistant_account_dst,
-        ) = mut_array_refs![dst, 1, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, PUBKEY_BYTES];
+        ) = mut_array_refs![
+            dst,
+            1,
+            1,
+            1,
+            PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
+            PUBKEY_BYTES
+        ];
 
         let ProgramConfig {
             is_initialized,
@@ -129,7 +147,14 @@ impl Pack for ProgramConfig {
             configured_approvers_count,
             config_approvers_bytes,
             assistant,
-        ) = array_refs![src, 1, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, PUBKEY_BYTES];
+        ) = array_refs![
+            src,
+            1,
+            1,
+            1,
+            PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
+            PUBKEY_BYTES
+        ];
         let is_initialized = match is_initialized {
             [0] => false,
             [1] => true,
