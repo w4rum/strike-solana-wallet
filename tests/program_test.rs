@@ -162,8 +162,7 @@ async fn config_update() {
             &context.multisig_op_account.pubkey(),
             &context.payer.pubkey(),
             context.expected_config_update.clone(),
-        )
-        .unwrap()],
+        )],
         Some(&context.payer.pubkey()),
         &[&context.payer],
         context.recent_blockhash,
@@ -232,8 +231,7 @@ async fn config_update_finalize_fails() {
             &context.multisig_op_account.pubkey(),
             &context.payer.pubkey(),
             context.expected_config_update.clone(),
-        )
-        .unwrap()],
+        )],
         Some(&context.payer.pubkey()),
         &[&context.payer],
         context.recent_blockhash,
@@ -263,8 +261,7 @@ async fn config_update_invalid_approval() {
             &context.multisig_op_account.pubkey(),
             &context.approvers[2].pubkey(),
             &context.payer.pubkey(),
-        )
-        .unwrap()],
+        )],
         Some(&context.payer.pubkey()),
         &[&context.payer, &context.approvers[2]],
         context.recent_blockhash,
@@ -291,8 +288,7 @@ async fn config_update_not_signed_by_rent_collector() {
         &context.multisig_op_account.pubkey(),
         &rent_collector.pubkey(),
         context.expected_config_update.clone(),
-    )
-    .unwrap();
+    );
     instruction.accounts[2].is_signer = false;
 
     let finalize_transaction = Transaction::new_signed_with_payer(
@@ -412,8 +408,7 @@ async fn test_wallet_creation_not_signed_by_rent_collector() {
         &rent_collector.pubkey(),
         context.wallet_guid_hash,
         context.expected_config_update,
-    )
-    .unwrap();
+    );
     instruction.accounts[3].is_signer = false;
 
     let finalize_transaction = Transaction::new_signed_with_payer(
@@ -469,9 +464,7 @@ async fn test_wallet_creation_incorrect_hash() {
                 &context.payer.pubkey(),
                 wrong_guid_hash,
                 context.expected_config_update.clone(),
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[&context.payer, &wallet_account],
         context.recent_blockhash,
@@ -504,9 +497,7 @@ async fn test_wallet_creation_incorrect_hash() {
                 &context.payer.pubkey(),
                 context.wallet_guid_hash,
                 altered_config.clone(),
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[&context.payer, &wallet_account],
         context.recent_blockhash,
@@ -572,9 +563,7 @@ async fn test_wallet_config_update() {
                 vec![context.approvers[1].pubkey()],
                 vec![new_allowed_destination],
                 vec![context.allowed_destination],
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[
             &context.payer,
@@ -628,8 +617,7 @@ async fn test_wallet_config_update() {
             &context.payer.pubkey(),
             context.wallet_guid_hash,
             expected_config_update,
-        )
-        .unwrap()],
+        )],
         Some(&context.payer.pubkey()),
         &[&context.payer],
         context.recent_blockhash,
@@ -709,8 +697,7 @@ async fn test_wallet_config_update_wrong_program_config_account() {
                 &wrong_program_config_account.pubkey(),
                 program_rent,
                 ProgramConfig::LEN as u64,
-                &context.program_owner.pubkey(),
-            )],
+                &context.program_owner.pubkey())],
             Some(&context.payer.pubkey()),
             &[&context.payer, &wrong_program_config_account],
             context.recent_blockhash,
@@ -740,9 +727,7 @@ async fn test_wallet_config_update_wrong_program_config_account() {
                 vec![],
                 vec![],
                 vec![],
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[
             &context.payer,
@@ -794,9 +779,7 @@ async fn test_wallet_config_update_too_many_approvers() {
                 vec![],
                 vec![],
                 vec![],
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[
             &context.payer,
@@ -855,8 +838,7 @@ async fn test_wallet_config_update_too_many_destinations() {
                     &context.payer.pubkey(),
                     context.wallet_guid_hash,
                     expected_config_update,
-                )
-                .unwrap()],
+                )],
                 Some(&context.payer.pubkey()),
                 &[&context.payer],
                 context.recent_blockhash,
@@ -901,9 +883,7 @@ async fn test_wallet_config_update_too_many_required_approvers() {
                 vec![],
                 vec![],
                 vec![],
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[
             &context.payer,
@@ -993,8 +973,7 @@ async fn test_transfer_sol() {
                 123,
                 &system_program::id(),
                 None,
-            )
-            .unwrap()],
+            )],
             Some(&context.payer.pubkey()),
             &[&context.payer],
             context.recent_blockhash,
@@ -1080,8 +1059,7 @@ async fn test_transfer_requires_multisig() {
                     123,
                     &system_program::id(),
                     None,
-                )
-                .unwrap()],
+                )],
                 Some(&context.payer.pubkey()),
                 &[&context.payer],
                 context.recent_blockhash,
@@ -1134,8 +1112,7 @@ async fn test_transfer_insufficient_balance() {
                     123,
                     &system_program::id(),
                     None,
-                )
-                .unwrap()],
+                )],
                 Some(&context.payer.pubkey()),
                 &[&context.payer],
                 context.recent_blockhash,
@@ -1179,9 +1156,7 @@ async fn test_transfer_unwhitelisted_address() {
                 vec![],
                 vec![],
                 vec![context.allowed_destination],
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[
             &context.payer,
@@ -1225,8 +1200,7 @@ async fn test_transfer_unwhitelisted_address() {
             &context.payer.pubkey(),
             context.wallet_guid_hash,
             expected_config_update,
-        )
-        .unwrap()],
+        )],
         Some(&context.payer.pubkey()),
         &[&context.payer],
         context.recent_blockhash,
@@ -1300,8 +1274,7 @@ async fn test_transfer_spl() {
                 123,
                 &spl_context.mint.pubkey(),
                 Some(&spl_context.mint_authority.pubkey()),
-            )
-            .unwrap()],
+            )],
             Some(&context.payer.pubkey()),
             &[&context.payer],
             context.recent_blockhash,
@@ -1369,8 +1342,7 @@ async fn test_transfer_spl_insufficient_balance() {
                     1230,
                     &spl_context.mint.pubkey(),
                     Some(&spl_context.mint_authority.pubkey()),
-                )
-                .unwrap()],
+                )],
                 Some(&context.payer.pubkey()),
                 &[&context.payer],
                 context.recent_blockhash,

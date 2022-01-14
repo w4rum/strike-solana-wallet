@@ -508,7 +508,7 @@ pub fn program_init(
     assistant_account: &Pubkey,
     config_approvers: Vec<Pubkey>,
     approvals_required_for_config: u8,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let config_update = ProgramConfigUpdate {
         approvals_required_for_config,
         add_approvers: config_approvers.clone(),
@@ -521,11 +521,11 @@ pub fn program_init(
         AccountMeta::new_readonly(*assistant_account, true),
     ];
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }
 
 fn init_multisig_op(
@@ -535,7 +535,7 @@ fn init_multisig_op(
     assistant_account: &Pubkey,
     data: Vec<u8>,
     wallet_config_account: Option<&Pubkey>,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let mut accounts = vec![AccountMeta::new(*multisig_op_account, false)];
     if wallet_config_account.is_some() {
         accounts.push(AccountMeta::new_readonly(
@@ -546,11 +546,11 @@ fn init_multisig_op(
     accounts.push(AccountMeta::new_readonly(*program_config_account, false));
     accounts.push(AccountMeta::new_readonly(*assistant_account, true));
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }
 
 pub fn program_init_config_update(
@@ -561,7 +561,7 @@ pub fn program_init_config_update(
     approvals_required_for_config: u8,
     add_approvers: Vec<Pubkey>,
     remove_approvers: Vec<Pubkey>,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let config_update = ProgramConfigUpdate {
         approvals_required_for_config,
         add_approvers: add_approvers.clone(),
@@ -586,7 +586,7 @@ pub fn set_approval_disposition(
     multisig_op_account: &Pubkey,
     approver: &Pubkey,
     payer: &Pubkey,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::SetApprovalDisposition {
         disposition: ApprovalDisposition::APPROVE,
     }
@@ -599,11 +599,11 @@ pub fn set_approval_disposition(
         AccountMeta::new_readonly(*payer, true),
     ];
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }
 
 pub fn finalize_config_update(
@@ -612,7 +612,7 @@ pub fn finalize_config_update(
     multisig_op_account: &Pubkey,
     rent_collector_account: &Pubkey,
     config_update: ProgramConfigUpdate,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::FinalizeConfigUpdate { config_update }
         .borrow()
         .pack();
@@ -623,11 +623,11 @@ pub fn finalize_config_update(
         AccountMeta::new_readonly(*rent_collector_account, true),
     ];
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }
 
 pub fn init_wallet_creation(
@@ -640,7 +640,7 @@ pub fn init_wallet_creation(
     approvals_required_for_transfer: u8,
     approvers: Vec<Pubkey>,
     allowed_destinations: Vec<AllowedDestination>,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::InitWalletCreation {
         wallet_guid_hash,
         config_update: WalletConfigUpdate {
@@ -673,7 +673,7 @@ pub fn finalize_wallet_creation(
     rent_collector_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
     config_update: WalletConfigUpdate,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::FinalizeWalletCreation {
         wallet_guid_hash,
         config_update,
@@ -688,11 +688,11 @@ pub fn finalize_wallet_creation(
         AccountMeta::new_readonly(*rent_collector_account, true),
     ];
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }
 
 pub fn init_wallet_config_update(
@@ -708,7 +708,7 @@ pub fn init_wallet_config_update(
     remove_approvers: Vec<Pubkey>,
     add_allowed_destinations: Vec<AllowedDestination>,
     remove_allowed_destinations: Vec<AllowedDestination>,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::InitWalletConfigUpdate {
         wallet_guid_hash,
         config_update: WalletConfigUpdate {
@@ -740,7 +740,7 @@ pub fn finalize_wallet_config_update(
     rent_collector_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
     config_update: WalletConfigUpdate,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::FinalizeWalletConfigUpdate {
         wallet_guid_hash,
         config_update,
@@ -754,11 +754,11 @@ pub fn finalize_wallet_config_update(
         AccountMeta::new_readonly(*rent_collector_account, true),
     ];
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }
 
 pub fn init_transfer(
@@ -772,7 +772,7 @@ pub fn init_transfer(
     amount: u64,
     destination_name_hash: [u8; 32],
     token_mint: &Pubkey,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::InitTransfer {
         amount,
         destination_name_hash,
@@ -790,11 +790,11 @@ pub fn init_transfer(
         AccountMeta::new_readonly(*assistant_account, true),
     ];
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }
 
 pub fn finalize_transfer(
@@ -807,7 +807,7 @@ pub fn finalize_transfer(
     amount: u64,
     token_mint: &Pubkey,
     token_authority: Option<&Pubkey>,
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::FinalizeTransfer {
         amount,
         token_mint: *token_mint,
@@ -845,9 +845,9 @@ pub fn finalize_transfer(
         ])
     }
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data,
-    })
+    }
 }

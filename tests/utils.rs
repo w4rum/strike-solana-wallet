@@ -57,9 +57,7 @@ pub async fn init_program(
                 &assistant_account.pubkey(),
                 config_approvers.unwrap_or(Vec::new()),
                 approvals_required_for_config.unwrap_or(0),
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&payer.pubkey()),
         &[payer, program_config_account, assistant_account],
         recent_blockhash,
@@ -128,9 +126,7 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
                 2,
                 vec![approvers[2].pubkey()],
                 vec![approvers[0].pubkey()],
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&payer.pubkey()),
         &[&payer, &multisig_op_account, &assistant_account],
         recent_blockhash,
@@ -174,8 +170,7 @@ pub async fn approve_n_of_n_multisig_op(
                 multisig_op_account,
                 &approver.pubkey(),
                 &payer.pubkey(),
-            )
-            .unwrap()],
+            )],
             Some(&payer.pubkey()),
             &[payer, approver],
             recent_blockhash,
@@ -224,8 +219,7 @@ pub async fn approve_1_of_2_multisig_op(
             multisig_op_account,
             &approver.pubkey(),
             &payer.pubkey(),
-        )
-        .unwrap()],
+        )],
         Some(&payer.pubkey()),
         &[payer, approver],
         recent_blockhash,
@@ -345,9 +339,7 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
                 2,
                 vec![approvers[1].pubkey(), approvers[2].pubkey()],
                 vec![allowed_destination],
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&payer.pubkey()),
         &[&payer, &multisig_op_account, &assistant_account],
         recent_blockhash,
@@ -441,9 +433,7 @@ pub async fn finalize_wallet(context: &mut WalletTestContext) -> Keypair {
                 &context.payer.pubkey(),
                 context.wallet_guid_hash,
                 context.expected_config_update.clone(),
-            )
-            .unwrap(),
-        ],
+            )],
         Some(&context.payer.pubkey()),
         &[&context.payer, &wallet_account],
         context.recent_blockhash,
@@ -527,9 +517,7 @@ pub async fn add_n_destinations(
                     vec![],
                     new_destinations.clone(),
                     vec![],
-                )
-                .unwrap(),
-            ],
+                )],
             Some(&context.payer.pubkey()),
             &[
                 &context.payer,
@@ -576,9 +564,7 @@ pub async fn setup_transfer_test(
                     amount.unwrap_or(123),
                     context.destination_name_hash,
                     token_mint.unwrap_or(&system_program::id()),
-                )
-                .unwrap(),
-            ],
+                )],
             Some(&context.payer.pubkey()),
             &[
                 &context.payer,
@@ -638,8 +624,7 @@ pub async fn setup_spl_transfer_test(
                     &mint_authority.pubkey(),
                     Some(&mint_authority.pubkey()),
                     6,
-                )
-                .unwrap(),
+                ).unwrap(),
                 spl_associated_token_account::create_associated_token_account(
                     &context.payer.pubkey(),
                     source_account,
@@ -664,8 +649,7 @@ pub async fn setup_spl_transfer_test(
                     &mint_authority.pubkey(),
                     &[],
                     1000,
-                )
-                .unwrap(),
+                ).unwrap(),
             ],
             Some(&context.payer.pubkey()),
             &[&context.payer, &mint, &mint_authority, &context.destination],
