@@ -230,13 +230,13 @@ pub enum MultisigOpParams {
         config_update: WalletConfigUpdate
     },
     UpdateWalletConfig {
-        wallet_config_address: Pubkey,
+        program_config_address: Pubkey,
         wallet_guid_hash: [u8; 32],
         config_update: WalletConfigUpdate
     },
     Transfer {
-        wallet_config_address: Pubkey,
-        source: Pubkey,
+        program_config_address: Pubkey,
+        wallet_guid_hash: [u8; 32],
         destination: Pubkey,
         amount: u64,
         token_mint: Pubkey,
@@ -269,33 +269,33 @@ impl MultisigOpParams {
                 bytes[65..65 + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
                 hash(&bytes)
             }
-            MultisigOpParams::UpdateWalletConfig { wallet_config_address, wallet_guid_hash, config_update } => {
+            MultisigOpParams::UpdateWalletConfig { program_config_address, wallet_guid_hash, config_update } => {
                 let mut config_update_bytes: Vec<u8> = Vec::new();
                 config_update.pack(&mut config_update_bytes);
 
                 let mut bytes: Vec<u8> = Vec::new();
                 bytes.resize(1 + PUBKEY_BYTES + 32 + config_update_bytes.len(), 0);
                 bytes[0] = 2; // type code
-                bytes[1..33].copy_from_slice(&wallet_config_address.to_bytes());
+                bytes[1..33].copy_from_slice(&program_config_address.to_bytes());
                 bytes[33..65].copy_from_slice(wallet_guid_hash);
                 bytes[65..65 + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
                 hash(&bytes)
             }
-            MultisigOpParams::Transfer { wallet_config_address, source, destination, amount, token_mint } => {
-                const LEN: usize = 1 + PUBKEY_BYTES * 4 + 8;
+            MultisigOpParams::Transfer { program_config_address, wallet_guid_hash, destination, amount, token_mint } => {
+                const LEN: usize = 1 + PUBKEY_BYTES + 32 + PUBKEY_BYTES + 8 + PUBKEY_BYTES;
                 let mut bytes: [u8; LEN] = [0; LEN];
                 let bytes_ref = array_mut_ref![bytes, 0, LEN];
                 let (
                     type_code_ref,
-                    wallet_config_address_ref,
-                    source_ref,
+                    program_config_address_ref,
+                    wallet_guid_hash_ref,
                     destination_ref,
                     amount_ref,
                     token_mint_ref,
-                ) = mut_array_refs![bytes_ref, 1, PUBKEY_BYTES, PUBKEY_BYTES, PUBKEY_BYTES, 8, PUBKEY_BYTES];
+                ) = mut_array_refs![bytes_ref, 1, PUBKEY_BYTES, 32, PUBKEY_BYTES, 8, PUBKEY_BYTES];
                 type_code_ref[0] = 3;
-                wallet_config_address_ref.copy_from_slice(wallet_config_address.as_ref());
-                source_ref.copy_from_slice(source.as_ref());
+                program_config_address_ref.copy_from_slice(program_config_address.as_ref());
+                wallet_guid_hash_ref.copy_from_slice(wallet_guid_hash.as_ref());
                 destination_ref.copy_from_slice(destination.as_ref());
                 *amount_ref = amount.to_le_bytes();
                 token_mint_ref.copy_from_slice(token_mint.as_ref());

@@ -43,7 +43,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[writable]` The wallet config account
+    /// 1. `[writable]` The program config account
     /// 2. `[signer]` The rent collector account
     FinalizeWalletCreation {
         wallet_guid_hash: [u8; 32],
@@ -51,16 +51,15 @@ pub enum ProgramInstruction {
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The wallet config account
-    /// 2. `[]` The program config account
-    /// 3. `[signer]` The initiator account (either the transaction assistant or an approver)
+    /// 1. `[]` The program config account
+    /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
     InitWalletConfigUpdate {
         wallet_guid_hash: [u8; 32],
         config_update: WalletConfigUpdate
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[writable]` The wallet config account
+    /// 1. `[writable]` The program config account
     /// 2. `[signer]` The rent collector account
     FinalizeWalletConfigUpdate {
         wallet_guid_hash: [u8; 32],
@@ -68,13 +67,12 @@ pub enum ProgramInstruction {
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The wallet config account
-    /// 2. `[]` The source account
-    /// 3. `[]` The destination account
-    /// 4. `[signer]` The fee payer account
-    /// 5. `[]` The program config account
-    /// 6. `[signer]` The initiator account (either the transaction assistant or an approver)
+    /// 1. `[]` The program config account
+    /// 2. `[]` The destination account
+    /// 3. `[signer]` The fee payer account
+    /// 4. `[signer]` The initiator account (either the transaction assistant or an approver)
     InitTransfer {
+        wallet_guid_hash: [u8; 32],
         amount: u64,
         destination_name_hash: [u8; 32],
         token_mint: Pubkey,
@@ -88,9 +86,9 @@ pub enum ProgramInstruction {
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[writable]` The source account
-    /// 2. `[writable]` The destination account
-    /// 3. `[]` The wallet config account
+    /// 1. `[]` The program config account
+    /// 2. `[writable]` The source account
+    /// 3. `[writable]` The destination account
     /// 4. `[]` The system program
     /// 5. `[signer]` The rent collector account
     /// 6. `[writable]` The source token account, if this is an SPL transfer
@@ -98,6 +96,7 @@ pub enum ProgramInstruction {
     /// 8. `[]` The SPL token program account, if this is an SPL transfer
     /// 9. `[]` The token mint authority, if this is an SPL transfer
     FinalizeTransfer {
+        wallet_guid_hash: [u8; 32],
         amount: u64,
         token_mint: Pubkey,
     }
@@ -183,21 +182,23 @@ impl ProgramInstruction {
     }
 
     fn unpack_init_transfer_for_approval_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
-        let amount = bytes.get(..8)
+        let wallet_guid_hash = unpack_wallet_guid_hash(bytes)?;
+
+        let amount = bytes.get(32..40)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidInstructionData)?;
 
-        let destination_name_hash = bytes.get(8..40)
+        let destination_name_hash = bytes.get(40..72)
             .and_then(|slice| slice.try_into().ok())
             .ok_or(ProgramError::InvalidInstructionData)?;
 
         let token_mint = Pubkey::new_from_array(
-            bytes.get(40..72)
+            bytes.get(72..104)
                 .and_then(|slice| slice.try_into().ok())
                 .ok_or(ProgramError::InvalidInstructionData)?);
 
-        Ok(Self::InitTransfer { amount, destination_name_hash, token_mint })
+        Ok(Self::InitTransfer { wallet_guid_hash, amount, destination_name_hash, token_mint })
     }
 
     fn unpack_set_approval_disposition_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
@@ -207,14 +208,15 @@ impl ProgramInstruction {
 
     fn unpack_finalize_transfer_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
         Ok(Self::FinalizeTransfer {
-            amount: bytes.get(..8)
+            wallet_guid_hash: unpack_wallet_guid_hash(bytes)?,
+            amount: bytes.get(32..40)
                 .and_then(|slice| slice.try_into().ok())
                 .map(u64::from_le_bytes)
                 .ok_or(ProgramError::InvalidInstructionData)?,
             token_mint: Pubkey::new_from_array(
-        bytes.get(8..40)
-                .and_then(|slice| slice.try_into().ok())
-                .ok_or(ProgramError::InvalidInstructionData)?)
+                bytes.get(40..72)
+                    .and_then(|slice| slice.try_into().ok())
+                    .ok_or(ProgramError::InvalidInstructionData)?)
         })
     }
 }

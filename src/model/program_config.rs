@@ -7,7 +7,7 @@ use crate::instruction::ProgramConfigUpdate;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
 use crate::error::WalletError;
-use crate::model::wallet_config::len_after_update;
+use crate::model::wallet_config::{len_after_update, WalletConfig};
 
 #[derive(Debug)]
 pub struct ProgramConfig {
@@ -15,6 +15,7 @@ pub struct ProgramConfig {
     pub approvals_required_for_config: u8,
     pub config_approvers: Vec<Pubkey>,
     pub assistant: Pubkey,
+    pub wallets: Vec<WalletConfig>
 }
 
 impl Sealed for ProgramConfig {}
@@ -26,7 +27,7 @@ impl IsInitialized for ProgramConfig {
 }
 
 pub fn validate_initiator(initiator: &AccountInfo, assistant_key: &Pubkey, approvers: &Vec<Pubkey>) -> ProgramResult {
-    if ! initiator.is_signer {
+    if !initiator.is_signer {
         return Err(WalletError::InvalidSignature.into());
     }
     if initiator.key == assistant_key || approvers.contains(initiator.key) {
@@ -38,7 +39,22 @@ pub fn validate_initiator(initiator: &AccountInfo, assistant_key: &Pubkey, appro
 }
 
 impl ProgramConfig {
+    pub const MAX_WALLETS: usize = 10;
     pub const MAX_APPROVERS: usize = 25;
+
+    pub fn get_wallet_config(&self, wallet_guid_hash: [u8; 32]) -> Result<&WalletConfig, ProgramError> {
+        return self.wallets
+            .iter()
+            .find(|it| it.wallet_guid_hash == wallet_guid_hash)
+            .ok_or(WalletError::WalletNotFound.into());
+    }
+
+    pub fn get_wallet_config_mut(&mut self, wallet_guid_hash: [u8; 32]) -> Result<&mut WalletConfig, ProgramError> {
+        return self.wallets
+            .iter_mut()
+            .find(|it| it.wallet_guid_hash == wallet_guid_hash)
+            .ok_or(WalletError::WalletNotFound.into());
+    }
 
     pub fn validate_initiator(&self, initiator: &AccountInfo, assistant_key: &Pubkey) -> ProgramResult {
         return validate_initiator(initiator, assistant_key, &self.config_approvers);
@@ -90,7 +106,8 @@ impl Pack for ProgramConfig {
     const LEN: usize = 1 + // is_initialized
         1 + // approvals_required_for_config
         1 + PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS + // config_approvers with size
-        PUBKEY_BYTES; // assistant account pubkey
+        PUBKEY_BYTES + // assistant account pubkey
+        1 + WalletConfig::LEN * ProgramConfig::MAX_WALLETS; // wallets with size
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, ProgramConfig::LEN];
@@ -100,17 +117,21 @@ impl Pack for ProgramConfig {
             config_approvers_count_dst,
             config_approvers_dst,
             assistant_account_dst,
-        ) = mut_array_refs![dst, 1, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, PUBKEY_BYTES];
+            wallets_count_dst,
+            wallets_dst
+        ) = mut_array_refs![dst, 1, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, PUBKEY_BYTES, 1, WalletConfig::LEN * ProgramConfig::MAX_WALLETS];
 
         let ProgramConfig {
             is_initialized,
             approvals_required_for_config,
             config_approvers,
             assistant,
+            wallets
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
         approvals_required_for_config_dst[0] = *approvals_required_for_config;
+
         config_approvers_count_dst[0] = config_approvers.len() as u8;
         config_approvers_dst.fill(0);
         config_approvers_dst
@@ -118,7 +139,16 @@ impl Pack for ProgramConfig {
             .take(config_approvers.len())
             .enumerate()
             .for_each(|(i, chunk)| chunk.copy_from_slice(&config_approvers[i].to_bytes()));
-        assistant_account_dst.copy_from_slice(&assistant.to_bytes())
+
+        assistant_account_dst.copy_from_slice(&assistant.to_bytes());
+
+        wallets_count_dst[0] = wallets.len() as u8;
+        wallets_dst.fill(0);
+        wallets_dst
+            .chunks_exact_mut(WalletConfig::LEN)
+            .take(wallets.len())
+            .enumerate()
+            .for_each(|(i, chunk)| wallets[i].pack_into_slice(chunk));
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -129,21 +159,29 @@ impl Pack for ProgramConfig {
             configured_approvers_count,
             config_approvers_bytes,
             assistant,
-        ) = array_refs![src, 1, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, PUBKEY_BYTES];
+            wallets_count,
+            wallets_bytes
+        ) = array_refs![src, 1, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, PUBKEY_BYTES, 1, WalletConfig::LEN * ProgramConfig::MAX_WALLETS];
         let is_initialized = match is_initialized {
             [0] => false,
             [1] => true,
             _ => return Err(ProgramError::InvalidAccountData),
         };
 
-        let config_approvers_count = usize::from(configured_approvers_count[0]);
         let mut config_approvers = Vec::with_capacity(ProgramConfig::MAX_APPROVERS);
         config_approvers_bytes
             .chunks_exact(PUBKEY_BYTES)
-            .take(config_approvers_count)
+            .take(usize::from(configured_approvers_count[0]))
             .for_each(|chunk| {
-                let approver = Pubkey::new(chunk);
-                config_approvers.push(approver);
+                config_approvers.push(Pubkey::new(chunk));
+            });
+
+        let mut wallets = Vec::with_capacity(ProgramConfig::MAX_WALLETS);
+        wallets_bytes
+            .chunks_exact(WalletConfig::LEN)
+            .take(usize::from(wallets_count[0]))
+            .for_each(|chunk| {
+                wallets.push(WalletConfig::unpack_from_slice(chunk).unwrap());
             });
 
         Ok(ProgramConfig {
@@ -151,6 +189,7 @@ impl Pack for ProgramConfig {
             approvals_required_for_config: approvals_required_for_config[0],
             config_approvers,
             assistant: Pubkey::new_from_array(*assistant),
+            wallets
         })
     }
 }

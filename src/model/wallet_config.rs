@@ -1,6 +1,6 @@
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::account_info::AccountInfo;
-use solana_program::program_pack::{Sealed, IsInitialized, Pack};
+use solana_program::program_pack::{Sealed, Pack};
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 use crate::instruction::WalletConfigUpdate;
@@ -10,8 +10,6 @@ use crate::model::program_config::{ProgramConfig, validate_initiator};
 
 #[derive(Debug)]
 pub struct WalletConfig {
-    pub is_initialized: bool,
-    pub program_config_address: Pubkey,
     pub wallet_guid_hash: [u8; 32],
     pub wallet_name_hash: [u8; 32],
     pub approvals_required_for_transfer: u8,
@@ -94,16 +92,8 @@ impl WalletConfig {
 
 impl Sealed for WalletConfig {}
 
-impl IsInitialized for WalletConfig {
-    fn is_initialized(&self) -> bool {
-        self.is_initialized
-    }
-}
-
 impl Pack for WalletConfig {
-    const LEN: usize = 1 + // is_initialized
-        PUBKEY_BYTES + // program_config_address
-        32 + // guid_hash
+    const LEN: usize = 32 + // guid_hash
         32 + // name_hash
         1 + // approvals_required_for_transfer
         1 + PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS + // approvers with size
@@ -112,8 +102,6 @@ impl Pack for WalletConfig {
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, WalletConfig::LEN];
         let (
-            is_initialized_dst,
-            program_config_address_dst,
             guid_hash_dst,
             name_hash_dst,
             approvals_required_for_transfer_dst,
@@ -121,10 +109,7 @@ impl Pack for WalletConfig {
             approvers_dst,
             configured_allowed_destinations_count_dst,
             allowed_destinations_dst
-        ) = mut_array_refs![dst, 1, PUBKEY_BYTES, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 1, AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS];
-
-        is_initialized_dst[0] = self.is_initialized as u8;
-        program_config_address_dst.copy_from_slice(&self.program_config_address.to_bytes());
+        ) = mut_array_refs![dst, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 1, AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS];
 
         guid_hash_dst.copy_from_slice(&self.wallet_guid_hash);
         name_hash_dst.copy_from_slice(&self.wallet_name_hash);
@@ -151,8 +136,6 @@ impl Pack for WalletConfig {
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, WalletConfig::LEN];
         let (
-            is_initialized,
-            program_config_address,
             guid_hash,
             name_hash,
             approvals_required_for_transfer,
@@ -160,12 +143,7 @@ impl Pack for WalletConfig {
             approvers_bytes,
             configured_allowed_destinations_count,
             allowed_destinations_bytes
-        ) = array_refs![src, 1, PUBKEY_BYTES, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 1, AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS];
-        let is_initialized = match is_initialized {
-            [0] => false,
-            [1] => true,
-            _ => return Err(ProgramError::InvalidAccountData),
-        };
+        ) = array_refs![src, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 1, AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS];
 
         let configured_approvers_count = usize::from(configured_approvers_count[0]);
         let mut approvers = Vec::with_capacity(ProgramConfig::MAX_APPROVERS);
@@ -188,8 +166,6 @@ impl Pack for WalletConfig {
             });
 
         Ok(WalletConfig {
-            is_initialized,
-            program_config_address: Pubkey::new(program_config_address),
             wallet_guid_hash: *guid_hash,
             wallet_name_hash: *name_hash,
             approvals_required_for_transfer: approvals_required_for_transfer[0],

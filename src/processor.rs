@@ -49,11 +49,11 @@ impl Processor {
             ProgramInstruction::FinalizeWalletConfigUpdate { wallet_guid_hash, config_update } =>
                 Self::handle_finalize_wallet_config_update(program_id, accounts, wallet_guid_hash, &config_update),
 
-            ProgramInstruction::InitTransfer { amount, destination_name_hash, token_mint } =>
-                Self::handle_init_transfer(program_id, &accounts, amount, &destination_name_hash, token_mint),
+            ProgramInstruction::InitTransfer { wallet_guid_hash, amount, destination_name_hash, token_mint } =>
+                Self::handle_init_transfer(program_id, &accounts, wallet_guid_hash, amount, &destination_name_hash, token_mint),
             
-            ProgramInstruction::FinalizeTransfer { amount , token_mint } =>
-                Self::handle_finalize_transfer(program_id, &accounts, amount, token_mint),
+            ProgramInstruction::FinalizeTransfer { wallet_guid_hash, amount, token_mint } =>
+                Self::handle_finalize_transfer(program_id, &accounts, wallet_guid_hash, amount, token_mint),
 
             ProgramInstruction::SetApprovalDisposition { disposition } =>
                 Self::handle_approval_disposition(program_id, &accounts, disposition)
@@ -157,7 +157,6 @@ impl Processor {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let wallet_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
 
         if !rent_collector_account_info.is_signer {
@@ -165,6 +164,7 @@ impl Processor {
         }
 
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
+        let mut program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow_mut())?;
 
         let expected_params = MultisigOpParams::CreateWallet {
             wallet_guid_hash,
@@ -173,15 +173,15 @@ impl Processor {
         };
 
         if multisig_op.approved(&expected_params)? {
-            let mut wallet_config = WalletConfig::unpack_unchecked(&wallet_config_account_info.data.borrow_mut())?;
-            if wallet_config.is_initialized() {
-                return Err(ProgramError::AccountAlreadyInitialized);
-            }
-            wallet_config.is_initialized = true;
-            wallet_config.wallet_guid_hash = wallet_guid_hash;
-            wallet_config.program_config_address = *program_config_account_info.key;
-            wallet_config.update(config_update)?;
-            WalletConfig::pack(wallet_config, &mut wallet_config_account_info.data.borrow_mut())?;
+            let wallet_config = WalletConfig {
+                wallet_guid_hash,
+                wallet_name_hash: config_update.name_hash,
+                approvals_required_for_transfer: config_update.approvals_required_for_transfer,
+                approvers: config_update.add_approvers.clone(),
+                allowed_destinations: config_update.add_allowed_destinations.clone()
+            };
+            program_config.wallets.push(wallet_config);
+            ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
         }
 
         Self::collect_remaining_balance(&multisig_op_account_info, &rent_collector_account_info)?;
@@ -192,27 +192,22 @@ impl Processor {
     fn handle_init_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let wallet_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
 
-        let wallet_config = WalletConfig::unpack(&wallet_config_account_info.data.borrow())?;
-
-        if wallet_config.program_config_address != *program_config_account_info.key {
-            return Err(WalletError::InvalidConfigAccount.into());
-        }
+        let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
+        let wallet_config = program_config.get_wallet_config(wallet_guid_hash)?;
 
         wallet_config.validate_update(config_update)?;
 
-        let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         wallet_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
             program_config.config_approvers,
             program_config.approvals_required_for_config,
             MultisigOpParams::UpdateWalletConfig {
+                program_config_address: *program_config_account_info.key,
                 wallet_guid_hash,
-                wallet_config_address: *wallet_config_account_info.key,
                 config_update: config_update.clone()
             }
         )?;
@@ -224,7 +219,7 @@ impl Processor {
     fn handle_finalize_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let wallet_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
 
         if !rent_collector_account_info.is_signer {
@@ -233,15 +228,17 @@ impl Processor {
 
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
+        let mut program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
+        let wallet_config = program_config.get_wallet_config_mut(wallet_guid_hash)?;
+
         let expected_params = MultisigOpParams::UpdateWalletConfig {
             wallet_guid_hash,
-            wallet_config_address: *wallet_config_account_info.key,
+            program_config_address: *program_config_account_info.key,
             config_update: config_update.clone()
         };
         if multisig_op.approved(&expected_params)? {
-            let mut wallet_config = WalletConfig::unpack(&wallet_config_account_info.data.borrow_mut())?;
             wallet_config.update(config_update)?;
-            WalletConfig::pack(wallet_config, &mut wallet_config_account_info.data.borrow_mut())?;
+            ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
         }
 
         Self::collect_remaining_balance(&multisig_op_account_info, &rent_collector_account_info)?;
@@ -249,37 +246,30 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_init_transfer(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64, destination_name_hash: &[u8; 32], token_mint: Pubkey) -> ProgramResult {
+    fn handle_init_transfer(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], amount: u64, destination_name_hash: &[u8; 32], token_mint: Pubkey) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let wallet_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let source_account = next_account_info(accounts_iter)?;
+        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let destination_account = next_account_info(accounts_iter)?;
-        let program_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
 
-        let wallet_config = WalletConfig::unpack(&wallet_config_account_info.data.borrow())?;
+        let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
+        let wallet_config = program_config.get_wallet_config(wallet_guid_hash)?;
 
         if !wallet_config.destination_allowed(destination_account.key, destination_name_hash) {
             msg!("Destination account is not whitelisted");
             return Err(WalletError::DestinationNotAllowed.into());
         }
 
-        if wallet_config.program_config_address != *program_account_info.key {
-            msg!("Incorrect program account key provided");
-            return Err(WalletError::InvalidConfigAccount.into());
-        }
-
-        let program_config = ProgramConfig::unpack(&program_account_info.data.borrow())?;
         wallet_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
 
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
-            wallet_config.approvers,
+            wallet_config.approvers.clone(),
             wallet_config.approvals_required_for_transfer,
             MultisigOpParams::Transfer {
-                wallet_config_address: *wallet_config_account_info.key,
-                source: *source_account.key,
+                program_config_address: *program_config_account_info.key,
+                wallet_guid_hash,
                 destination: *destination_account.key,
                 amount,
                 token_mint,
@@ -289,12 +279,12 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_finalize_transfer(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64, token_mint: Pubkey) -> ProgramResult {
+    fn handle_finalize_transfer(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], amount: u64, token_mint: Pubkey) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let source_account = next_account_info(accounts_iter)?;
         let destination_account = next_account_info(accounts_iter)?;
-        let wallet_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
 
@@ -311,15 +301,15 @@ impl Processor {
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
         let expected_params = MultisigOpParams::Transfer {
-            wallet_config_address: *wallet_config_account_info.key,
-            source: *source_account.key,
+            program_config_address: *program_config_account_info.key,
+            wallet_guid_hash,
             destination: *destination_account.key,
             amount,
             token_mint,
         };
 
         if multisig_op.approved(&expected_params)? {
-            let (source_account_pda, bump_seed) = Pubkey::find_program_address(&[&wallet_config_account_info.key.to_bytes()], program_id);
+            let (source_account_pda, bump_seed) = Pubkey::find_program_address(&[&wallet_guid_hash], program_id);
             if &source_account_pda != source_account.key {
                 return Err(WalletError::InvalidSourceAccount.into());
             }
@@ -360,7 +350,7 @@ impl Processor {
                         token_mint_authority.clone(),
                         spl_token_program.clone(),
                     ],
-                    &[&[&wallet_config_account_info.key.to_bytes()[..], &[bump_seed]]],
+                    &[&[&wallet_guid_hash[..], &[bump_seed]]],
                 )?;
 
             } else {
@@ -376,7 +366,7 @@ impl Processor {
                         destination_account.clone(),
                         system_program_account.clone(),
                     ],
-                    &[&[&wallet_config_account_info.key.to_bytes()[..], &[bump_seed]]],
+                    &[&[&wallet_guid_hash[..], &[bump_seed]]],
                 )?;
             }
         }
