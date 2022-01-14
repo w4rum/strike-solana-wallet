@@ -1,20 +1,20 @@
-use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
-use solana_program::program_pack::{Sealed, IsInitialized, Pack};
-use solana_program::program_error::ProgramError;
-use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
-use solana_program::hash::{Hash, hash};
-use crate::instruction::{WalletConfigUpdate, ProgramConfigUpdate};
-use crate::model::program_config::ProgramConfig;
 use crate::error::WalletError;
-use solana_program::entrypoint::ProgramResult;
-use solana_program::msg;
+use crate::instruction::{ProgramConfigUpdate, WalletConfigUpdate};
+use crate::model::program_config::ProgramConfig;
+use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::account_info::AccountInfo;
+use solana_program::entrypoint::ProgramResult;
+use solana_program::hash::{hash, Hash};
+use solana_program::msg;
+use solana_program::program_error::ProgramError;
+use solana_program::program_pack::{IsInitialized, Pack, Sealed};
+use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 
-#[derive(Debug,PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum ApprovalDisposition {
     NONE = 0,
     APPROVE = 1,
-    DENY = 2
+    DENY = 2,
 }
 
 impl ApprovalDisposition {
@@ -39,7 +39,7 @@ impl ApprovalDisposition {
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct ApprovalDispositionRecord {
     pub approver: Pubkey,
-    pub disposition: ApprovalDisposition
+    pub disposition: ApprovalDisposition,
 }
 
 impl ApprovalDispositionRecord {
@@ -47,10 +47,7 @@ impl ApprovalDispositionRecord {
 
     pub fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, ApprovalDispositionRecord::LEN];
-        let (
-            approver_dst,
-            disposition_dst
-        ) = mut_array_refs![dst, 32, 1];
+        let (approver_dst, disposition_dst) = mut_array_refs![dst, 32, 1];
 
         approver_dst.copy_from_slice(&self.approver.to_bytes());
         disposition_dst[0] = self.disposition.to_u8();
@@ -58,41 +55,43 @@ impl ApprovalDispositionRecord {
 
     pub fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, ApprovalDispositionRecord::LEN];
-        let (
-            approver_bytes,
-            disposition_bytes
-        ) = array_refs![src, 32, 1];
+        let (approver_bytes, disposition_bytes) = array_refs![src, 32, 1];
 
         Ok(ApprovalDispositionRecord {
             approver: Pubkey::new(approver_bytes),
-            disposition: ApprovalDisposition::from_u8(disposition_bytes[0])
+            disposition: ApprovalDisposition::from_u8(disposition_bytes[0]),
         })
     }
 }
-
 
 #[derive(Debug)]
 pub struct MultisigOp {
     pub is_initialized: bool,
     pub disposition_records: Vec<ApprovalDispositionRecord>,
     pub dispositions_required: u8,
-    pub params_hash: Hash
+    pub params_hash: Hash,
 }
 
 impl MultisigOp {
     pub fn get_disposition_count(&self, disposition: ApprovalDisposition) -> u8 {
-        self.disposition_records.iter().filter(|&n| n.disposition == disposition).count() as u8
+        self.disposition_records
+            .iter()
+            .filter(|&n| n.disposition == disposition)
+            .count() as u8
     }
 
     pub fn init(
         &mut self,
         approvers: Vec<Pubkey>,
         approvals_required: u8,
-        params: MultisigOpParams
+        params: MultisigOpParams,
     ) -> ProgramResult {
         self.disposition_records = approvers
             .iter()
-            .map(|approver| ApprovalDispositionRecord { approver: *approver, disposition: ApprovalDisposition::NONE })
+            .map(|approver| ApprovalDispositionRecord {
+                approver: *approver,
+                disposition: ApprovalDisposition::NONE,
+            })
             .collect::<Vec<_>>();
         self.dispositions_required = approvals_required;
         self.params_hash = params.hash();
@@ -101,7 +100,11 @@ impl MultisigOp {
         Ok(())
     }
 
-    pub fn validate_and_record_approval_disposition(&mut self, approver: &AccountInfo, disposition: ApprovalDisposition) -> ProgramResult {
+    pub fn validate_and_record_approval_disposition(
+        &mut self,
+        approver: &AccountInfo,
+        disposition: ApprovalDisposition,
+    ) -> ProgramResult {
         if disposition != ApprovalDisposition::APPROVE && disposition != ApprovalDisposition::DENY {
             msg!("Invalid Disposition provided");
             return Err(WalletError::InvalidDisposition.into());
@@ -111,7 +114,11 @@ impl MultisigOp {
             return Err(WalletError::InvalidSignature.into());
         }
 
-        if let Some(record) = self.disposition_records.iter_mut().find(|r| r.approver == *approver.key) {
+        if let Some(record) = self
+            .disposition_records
+            .iter_mut()
+            .find(|r| r.approver == *approver.key)
+        {
             if record.disposition == ApprovalDisposition::NONE {
                 record.disposition = disposition
             } else if record.disposition != disposition {
@@ -151,7 +158,8 @@ impl IsInitialized for MultisigOp {
 }
 
 impl Pack for MultisigOp {
-    const LEN: usize = 1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS + 1 + 1 + 32;
+    const LEN: usize =
+        1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS + 1 + 1 + 32;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
@@ -160,14 +168,21 @@ impl Pack for MultisigOp {
             disposition_records_count_dst,
             disposition_records_dst,
             dispositions_required_for_transfer_dst,
-            hash_dst
-        ) = mut_array_refs![dst, 1, 1, ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS, 1, 32];
+            hash_dst,
+        ) = mut_array_refs![
+            dst,
+            1,
+            1,
+            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS,
+            1,
+            32
+        ];
 
         let MultisigOp {
             is_initialized,
             disposition_records,
             dispositions_required: dispositions_required_for_transfer,
-            params_hash: hash
+            params_hash: hash,
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
@@ -190,8 +205,15 @@ impl Pack for MultisigOp {
             disposition_records_count,
             disposition_record_bytes,
             dispositions_required_for_transfer,
-            hash
-        ) = array_refs![src, 1, 1, ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS, 1, 32];
+            hash,
+        ) = array_refs![
+            src,
+            1,
+            1,
+            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS,
+            1,
+            32
+        ];
         let is_initialized = match is_initialized {
             [0] => false,
             [1] => true,
@@ -212,7 +234,7 @@ impl Pack for MultisigOp {
             is_initialized,
             disposition_records,
             dispositions_required: dispositions_required_for_transfer[0],
-            params_hash: Hash::new_from_array(*hash)
+            params_hash: Hash::new_from_array(*hash),
         })
     }
 }
@@ -222,17 +244,17 @@ impl Pack for MultisigOp {
 pub enum MultisigOpParams {
     UpdateProgramConfig {
         program_config_address: Pubkey,
-        config_update: ProgramConfigUpdate
+        config_update: ProgramConfigUpdate,
     },
     CreateWallet {
         program_config_address: Pubkey,
         wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate
+        config_update: WalletConfigUpdate,
     },
     UpdateWalletConfig {
         wallet_config_address: Pubkey,
         wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate
+        config_update: WalletConfigUpdate,
     },
     Transfer {
         wallet_config_address: Pubkey,
@@ -240,13 +262,16 @@ pub enum MultisigOpParams {
         destination: Pubkey,
         amount: u64,
         token_mint: Pubkey,
-    }
+    },
 }
 
 impl MultisigOpParams {
     pub fn hash(&self) -> Hash {
         match self {
-            MultisigOpParams::UpdateProgramConfig { program_config_address, config_update } => {
+            MultisigOpParams::UpdateProgramConfig {
+                program_config_address,
+                config_update,
+            } => {
                 let mut config_update_bytes: Vec<u8> = Vec::new();
                 config_update.pack(&mut config_update_bytes);
 
@@ -254,10 +279,15 @@ impl MultisigOpParams {
                 bytes.resize(1 + PUBKEY_BYTES + config_update_bytes.len(), 0);
                 bytes[0] = 0; // type code
                 bytes[1..1 + PUBKEY_BYTES].copy_from_slice(&program_config_address.to_bytes());
-                bytes[1 + PUBKEY_BYTES..1 + PUBKEY_BYTES + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
+                bytes[1 + PUBKEY_BYTES..1 + PUBKEY_BYTES + config_update_bytes.len()]
+                    .copy_from_slice(&config_update_bytes);
                 hash(&bytes)
             }
-            MultisigOpParams::CreateWallet { program_config_address, wallet_guid_hash, config_update } => {
+            MultisigOpParams::CreateWallet {
+                program_config_address,
+                wallet_guid_hash,
+                config_update,
+            } => {
                 let mut config_update_bytes: Vec<u8> = Vec::new();
                 config_update.pack(&mut config_update_bytes);
 
@@ -269,7 +299,11 @@ impl MultisigOpParams {
                 bytes[65..65 + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
                 hash(&bytes)
             }
-            MultisigOpParams::UpdateWalletConfig { wallet_config_address, wallet_guid_hash, config_update } => {
+            MultisigOpParams::UpdateWalletConfig {
+                wallet_config_address,
+                wallet_guid_hash,
+                config_update,
+            } => {
                 let mut config_update_bytes: Vec<u8> = Vec::new();
                 config_update.pack(&mut config_update_bytes);
 
@@ -281,7 +315,13 @@ impl MultisigOpParams {
                 bytes[65..65 + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
                 hash(&bytes)
             }
-            MultisigOpParams::Transfer { wallet_config_address, source, destination, amount, token_mint } => {
+            MultisigOpParams::Transfer {
+                wallet_config_address,
+                source,
+                destination,
+                amount,
+                token_mint,
+            } => {
                 const LEN: usize = 1 + PUBKEY_BYTES * 4 + 8;
                 let mut bytes: [u8; LEN] = [0; LEN];
                 let bytes_ref = array_mut_ref![bytes, 0, LEN];
@@ -292,7 +332,15 @@ impl MultisigOpParams {
                     destination_ref,
                     amount_ref,
                     token_mint_ref,
-                ) = mut_array_refs![bytes_ref, 1, PUBKEY_BYTES, PUBKEY_BYTES, PUBKEY_BYTES, 8, PUBKEY_BYTES];
+                ) = mut_array_refs![
+                    bytes_ref,
+                    1,
+                    PUBKEY_BYTES,
+                    PUBKEY_BYTES,
+                    PUBKEY_BYTES,
+                    8,
+                    PUBKEY_BYTES
+                ];
                 type_code_ref[0] = 3;
                 wallet_config_address_ref.copy_from_slice(wallet_config_address.as_ref());
                 source_ref.copy_from_slice(source.as_ref());
