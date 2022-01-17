@@ -9,7 +9,7 @@ use solana_program::{
 };
 use solana_program::instruction::Instruction;
 
-use crate::model::wallet_config::AllowedDestination;
+use crate::model::wallet_config::AddressBookEntry;
 use crate::model::multisig_op::ApprovalDisposition;
 
 #[derive(Debug)]
@@ -225,7 +225,9 @@ impl ProgramInstruction {
 pub struct ProgramConfigUpdate {
     pub approvals_required_for_config: u8,
     pub add_approvers: Vec<Pubkey>,
-    pub remove_approvers: Vec<Pubkey>
+    pub remove_approvers: Vec<Pubkey>,
+    pub add_address_book_entries: Vec<AddressBookEntry>,
+    pub remove_address_book_entries: Vec<AddressBookEntry>,
 }
 
 impl ProgramConfigUpdate {
@@ -239,17 +241,26 @@ impl ProgramConfigUpdate {
         let (_, remove_approvers_bytes) = rest.split_at(add_approvers.len() * PUBKEY_BYTES + 1);
         let remove_approvers = unpack_approvers(remove_approvers_bytes)?;
 
+        let (_, add_address_book_entries_bytes) = rest.split_at((add_approvers.len() + remove_approvers.len()) * PUBKEY_BYTES + 2);
+        let add_address_book_entries = unpack_address_book_entries(add_address_book_entries_bytes)?;
+        let (_, remove_address_book_entries_bytes) = add_address_book_entries_bytes.split_at(add_address_book_entries.len() * AddressBookEntry::LEN + 1);
+        let remove_address_book_entries = unpack_address_book_entries(remove_address_book_entries_bytes)?;
+
         Ok(ProgramConfigUpdate {
             approvals_required_for_config: approvals_config_bytes[0],
             add_approvers,
-            remove_approvers
+            remove_approvers,
+            add_address_book_entries,
+            remove_address_book_entries
         })
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
         let add_approvers_offset = 1;
         let remove_approvers_offset = add_approvers_offset + 1 + self.add_approvers.len() * PUBKEY_BYTES;
-        let len = remove_approvers_offset + 1 + self.remove_approvers.len() * PUBKEY_BYTES;
+        let add_address_book_entries_offset = remove_approvers_offset + 1 + self.remove_approvers.len() * PUBKEY_BYTES;
+        let remove_address_book_entries_offset = add_address_book_entries_offset + 1 + self.add_address_book_entries.len() * AddressBookEntry::LEN;
+        let len = remove_address_book_entries_offset + 1 + self.remove_address_book_entries.len() * AddressBookEntry::LEN;
 
         dst.resize(dst.len() + len, 0);
         dst[0] = self.approvals_required_for_config;
@@ -261,10 +272,22 @@ impl ProgramConfigUpdate {
             .for_each(|(i, chunk)| chunk.copy_from_slice(&self.add_approvers[i].to_bytes()));
 
         dst[remove_approvers_offset] = self.remove_approvers.len() as u8;
-        dst[remove_approvers_offset + 1..len]
+        dst[remove_approvers_offset + 1..add_address_book_entries_offset]
             .chunks_exact_mut(PUBKEY_BYTES)
             .enumerate()
             .for_each(|(i, chunk)| chunk.copy_from_slice(&self.remove_approvers[i].to_bytes()));
+
+        dst[add_address_book_entries_offset] = self.add_address_book_entries.len() as u8;
+        dst[add_address_book_entries_offset + 1..remove_address_book_entries_offset]
+            .chunks_exact_mut(AddressBookEntry::LEN)
+            .enumerate()
+            .for_each(|(i, chunk)| self.add_address_book_entries[i].pack_into_slice(chunk));
+
+        dst[remove_address_book_entries_offset] = self.remove_address_book_entries.len() as u8;
+        dst[remove_address_book_entries_offset + 1..len]
+            .chunks_exact_mut(AddressBookEntry::LEN)
+            .enumerate()
+            .for_each(|(i, chunk)| self.remove_address_book_entries[i].pack_into_slice(chunk));
     }
 }
 
@@ -274,8 +297,8 @@ pub struct WalletConfigUpdate {
     pub approvals_required_for_transfer: u8,
     pub add_approvers: Vec<Pubkey>,
     pub remove_approvers: Vec<Pubkey>,
-    pub add_allowed_destinations: Vec<AllowedDestination>,
-    pub remove_allowed_destinations: Vec<AllowedDestination>,
+    pub add_allowed_destinations: Vec<AddressBookEntry>,
+    pub remove_allowed_destinations: Vec<AddressBookEntry>,
 }
 
 impl WalletConfigUpdate {
@@ -291,9 +314,9 @@ impl WalletConfigUpdate {
         let remove_approvers = unpack_approvers(remove_approvers_bytes)?;
 
         let (_, allowed_destinations_bytes) = rest.split_at((add_approvers.len() + remove_approvers.len()) * PUBKEY_BYTES + 2);
-        let add_allowed_destinations = Self::unpack_allowed_destinations(allowed_destinations_bytes)?;
-        let (_, remove_allowed_destinations_bytes) = allowed_destinations_bytes.split_at(add_allowed_destinations.len() * AllowedDestination::LEN + 1);
-        let remove_allowed_destinations = Self::unpack_allowed_destinations(remove_allowed_destinations_bytes)?;
+        let add_allowed_destinations = unpack_address_book_entries(allowed_destinations_bytes)?;
+        let (_, remove_allowed_destinations_bytes) = allowed_destinations_bytes.split_at(add_allowed_destinations.len() * AddressBookEntry::LEN + 1);
+        let remove_allowed_destinations = unpack_address_book_entries(remove_allowed_destinations_bytes)?;
 
         Ok(WalletConfigUpdate {
             name_hash: name_hash_bytes.try_into().ok().ok_or(ProgramError::InvalidInstructionData)?,
@@ -305,22 +328,13 @@ impl WalletConfigUpdate {
         })
     }
 
-    fn unpack_allowed_destinations(bytes: &[u8]) -> Result<Vec<AllowedDestination>, ProgramError> {
-        let (count, rest) = bytes.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-        return rest
-            .get(0..usize::from(*count) * AllowedDestination::LEN).unwrap()
-            .chunks_exact(AllowedDestination::LEN)
-            .map(|chunk| AllowedDestination::unpack_from_slice(chunk))
-            .collect::<Result<Vec<AllowedDestination>, ProgramError>>()
-    }
-
     pub fn pack(&self, dst: &mut Vec<u8>) {
         let approvals_required_for_transfer_offset = 32;
         let add_approvers_offset = approvals_required_for_transfer_offset + 1;
         let remove_approvers_offset = add_approvers_offset + 1 + self.add_approvers.len() * PUBKEY_BYTES;
         let add_allowed_destinations_offset = remove_approvers_offset + 1 + self.remove_approvers.len() * PUBKEY_BYTES;
-        let remove_allowed_destinations_offset = add_allowed_destinations_offset + 1 + self.add_allowed_destinations.len() * AllowedDestination::LEN;
-        let len = remove_allowed_destinations_offset + 1 + self.remove_allowed_destinations.len() * AllowedDestination::LEN;
+        let remove_allowed_destinations_offset = add_allowed_destinations_offset + 1 + self.add_allowed_destinations.len() * AddressBookEntry::LEN;
+        let len = remove_allowed_destinations_offset + 1 + self.remove_allowed_destinations.len() * AddressBookEntry::LEN;
 
         dst.resize(dst.len() + len, 0);
         dst[0..approvals_required_for_transfer_offset].copy_from_slice(&self.name_hash);
@@ -340,13 +354,13 @@ impl WalletConfigUpdate {
 
         dst[add_allowed_destinations_offset] = self.add_allowed_destinations.len() as u8;
         dst[add_allowed_destinations_offset + 1..remove_allowed_destinations_offset]
-            .chunks_exact_mut(AllowedDestination::LEN)
+            .chunks_exact_mut(AddressBookEntry::LEN)
             .enumerate()
             .for_each(|(i, chunk)| self.add_allowed_destinations[i].pack_into_slice(chunk));
 
         dst[remove_allowed_destinations_offset] = self.remove_allowed_destinations.len() as u8;
         dst[remove_allowed_destinations_offset + 1..len]
-            .chunks_exact_mut(AllowedDestination::LEN)
+            .chunks_exact_mut(AddressBookEntry::LEN)
             .enumerate()
             .for_each(|(i, chunk)| self.remove_allowed_destinations[i].pack_into_slice(chunk));
     }
@@ -368,18 +382,30 @@ fn unpack_wallet_guid_hash(bytes: &[u8]) -> Result<[u8; 32], ProgramError> {
         .ok_or(ProgramError::InvalidInstructionData)
 }
 
+fn unpack_address_book_entries(bytes: &[u8]) -> Result<Vec<AddressBookEntry>, ProgramError> {
+    let (count, rest) = bytes.split_first().ok_or(ProgramError::InvalidInstructionData)?;
+    return rest
+        .get(0..usize::from(*count) * AddressBookEntry::LEN).unwrap()
+        .chunks_exact(AddressBookEntry::LEN)
+        .map(|chunk| AddressBookEntry::unpack_from_slice(chunk))
+        .collect::<Result<Vec<AddressBookEntry>, ProgramError>>()
+}
+
 pub fn program_init(
     program_id: &Pubkey,
     program_config_account: &Pubkey,
     assistant_account: &Pubkey,
     config_approvers: Vec<Pubkey>,
     approvals_required_for_config: u8,
+    address_book: Vec<AddressBookEntry>
 ) -> Result<Instruction, ProgramError> {
     let data = ProgramInstruction::Init {
         config_update: ProgramConfigUpdate {
             approvals_required_for_config,
             add_approvers: config_approvers,
             remove_approvers: Vec::new(),
+            add_address_book_entries: address_book,
+            remove_address_book_entries: Vec::new()
         }
     }.borrow().pack();
 

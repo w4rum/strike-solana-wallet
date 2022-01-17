@@ -15,7 +15,6 @@ use spl_token::state::Account as SPLAccount;
 use crate::error::WalletError;
 use crate::instruction::{ProgramConfigUpdate, ProgramInstruction, WalletConfigUpdate};
 use crate::model::program_config::ProgramConfig;
-use crate::model::wallet_config::WalletConfig;
 use crate::model::multisig_op::{MultisigOp, ApprovalDisposition, MultisigOpParams};
 
 pub struct Processor;
@@ -41,16 +40,16 @@ impl Processor {
                 Self::handle_init_wallet_creation(program_id, accounts, wallet_guid_hash, &config_update),
 
             ProgramInstruction::FinalizeWalletCreation { wallet_guid_hash, config_update } =>
-                Self::handle_finalize_wallet_creation(program_id, accounts, wallet_guid_hash, &config_update),
+                Self::handle_finalize_wallet_creation(program_id, accounts, &wallet_guid_hash, &config_update),
 
             ProgramInstruction::InitWalletConfigUpdate { wallet_guid_hash, config_update } =>
-                Self::handle_init_wallet_config_update(program_id, accounts, wallet_guid_hash, &config_update),
+                Self::handle_init_wallet_config_update(program_id, accounts, &wallet_guid_hash, &config_update),
 
             ProgramInstruction::FinalizeWalletConfigUpdate { wallet_guid_hash, config_update } =>
-                Self::handle_finalize_wallet_config_update(program_id, accounts, wallet_guid_hash, &config_update),
+                Self::handle_finalize_wallet_config_update(program_id, accounts, &wallet_guid_hash, &config_update),
 
             ProgramInstruction::InitTransfer { wallet_guid_hash, amount, destination_name_hash, token_mint } =>
-                Self::handle_init_transfer(program_id, &accounts, wallet_guid_hash, amount, &destination_name_hash, token_mint),
+                Self::handle_init_transfer(program_id, &accounts, &wallet_guid_hash, amount, &destination_name_hash, token_mint),
             
             ProgramInstruction::FinalizeTransfer { wallet_guid_hash, amount, token_mint } =>
                 Self::handle_finalize_transfer(program_id, &accounts, wallet_guid_hash, amount, token_mint),
@@ -153,7 +152,7 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_finalize_wallet_creation(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
+    fn handle_finalize_wallet_creation(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
@@ -167,20 +166,13 @@ impl Processor {
         let mut program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow_mut())?;
 
         let expected_params = MultisigOpParams::CreateWallet {
-            wallet_guid_hash,
+            wallet_guid_hash: *wallet_guid_hash,
             program_config_address: *program_config_account_info.key,
             config_update: config_update.clone()
         };
 
         if multisig_op.approved(&expected_params)? {
-            let wallet_config = WalletConfig {
-                wallet_guid_hash,
-                wallet_name_hash: config_update.name_hash,
-                approvals_required_for_transfer: config_update.approvals_required_for_transfer,
-                approvers: config_update.add_approvers.clone(),
-                allowed_destinations: config_update.add_allowed_destinations.clone()
-            };
-            program_config.wallets.push(wallet_config);
+            program_config.add_wallet_config(wallet_guid_hash, config_update);
             ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
         }
 
@@ -189,7 +181,7 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_init_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
+    fn handle_init_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
@@ -198,7 +190,7 @@ impl Processor {
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         let wallet_config = program_config.get_wallet_config(wallet_guid_hash)?;
 
-        wallet_config.validate_update(config_update)?;
+        program_config.validate_wallet_config_update(wallet_config, config_update)?;
 
         wallet_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
@@ -207,7 +199,7 @@ impl Processor {
             program_config.approvals_required_for_config,
             MultisigOpParams::UpdateWalletConfig {
                 program_config_address: *program_config_account_info.key,
-                wallet_guid_hash,
+                wallet_guid_hash: *wallet_guid_hash,
                 config_update: config_update.clone()
             }
         )?;
@@ -216,7 +208,7 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_finalize_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
+    fn handle_finalize_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
@@ -228,16 +220,14 @@ impl Processor {
 
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
-        let mut program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
-        let wallet_config = program_config.get_wallet_config_mut(wallet_guid_hash)?;
-
         let expected_params = MultisigOpParams::UpdateWalletConfig {
-            wallet_guid_hash,
+            wallet_guid_hash: *wallet_guid_hash,
             program_config_address: *program_config_account_info.key,
             config_update: config_update.clone()
         };
         if multisig_op.approved(&expected_params)? {
-            wallet_config.update(config_update)?;
+            let mut program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
+            program_config.update_wallet_config(wallet_guid_hash, config_update)?;
             ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
         }
 
@@ -246,7 +236,7 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_init_transfer(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], amount: u64, destination_name_hash: &[u8; 32], token_mint: Pubkey) -> ProgramResult {
+    fn handle_init_transfer(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], amount: u64, destination_name_hash: &[u8; 32], token_mint: Pubkey) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
@@ -256,7 +246,7 @@ impl Processor {
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         let wallet_config = program_config.get_wallet_config(wallet_guid_hash)?;
 
-        if !wallet_config.destination_allowed(destination_account.key, destination_name_hash) {
+        if !program_config.destination_allowed(wallet_config, destination_account.key, destination_name_hash)? {
             msg!("Destination account is not whitelisted");
             return Err(WalletError::DestinationNotAllowed.into());
         }
@@ -269,7 +259,7 @@ impl Processor {
             wallet_config.approvals_required_for_transfer,
             MultisigOpParams::Transfer {
                 program_config_address: *program_config_account_info.key,
-                wallet_guid_hash,
+                wallet_guid_hash: *wallet_guid_hash,
                 destination: *destination_account.key,
                 amount,
                 token_mint,
