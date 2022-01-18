@@ -1,6 +1,5 @@
 use std::borrow::BorrowMut;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
-use itertools::Itertools;
 use solana_program::account_info::AccountInfo;
 use solana_program::program_pack::{Sealed, IsInitialized, Pack};
 use solana_program::program_error::ProgramError;
@@ -10,14 +9,16 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
 use crate::error::WalletError;
 use crate::model::wallet_config::{AddressBookEntry, AllowedDestinations, WalletConfig};
+use bitvec::prelude::*;
+use crate::model::opt_array::OptArray;
 
 #[derive(Debug)]
 pub struct ProgramConfig {
     pub is_initialized: bool,
+    pub assistant: Pubkey,
+    pub address_book: OptArray<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }>,
     pub approvals_required_for_config: u8,
     pub config_approvers: Vec<Pubkey>,
-    pub assistant: Pubkey,
-    pub address_book: Vec<AddressBookEntry>,
     pub wallets: Vec<WalletConfig>
 }
 
@@ -43,7 +44,7 @@ pub fn validate_initiator(initiator: &AccountInfo, assistant_key: &Pubkey, appro
 
 impl ProgramConfig {
     pub const MAX_WALLETS: usize = 10;
-    pub const MAX_APPROVERS: usize = 25;
+    pub const MAX_SIGNERS: usize = 25;
     pub const MAX_ADDRESS_BOOK_ENTRIES: usize = 100;
 
     pub fn validate_initiator(&self, initiator: &AccountInfo, assistant_key: &Pubkey) -> ProgramResult {
@@ -57,8 +58,8 @@ impl ProgramConfig {
             &config_update.remove_approvers
         );
 
-        if approvers_after_update > ProgramConfig::MAX_APPROVERS {
-            msg!("Program config supports up to {} approvers", ProgramConfig::MAX_APPROVERS);
+        if approvers_after_update > ProgramConfig::MAX_SIGNERS {
+            msg!("Program config supports up to {} approvers", ProgramConfig::MAX_SIGNERS);
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -71,11 +72,10 @@ impl ProgramConfig {
             return Err(ProgramError::InvalidArgument);
         }
 
-        let addr_book_entries_after_update = len_after_update(
-            &self.address_book,
+        let addr_book_entries_after_update = self.address_book.len_after_update(
             &config_update.add_address_book_entries,
             &config_update.remove_address_book_entries
-        ) - self.address_book.iter().filter(|it| *it == &AddressBookEntry::NULL).count();
+        );
 
         if addr_book_entries_after_update > ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES {
             msg!("Program config supports up to {} address book entries", ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
@@ -99,27 +99,10 @@ impl ProgramConfig {
         }
 
         if config_update.add_address_book_entries.len() > 0 || config_update.remove_address_book_entries.len() > 0 {
-            let mut remove_entries = config_update.remove_address_book_entries.clone();
-            for (i, entry) in self.address_book.iter_mut().enumerate() {
-                if remove_entries.is_empty() { break }
-                match remove_entries.iter().position(|it| it == entry) {
-                    Some(remove_entry_idx) => {
-                        entry.make_null();
-                        remove_entries.swap_remove(remove_entry_idx);
-                        for wallet_config in self.wallets.iter_mut() {
-                            wallet_config.allowed_destinations.set(i, false);
-                        }
-                    },
-                    None => {}
-                }
-            }
-
-            let mut add_entries = config_update.add_address_book_entries.clone();
-            for entry in self.address_book.iter_mut() {
-                if add_entries.is_empty() { break }
-                if entry == &AddressBookEntry::NULL {
-                    entry.copy_from(add_entries.first().unwrap());
-                    add_entries.swap_remove(0);
+            self.address_book.add_items(&config_update.add_address_book_entries);
+            for removed_entry_idx in self.address_book.remove_items(&config_update.remove_address_book_entries) {
+                for wallet_config in self.wallets.iter_mut() {
+                    wallet_config.allowed_destinations.set(removed_entry_idx, false);
                 }
             }
         }
@@ -138,22 +121,16 @@ impl ProgramConfig {
         Ok(&self.wallets[self.get_wallet_config_index(wallet_guid_hash)?])
     }
 
-    fn find_address_book_entry_index(&self, address_book_entry: &AddressBookEntry) -> Option<usize> {
-        self.address_book
-            .iter()
-            .position(|it| it == address_book_entry)
-    }
-
     pub fn destination_allowed(&self, wallet_config: &WalletConfig, address: &Pubkey, name_hash: &[u8; 32]) -> Result<bool, ProgramError> {
-        Ok(match self.find_address_book_entry_index(&AddressBookEntry { address: *address, name_hash: *name_hash }) {
-            Some(address_book_entry_idx) => wallet_config.allowed_destinations[address_book_entry_idx],
+        Ok(match self.address_book.find_index(&AddressBookEntry { address: *address, name_hash: *name_hash }) {
+            Some(entry_idx) => wallet_config.allowed_destinations[entry_idx],
             None => false
         })
     }
 
     pub fn add_wallet_config(&mut self, wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) {
         let mut allowed_destinations = AllowedDestinations::ZERO;
-        for i in self.address_book.iter().positions(|it| config_update.add_allowed_destinations.contains(it)) {
+        for i in self.address_book.find_indexes(&config_update.add_allowed_destinations) {
             allowed_destinations.set(i, true);
         }
 
@@ -174,12 +151,12 @@ impl ProgramConfig {
             &config_update.remove_approvers
         );
 
-        if approvers_after_update > ProgramConfig::MAX_APPROVERS {
-            msg!("Wallet config supports up to {} approvers", ProgramConfig::MAX_APPROVERS);
+        if approvers_after_update > ProgramConfig::MAX_SIGNERS {
+            msg!("Wallet config supports up to {} approvers", ProgramConfig::MAX_SIGNERS);
             return Err(ProgramError::InvalidArgument);
         }
 
-        if self.address_book.iter().positions(|it| config_update.add_allowed_destinations.contains(it)).count() < config_update.add_allowed_destinations.len() {
+        if self.address_book.find_indexes(&config_update.add_allowed_destinations).len() < config_update.add_allowed_destinations.len() {
             msg!("Address book does not contain one of the given destinations");
             return Err(ProgramError::InvalidArgument);
         }
@@ -214,10 +191,10 @@ impl ProgramConfig {
         }
 
         if config_update.add_allowed_destinations.len() > 0 || config_update.remove_allowed_destinations.len() > 0 {
-            for i in self.address_book.iter().positions(|it| config_update.add_allowed_destinations.contains(it)) {
+            for i in self.address_book.find_indexes(&config_update.add_allowed_destinations) {
                 wallet_config.allowed_destinations.set(i, true);
             }
-            for i in self.address_book.iter().positions(|it| config_update.remove_allowed_destinations.contains(it)) {
+            for i in self.address_book.find_indexes(&config_update.remove_allowed_destinations) {
                 wallet_config.allowed_destinations.set(i, false);
             }
         }
@@ -229,7 +206,7 @@ impl ProgramConfig {
 impl Pack for ProgramConfig {
     const LEN: usize = 1 + // is_initialized
         1 + // approvals_required_for_config
-        1 + PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS + // config_approvers with size
+        1 + PUBKEY_BYTES * ProgramConfig::MAX_SIGNERS + // config_approvers with size
         PUBKEY_BYTES + // assistant account pubkey
         AddressBookEntry::LEN * ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES + // address book
         1 + WalletConfig::LEN * ProgramConfig::MAX_WALLETS; // wallets with size
@@ -249,7 +226,7 @@ impl Pack for ProgramConfig {
             1,
             1,
             1,
-            PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
+            PUBKEY_BYTES * ProgramConfig::MAX_SIGNERS,
             PUBKEY_BYTES,
             ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES * AddressBookEntry::LEN,
             1,
@@ -279,10 +256,11 @@ impl Pack for ProgramConfig {
         assistant_account_dst.copy_from_slice(&assistant.to_bytes());
 
         address_book_dst.fill(0);
-        address_book_dst
-            .chunks_exact_mut(AddressBookEntry::LEN)
-            .enumerate()
-            .for_each(|(i, chunk)| address_book[i].pack_into_slice(chunk));
+        for (i, chunk) in address_book_dst.chunks_exact_mut(AddressBookEntry::LEN).enumerate() {
+            for entry in address_book[i] {
+                entry.pack_into_slice(chunk);
+            }
+        }
 
         wallets_count_dst[0] = wallets.len() as u8;
         wallets_dst.fill(0);
@@ -308,7 +286,7 @@ impl Pack for ProgramConfig {
             1,
             1,
             1,
-            PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
+            PUBKEY_BYTES * ProgramConfig::MAX_SIGNERS,
             PUBKEY_BYTES,
             ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES * AddressBookEntry::LEN,
             1,
@@ -321,7 +299,7 @@ impl Pack for ProgramConfig {
             _ => return Err(ProgramError::InvalidAccountData),
         };
 
-        let mut config_approvers = Vec::with_capacity(ProgramConfig::MAX_APPROVERS);
+        let mut config_approvers = Vec::with_capacity(ProgramConfig::MAX_SIGNERS);
         config_approvers_bytes
             .chunks_exact(PUBKEY_BYTES)
             .take(usize::from(configured_approvers_count[0]))
@@ -330,12 +308,15 @@ impl Pack for ProgramConfig {
             });
 
         let mut address_book_entries = Vec::with_capacity(ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
-        address_book_bytes
-            .chunks_exact(AddressBookEntry::LEN)
-            .for_each(|chunk| {
-                let destination = AddressBookEntry::unpack_from_slice(chunk).unwrap();
-                address_book_entries.push(destination);
-            });
+        for chunk in address_book_bytes.chunks_exact(AddressBookEntry::LEN) {
+            address_book_entries.push(
+                if chunk.iter().all(|&b| b == 0) {
+                    None
+                } else {
+                    Some(AddressBookEntry::unpack_from_slice(chunk)?)
+                }
+            );
+        }
 
         let mut wallets = Vec::with_capacity(ProgramConfig::MAX_WALLETS);
         wallets_bytes
@@ -350,7 +331,7 @@ impl Pack for ProgramConfig {
             approvals_required_for_config: approvals_required_for_config[0],
             config_approvers,
             assistant: Pubkey::new_from_array(*assistant),
-            address_book: address_book_entries,
+            address_book: OptArray::from_vec(address_book_entries),
             wallets
         })
     }

@@ -151,7 +151,7 @@ impl IsInitialized for MultisigOp {
 }
 
 impl Pack for MultisigOp {
-    const LEN: usize = 1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS + 1 + 1 + 32;
+    const LEN: usize = 1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS + 1 + 1 + 32;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
@@ -161,7 +161,7 @@ impl Pack for MultisigOp {
             disposition_records_dst,
             dispositions_required_for_transfer_dst,
             hash_dst
-        ) = mut_array_refs![dst, 1, 1, ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS, 1, 32];
+        ) = mut_array_refs![dst, 1, 1, ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS, 1, 32];
 
         let MultisigOp {
             is_initialized,
@@ -191,7 +191,7 @@ impl Pack for MultisigOp {
             disposition_record_bytes,
             dispositions_required_for_transfer,
             hash
-        ) = array_refs![src, 1, 1, ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS, 1, 32];
+        ) = array_refs![src, 1, 1, ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS, 1, 32];
         let is_initialized = match is_initialized {
             [0] => false,
             [1] => true,
@@ -199,7 +199,7 @@ impl Pack for MultisigOp {
         };
 
         let disposition_records_count = usize::from(disposition_records_count[0]);
-        let mut disposition_records = Vec::with_capacity(ProgramConfig::MAX_APPROVERS);
+        let mut disposition_records = Vec::with_capacity(ProgramConfig::MAX_SIGNERS);
         disposition_record_bytes
             .chunks_exact(ApprovalDispositionRecord::LEN)
             .take(disposition_records_count)

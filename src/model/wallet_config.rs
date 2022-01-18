@@ -30,7 +30,7 @@ impl Pack for WalletConfig {
     const LEN: usize = 32 + // guid_hash
         32 + // name_hash
         1 + // approvals_required_for_transfer
-        1 + PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS + // approvers with size
+        1 + PUBKEY_BYTES * ProgramConfig::MAX_SIGNERS + // approvers with size
         13; // size of allowed destinations bitvec
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
@@ -42,7 +42,7 @@ impl Pack for WalletConfig {
             configured_approvers_count_dst,
             approvers_dst,
             allowed_destinations_dst
-        ) = mut_array_refs![dst, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 13];
+        ) = mut_array_refs![dst, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_SIGNERS, 13];
 
         guid_hash_dst.copy_from_slice(&self.wallet_guid_hash);
         name_hash_dst.copy_from_slice(&self.wallet_name_hash);
@@ -69,10 +69,10 @@ impl Pack for WalletConfig {
             configured_approvers_count,
             approvers_bytes,
             allowed_destinations_bytes
-        ) = array_refs![src, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS, 13];
+        ) = array_refs![src, 32, 32, 1, 1, PUBKEY_BYTES * ProgramConfig::MAX_SIGNERS, 13];
 
         let configured_approvers_count = usize::from(configured_approvers_count[0]);
-        let mut approvers = Vec::with_capacity(ProgramConfig::MAX_APPROVERS);
+        let mut approvers = Vec::with_capacity(ProgramConfig::MAX_SIGNERS);
         approvers_bytes
             .chunks_exact(PUBKEY_BYTES)
             .take(configured_approvers_count)
