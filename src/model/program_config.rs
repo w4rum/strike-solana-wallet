@@ -12,9 +12,12 @@ use crate::model::wallet_config::{AddressBookEntry, AllowedDestinations, WalletC
 use bitvec::prelude::*;
 use crate::model::opt_array::OptArray;
 
+pub type ConfigChangeApprovers = BitArr!(for ProgramConfig::MAX_SIGNERS, in u8);
+
 #[derive(Debug)]
 pub struct ProgramConfig {
     pub is_initialized: bool,
+    // pub signers: Vec<Pubkey>,
     pub assistant: Pubkey,
     pub address_book: OptArray<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }>,
     pub approvals_required_for_config: u8,
@@ -255,12 +258,7 @@ impl Pack for ProgramConfig {
 
         assistant_account_dst.copy_from_slice(&assistant.to_bytes());
 
-        address_book_dst.fill(0);
-        for (i, chunk) in address_book_dst.chunks_exact_mut(AddressBookEntry::LEN).enumerate() {
-            for entry in address_book[i] {
-                entry.pack_into_slice(chunk);
-            }
-        }
+        address_book.pack_into_slice(address_book_dst);
 
         wallets_count_dst[0] = wallets.len() as u8;
         wallets_dst.fill(0);
@@ -307,17 +305,6 @@ impl Pack for ProgramConfig {
                 config_approvers.push(Pubkey::new(chunk));
             });
 
-        let mut address_book_entries = Vec::with_capacity(ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
-        for chunk in address_book_bytes.chunks_exact(AddressBookEntry::LEN) {
-            address_book_entries.push(
-                if chunk.iter().all(|&b| b == 0) {
-                    None
-                } else {
-                    Some(AddressBookEntry::unpack_from_slice(chunk)?)
-                }
-            );
-        }
-
         let mut wallets = Vec::with_capacity(ProgramConfig::MAX_WALLETS);
         wallets_bytes
             .chunks_exact(WalletConfig::LEN)
@@ -331,7 +318,7 @@ impl Pack for ProgramConfig {
             approvals_required_for_config: approvals_required_for_config[0],
             config_approvers,
             assistant: Pubkey::new_from_array(*assistant),
-            address_book: OptArray::from_vec(address_book_entries),
+            address_book: OptArray::unpack_from_slice(address_book_bytes)?,
             wallets
         })
     }

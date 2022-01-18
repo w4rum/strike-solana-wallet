@@ -97,24 +97,12 @@ pub struct AddressBookEntry {
     pub name_hash: [u8; 32],
 }
 
-impl AddressBookEntry {
-    pub const LEN: usize = 64;
-    pub const NULL: AddressBookEntry = AddressBookEntry {
-        address: Pubkey::new_from_array([0; 32]),
-        name_hash: [0; 32]
-    };
+impl Sealed for AddressBookEntry {}
 
-    pub fn make_null(&mut self) {
-        self.address = Pubkey::new_from_array([0; 32]);
-        self.name_hash = [0; 32];
-    }
+impl Pack for AddressBookEntry {
+    const LEN: usize = 64;
 
-    pub fn copy_from(&mut self, other: &AddressBookEntry) {
-        self.address = other.address;
-        self.name_hash = other.name_hash;
-    }
-
-    pub fn pack_into_slice(&self, dst: &mut [u8]) {
+    fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, AddressBookEntry::LEN];
         let (
             address_dst,
@@ -125,7 +113,7 @@ impl AddressBookEntry {
         name_hash_dst.copy_from_slice(&self.name_hash);
     }
 
-    pub fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, AddressBookEntry::LEN];
         let (
             address_bytes,

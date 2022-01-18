@@ -8,6 +8,7 @@ use solana_program::{
     instruction::AccountMeta,
 };
 use solana_program::instruction::Instruction;
+use solana_program::program_pack::Pack;
 
 use crate::model::wallet_config::AddressBookEntry;
 use crate::model::multisig_op::ApprovalDisposition;

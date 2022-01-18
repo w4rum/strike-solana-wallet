@@ -1,5 +1,7 @@
 use std::ops::Index;
 use itertools::Itertools;
+use solana_program::program_error::ProgramError;
+use solana_program::program_pack::{Pack, Sealed};
 
 #[derive(Debug)]
 pub struct OptArray<A, const N: usize> {
@@ -95,5 +97,36 @@ impl<A, const N: usize> OptArray<A, N> {
             .iter()
             .positions(|item_opt| item_opt.is_some() && items.contains(&item_opt.unwrap()))
             .collect_vec();
+    }
+}
+
+impl<A, const N: usize> Sealed for OptArray<A, N> {}
+
+impl<A: Pack, const N: usize> Pack for OptArray<A, N> {
+    const LEN: usize = N * A::LEN;
+
+    fn pack_into_slice(&self, dst: &mut [u8]) {
+        dst.fill(0);
+        for (i, chunk) in dst.chunks_exact_mut(A::LEN).enumerate() {
+            for item in self.array[i].as_ref() {
+                item.pack_into_slice(chunk);
+            }
+        }
+    }
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        let mut vec = Vec::with_capacity(N);
+
+        for chunk in src.chunks_exact(A::LEN) {
+            vec.push(
+                if chunk.iter().all(|&b| b == 0) {
+                    None
+                } else {
+                    Some(A::unpack_from_slice(chunk)?)
+                }
+            );
+        }
+
+        Ok(OptArray::from_vec(vec))
     }
 }
