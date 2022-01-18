@@ -1,6 +1,8 @@
 use std::borrow::Borrow;
 use std::convert::TryInto;
 use std::mem::size_of;
+use std::slice::Iter;
+use itertools::Itertools;
 
 use solana_program::program_error::ProgramError;
 use solana_program::{
@@ -12,6 +14,7 @@ use solana_program::program_pack::Pack;
 
 use crate::model::wallet_config::AddressBookEntry;
 use crate::model::multisig_op::ApprovalDisposition;
+use crate::model::signer::Signer;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -225,70 +228,84 @@ impl ProgramInstruction {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProgramConfigUpdate {
     pub approvals_required_for_config: u8,
-    pub add_approvers: Vec<Pubkey>,
-    pub remove_approvers: Vec<Pubkey>,
+    pub add_signers: Vec<Signer>,
+    pub remove_signers: Vec<Signer>,
+    pub add_config_approvers: Vec<Signer>,
+    pub remove_config_approvers: Vec<Signer>,
     pub add_address_book_entries: Vec<AddressBookEntry>,
     pub remove_address_book_entries: Vec<AddressBookEntry>,
 }
 
 impl ProgramConfigUpdate {
     fn unpack(bytes: &[u8]) -> Result<ProgramConfigUpdate, ProgramError> {
-        if bytes.len() < 2 {
+        if bytes.len() < 7 {
             return Err(ProgramError::InvalidInstructionData);
         }
-        let (approvals_config_bytes, rest) = bytes.split_at(1);
+        let mut iter = bytes.iter();
+        let approvals_required_for_config = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
 
-        let add_approvers = unpack_approvers(rest)?;
-        let (_, remove_approvers_bytes) = rest.split_at(add_approvers.len() * PUBKEY_BYTES + 1);
-        let remove_approvers = unpack_approvers(remove_approvers_bytes)?;
-
-        let (_, add_address_book_entries_bytes) = rest.split_at((add_approvers.len() + remove_approvers.len()) * PUBKEY_BYTES + 2);
-        let add_address_book_entries = unpack_address_book_entries(add_address_book_entries_bytes)?;
-        let (_, remove_address_book_entries_bytes) = add_address_book_entries_bytes.split_at(add_address_book_entries.len() * AddressBookEntry::LEN + 1);
-        let remove_address_book_entries = unpack_address_book_entries(remove_address_book_entries_bytes)?;
+        let add_signers = read_signers(&mut iter)?;
+        let remove_signers = read_signers(&mut iter)?;
+        let add_config_approvers = read_signers(&mut iter)?;
+        let remove_config_approvers = read_signers(&mut iter)?;
+        let add_address_book_entries = read_address_book_entries(&mut iter)?;
+        let remove_address_book_entries = read_address_book_entries(&mut iter)?;
 
         Ok(ProgramConfigUpdate {
-            approvals_required_for_config: approvals_config_bytes[0],
-            add_approvers,
-            remove_approvers,
+            approvals_required_for_config,
+            add_signers,
+            remove_signers,
+            add_config_approvers,
+            remove_config_approvers,
             add_address_book_entries,
             remove_address_book_entries
         })
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
-        let add_approvers_offset = 1;
-        let remove_approvers_offset = add_approvers_offset + 1 + self.add_approvers.len() * PUBKEY_BYTES;
-        let add_address_book_entries_offset = remove_approvers_offset + 1 + self.remove_approvers.len() * PUBKEY_BYTES;
-        let remove_address_book_entries_offset = add_address_book_entries_offset + 1 + self.add_address_book_entries.len() * AddressBookEntry::LEN;
-        let len = remove_address_book_entries_offset + 1 + self.remove_address_book_entries.len() * AddressBookEntry::LEN;
+        dst.push(self.approvals_required_for_config);
 
-        dst.resize(dst.len() + len, 0);
-        dst[0] = self.approvals_required_for_config;
+        dst.push(self.add_signers.len() as u8);
+        for signer in self.add_signers.iter() {
+            let mut buf = Vec::with_capacity(Signer::LEN);
+            signer.pack_into_slice(&mut buf);
+            dst.extend_from_slice(buf.as_slice());
+        }
 
-        dst[add_approvers_offset] = self.add_approvers.len() as u8;
-        dst[add_approvers_offset + 1..remove_approvers_offset]
-            .chunks_exact_mut(PUBKEY_BYTES)
-            .enumerate()
-            .for_each(|(i, chunk)| chunk.copy_from_slice(&self.add_approvers[i].to_bytes()));
+        dst.push(self.remove_signers.len() as u8);
+        for signer in self.remove_signers.iter() {
+            let mut buf = Vec::with_capacity(Signer::LEN);
+            signer.pack_into_slice(&mut buf);
+            dst.extend_from_slice(buf.as_slice());
+        }
 
-        dst[remove_approvers_offset] = self.remove_approvers.len() as u8;
-        dst[remove_approvers_offset + 1..add_address_book_entries_offset]
-            .chunks_exact_mut(PUBKEY_BYTES)
-            .enumerate()
-            .for_each(|(i, chunk)| chunk.copy_from_slice(&self.remove_approvers[i].to_bytes()));
+        dst.push(self.add_config_approvers.len() as u8);
+        for signer in self.add_config_approvers.iter() {
+            let mut buf = Vec::with_capacity(Signer::LEN);
+            signer.pack_into_slice(&mut buf);
+            dst.extend_from_slice(buf.as_slice());
+        }
 
-        dst[add_address_book_entries_offset] = self.add_address_book_entries.len() as u8;
-        dst[add_address_book_entries_offset + 1..remove_address_book_entries_offset]
-            .chunks_exact_mut(AddressBookEntry::LEN)
-            .enumerate()
-            .for_each(|(i, chunk)| self.add_address_book_entries[i].pack_into_slice(chunk));
+        dst.push(self.remove_config_approvers.len() as u8);
+        for signer in self.remove_config_approvers.iter() {
+            let mut buf = Vec::with_capacity(Signer::LEN);
+            signer.pack_into_slice(&mut buf);
+            dst.extend_from_slice(buf.as_slice());
+        }
 
-        dst[remove_address_book_entries_offset] = self.remove_address_book_entries.len() as u8;
-        dst[remove_address_book_entries_offset + 1..len]
-            .chunks_exact_mut(AddressBookEntry::LEN)
-            .enumerate()
-            .for_each(|(i, chunk)| self.remove_address_book_entries[i].pack_into_slice(chunk));
+        dst.push(self.add_address_book_entries.len() as u8);
+        for entry in self.add_address_book_entries.iter() {
+            let mut buf = Vec::with_capacity(AddressBookEntry::LEN);
+            entry.pack_into_slice(&mut buf);
+            dst.extend_from_slice(buf.as_slice());
+        }
+
+        dst.push(self.remove_address_book_entries.len() as u8);
+        for entry in self.remove_address_book_entries.iter() {
+            let mut buf = Vec::with_capacity(AddressBookEntry::LEN);
+            entry.pack_into_slice(&mut buf);
+            dst.extend_from_slice(buf.as_slice());
+        }
     }
 }
 
@@ -296,8 +313,8 @@ impl ProgramConfigUpdate {
 pub struct WalletConfigUpdate {
     pub name_hash: [u8; 32],
     pub approvals_required_for_transfer: u8,
-    pub add_approvers: Vec<Pubkey>,
-    pub remove_approvers: Vec<Pubkey>,
+    pub add_approvers: Vec<Signer>,
+    pub remove_approvers: Vec<Signer>,
     pub add_allowed_destinations: Vec<AddressBookEntry>,
     pub remove_allowed_destinations: Vec<AddressBookEntry>,
 }
@@ -345,13 +362,13 @@ impl WalletConfigUpdate {
         dst[add_approvers_offset + 1..remove_approvers_offset]
             .chunks_exact_mut(PUBKEY_BYTES)
             .enumerate()
-            .for_each(|(i, chunk)| chunk.copy_from_slice(&self.add_approvers[i].to_bytes()));
+            .for_each(|(i, chunk)| self.add_approvers[i].pack_into_slice(chunk));
 
         dst[remove_approvers_offset] = self.remove_approvers.len() as u8;
         dst[remove_approvers_offset + 1..add_allowed_destinations_offset]
             .chunks_exact_mut(PUBKEY_BYTES)
             .enumerate()
-            .for_each(|(i, chunk)| chunk.copy_from_slice(&self.remove_approvers[i].to_bytes()));
+            .for_each(|(i, chunk)| self.remove_approvers[i].pack_into_slice(chunk));
 
         dst[add_allowed_destinations_offset] = self.add_allowed_destinations.len() as u8;
         dst[add_allowed_destinations_offset + 1..remove_allowed_destinations_offset]
@@ -367,12 +384,45 @@ impl WalletConfigUpdate {
     }
 }
 
-fn unpack_approvers(bytes: &[u8]) -> Result<Vec<Pubkey>, ProgramError> {
+fn read_signers(iter: &mut Iter<u8>) -> Result<Vec<Signer>, ProgramError> {
+    let signers_count = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
+    let slice_len = usize::from(signers_count) * Signer::LEN;
+    iter.next();
+    let signers = iter.as_slice()
+        .get(0..slice_len)
+        .ok_or(ProgramError::InvalidInstructionData)?
+        .chunks_exact(Signer::LEN)
+        .map(|chunk| Signer::unpack_from_slice(chunk))
+        .collect();
+    (0..slice_len).for_each(|_| {
+        iter.next();
+    });
+    signers
+}
+
+// TODO: dry
+fn read_address_book_entries(iter: &mut Iter<u8>) -> Result<Vec<AddressBookEntry>, ProgramError> {
+    let entries_count = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
+    let slice_len = usize::from(entries_count) * AddressBookEntry::LEN;
+    iter.next();
+    let entries = iter.as_slice()
+        .get(0..slice_len)
+        .ok_or(ProgramError::InvalidInstructionData)?
+        .chunks_exact(AddressBookEntry::LEN)
+        .map(|chunk| AddressBookEntry::unpack_from_slice(chunk))
+        .collect();
+    (0..slice_len).for_each(|_| {
+        iter.next();
+    });
+    entries
+}
+
+fn unpack_approvers(bytes: &[u8]) -> Result<Vec<Signer>, ProgramError> {
     let (count, rest) = bytes.split_first().ok_or(ProgramError::InvalidInstructionData)?;
     let approvers = rest
         .get(0..usize::from(*count) * PUBKEY_BYTES).unwrap()
         .chunks_exact(PUBKEY_BYTES)
-        .map(|chunk| Pubkey::new(chunk))
+        .map(|chunk| Signer::unpack_from_slice(chunk).unwrap())
         .collect();
     return Ok(approvers)
 }
@@ -403,8 +453,10 @@ pub fn program_init(
     let data = ProgramInstruction::Init {
         config_update: ProgramConfigUpdate {
             approvals_required_for_config,
-            add_approvers: config_approvers,
-            remove_approvers: Vec::new(),
+            add_signers: Vec::new(),
+            remove_signers: Vec::new(),
+            add_config_approvers: config_approvers.iter().map(|it| Signer { key: *it }).collect_vec(),
+            remove_config_approvers: Vec::new(),
             add_address_book_entries: address_book,
             remove_address_book_entries: Vec::new()
         }

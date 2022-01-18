@@ -14,6 +14,7 @@ use spl_token::state::Account as SPLAccount;
 
 use crate::error::WalletError;
 use crate::instruction::{ProgramConfigUpdate, ProgramInstruction, WalletConfigUpdate};
+use crate::model::signer::Signer;
 use crate::model::program_config::ProgramConfig;
 use crate::model::multisig_op::{MultisigOp, ApprovalDisposition, MultisigOpParams};
 
@@ -71,7 +72,7 @@ impl Processor {
 
         program_config.is_initialized = true;
         program_config.update(config_update)?;
-        program_config.assistant = *assistant_account_info.key;
+        program_config.assistant = Signer { key: *assistant_account_info.key };
         ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
 
         Ok(())
@@ -89,7 +90,7 @@ impl Processor {
 
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
-            program_config.config_approvers,
+            program_config.get_config_approvers_keys(),
             program_config.approvals_required_for_config,
             MultisigOpParams::UpdateProgramConfig {
                 program_config_address: *program_config_account_info.key,
@@ -139,7 +140,7 @@ impl Processor {
         program_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
 
         multisig_op.init(
-            program_config.config_approvers,
+            program_config.get_config_approvers_keys(),
             program_config.approvals_required_for_config,
             MultisigOpParams::CreateWallet {
                 wallet_guid_hash,
@@ -190,12 +191,12 @@ impl Processor {
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         let wallet_config = program_config.get_wallet_config(wallet_guid_hash)?;
 
+        program_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
         program_config.validate_wallet_config_update(wallet_config, config_update)?;
 
-        wallet_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
-            program_config.config_approvers,
+            program_config.get_config_approvers_keys(),
             program_config.approvals_required_for_config,
             MultisigOpParams::UpdateWalletConfig {
                 program_config_address: *program_config_account_info.key,
@@ -251,11 +252,11 @@ impl Processor {
             return Err(WalletError::DestinationNotAllowed.into());
         }
 
-        wallet_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
+        program_config.validate_transfer_initiator(wallet_config, initiator_account_info, &program_config.assistant)?;
 
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
-            wallet_config.approvers.clone(),
+            program_config.get_transfer_approvers_keys(wallet_config),
             wallet_config.approvals_required_for_transfer,
             MultisigOpParams::Transfer {
                 program_config_address: *program_config_account_info.key,
