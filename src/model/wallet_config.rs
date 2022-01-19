@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::instruction::WalletConfigUpdate;
 use crate::model::program_config::{validate_initiator, ProgramConfig};
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
@@ -15,6 +17,7 @@ pub struct WalletConfig {
     pub wallet_guid_hash: [u8; 32],
     pub wallet_name_hash: [u8; 32],
     pub approvals_required_for_transfer: u8,
+    pub approval_timeout_for_transfer: Duration,
     pub approvers: Vec<Pubkey>,
     pub allowed_destinations: Vec<AllowedDestination>,
 }
@@ -35,6 +38,15 @@ impl WalletConfig {
         assistant_key: &Pubkey,
     ) -> ProgramResult {
         return validate_initiator(initiator, assistant_key, &self.approvers);
+    }
+
+    pub fn validate_initial_settings(config_update: &WalletConfigUpdate) -> ProgramResult {
+        if config_update.approvals_required_for_transfer == 0 ||
+            config_update.approval_timeout_for_transfer.as_secs() == 0 ||
+            config_update.add_approvers.len() == 0 {
+            return Err(ProgramError::InvalidArgument);
+        }
+        Ok(())
     }
 
     pub fn validate_update(&self, config_update: &WalletConfigUpdate) -> ProgramResult {
@@ -82,6 +94,9 @@ impl WalletConfig {
         self.validate_update(config_update)?;
         self.wallet_name_hash = config_update.name_hash;
         self.approvals_required_for_transfer = config_update.approvals_required_for_transfer;
+        if config_update.approval_timeout_for_transfer.as_secs() > 0 {
+            self.approval_timeout_for_transfer = config_update.approval_timeout_for_transfer;
+        }
 
         if config_update.add_approvers.len() > 0 || config_update.remove_approvers.len() > 0 {
             for approver_to_remove in &config_update.remove_approvers {
@@ -123,6 +138,7 @@ impl Pack for WalletConfig {
         32 + // guid_hash
         32 + // name_hash
         1 + // approvals_required_for_transfer
+        8 + // approval_timeout_for_transfer
         1 + PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS + // approvers with size
         1 + AllowedDestination::LEN * WalletConfig::MAX_DESTINATIONS; // allowed_destinations with size
 
@@ -134,6 +150,7 @@ impl Pack for WalletConfig {
             guid_hash_dst,
             name_hash_dst,
             approvals_required_for_transfer_dst,
+            approval_timeout_for_transfer_dst,
             configured_approvers_count_dst,
             approvers_dst,
             configured_allowed_destinations_count_dst,
@@ -145,6 +162,7 @@ impl Pack for WalletConfig {
             32,
             32,
             1,
+            8,
             1,
             PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
             1,
@@ -158,6 +176,7 @@ impl Pack for WalletConfig {
         name_hash_dst.copy_from_slice(&self.wallet_name_hash);
 
         approvals_required_for_transfer_dst[0] = self.approvals_required_for_transfer;
+        *approval_timeout_for_transfer_dst = self.approval_timeout_for_transfer.as_secs().to_le_bytes();
 
         configured_approvers_count_dst[0] = self.approvers.len() as u8;
         approvers_dst.fill(0);
@@ -184,6 +203,7 @@ impl Pack for WalletConfig {
             guid_hash,
             name_hash,
             approvals_required_for_transfer,
+            approval_timeout_for_transfer,
             configured_approvers_count,
             approvers_bytes,
             configured_allowed_destinations_count,
@@ -195,6 +215,7 @@ impl Pack for WalletConfig {
             32,
             32,
             1,
+            8,
             1,
             PUBKEY_BYTES * ProgramConfig::MAX_APPROVERS,
             1,
@@ -233,6 +254,7 @@ impl Pack for WalletConfig {
             wallet_guid_hash: *guid_hash,
             wallet_name_hash: *name_hash,
             approvals_required_for_transfer: approvals_required_for_transfer[0],
+            approval_timeout_for_transfer: Duration::from_secs(u64::from_le_bytes(*approval_timeout_for_transfer)),
             approvers,
             allowed_destinations,
         })

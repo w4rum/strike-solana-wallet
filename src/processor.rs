@@ -1,3 +1,6 @@
+use std::time::Duration;
+use std::slice::Iter;
+
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
@@ -7,6 +10,7 @@ use solana_program::program_pack::{IsInitialized, Pack};
 use solana_program::pubkey::Pubkey;
 use solana_program::system_instruction;
 use solana_program::system_program;
+use solana_program::sysvar::{Sysvar, is_sysvar_id};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::id as SPL_TOKEN_ID;
 use spl_token::instruction as spl_instruction;
@@ -17,6 +21,7 @@ use crate::instruction::{ProgramConfigUpdate, ProgramInstruction, WalletConfigUp
 use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, MultisigOpParams};
 use crate::model::program_config::ProgramConfig;
 use crate::model::wallet_config::WalletConfig;
+use solana_program::clock::Clock;
 
 pub struct Processor;
 impl Processor {
@@ -112,8 +117,11 @@ impl Processor {
             Self::next_program_account_info(accounts_iter, program_id)?;
         let assistant_account_info = next_account_info(accounts_iter)?;
 
+        ProgramConfig::validate_initial_settings(config_update)?;
+
         let mut program_config =
             ProgramConfig::unpack_unchecked(&program_config_account_info.data.borrow())?;
+
         if program_config.is_initialized() {
             return Err(ProgramError::AccountAlreadyInitialized);
         }
@@ -139,6 +147,7 @@ impl Processor {
         let program_config_account_info =
             Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         program_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
@@ -146,9 +155,15 @@ impl Processor {
 
         let mut multisig_op =
             MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
+
         multisig_op.init(
             program_config.config_approvers,
             program_config.approvals_required_for_config,
+            clock.unix_timestamp,
+            Self::calculate_expires(
+                clock.unix_timestamp,
+                program_config.approval_timeout_for_config
+            )?,
             MultisigOpParams::UpdateProgramConfig {
                 program_config_address: *program_config_account_info.key,
                 config_update: config_update.clone(),
@@ -165,22 +180,26 @@ impl Processor {
         config_update: &ProgramConfigUpdate,
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
-        let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let multisig_op_account_info =
+            Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info =
             Self::next_program_account_info(accounts_iter, program_id)?;
         let account_to_return_rent_to = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         if !account_to_return_rent_to.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
-        let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
+        let multisig_op =
+            MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
         let expected_params = MultisigOpParams::UpdateProgramConfig {
             program_config_address: *program_config_account_info.key,
             config_update: config_update.clone(),
         };
-        if multisig_op.approved(&expected_params)? {
+
+        if multisig_op.approved(&expected_params, &clock)? {
             let mut program_config =
                 ProgramConfig::unpack(&program_config_account_info.data.borrow_mut())?;
             program_config.update(config_update)?;
@@ -206,15 +225,20 @@ impl Processor {
         let program_config_account_info =
             Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         let mut multisig_op =
             MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         program_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
 
+        WalletConfig::validate_initial_settings(config_update)?;
+
         multisig_op.init(
             program_config.config_approvers,
             program_config.approvals_required_for_config,
+            clock.unix_timestamp,
+            Self::calculate_expires(clock.unix_timestamp, program_config.approval_timeout_for_config)?,
             MultisigOpParams::CreateWallet {
                 wallet_guid_hash,
                 program_config_address: *program_config_account_info.key,
@@ -239,6 +263,7 @@ impl Processor {
         let wallet_config_account_info =
             Self::next_program_account_info(accounts_iter, program_id)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         if !rent_collector_account_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
@@ -252,7 +277,7 @@ impl Processor {
             config_update: config_update.clone(),
         };
 
-        if multisig_op.approved(&expected_params)? {
+        if multisig_op.approved(&expected_params, &clock)? {
             let mut wallet_config =
                 WalletConfig::unpack_unchecked(&wallet_config_account_info.data.borrow_mut())?;
             if wallet_config.is_initialized() {
@@ -286,6 +311,7 @@ impl Processor {
         let program_config_account_info =
             Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         let wallet_config = WalletConfig::unpack(&wallet_config_account_info.data.borrow())?;
 
@@ -302,6 +328,8 @@ impl Processor {
         multisig_op.init(
             program_config.config_approvers,
             program_config.approvals_required_for_config,
+            clock.unix_timestamp,
+            Self::calculate_expires(clock.unix_timestamp, program_config.approval_timeout_for_config)?,
             MultisigOpParams::UpdateWalletConfig {
                 wallet_guid_hash,
                 wallet_config_address: *wallet_config_account_info.key,
@@ -324,6 +352,7 @@ impl Processor {
         let wallet_config_account_info =
             Self::next_program_account_info(accounts_iter, program_id)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         if !rent_collector_account_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
@@ -336,7 +365,7 @@ impl Processor {
             wallet_config_address: *wallet_config_account_info.key,
             config_update: config_update.clone(),
         };
-        if multisig_op.approved(&expected_params)? {
+        if multisig_op.approved(&expected_params, &clock)? {
             let mut wallet_config =
                 WalletConfig::unpack(&wallet_config_account_info.data.borrow_mut())?;
             wallet_config.update(config_update)?;
@@ -366,6 +395,7 @@ impl Processor {
         let destination_account = next_account_info(accounts_iter)?;
         let program_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         let wallet_config = WalletConfig::unpack(&wallet_config_account_info.data.borrow())?;
 
@@ -387,6 +417,8 @@ impl Processor {
         multisig_op.init(
             wallet_config.approvers,
             wallet_config.approvals_required_for_transfer,
+            clock.unix_timestamp,
+            Self::calculate_expires(clock.unix_timestamp, wallet_config.approval_timeout_for_transfer)?,
             MultisigOpParams::Transfer {
                 wallet_config_address: *wallet_config_account_info.key,
                 source: *source_account.key,
@@ -413,6 +445,7 @@ impl Processor {
             Self::next_program_account_info(accounts_iter, program_id)?;
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         if !rent_collector_account_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
@@ -434,7 +467,7 @@ impl Processor {
             token_mint,
         };
 
-        if multisig_op.approved(&expected_params)? {
+        if multisig_op.approved(&expected_params, &clock)? {
             let (source_account_pda, bump_seed) = Pubkey::find_program_address(
                 &[&wallet_config_account_info.key.to_bytes()],
                 program_id,
@@ -527,9 +560,10 @@ impl Processor {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let signer_account_info = next_account_info(accounts_iter)?;
+        let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
         let mut multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
-        multisig_op.validate_and_record_approval_disposition(&signer_account_info, disposition)?;
+        multisig_op.validate_and_record_approval_disposition(&signer_account_info, disposition, &clock)?;
         MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
         Ok(())
@@ -557,5 +591,24 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
         Ok(account_info)
+    }
+
+    fn get_clock_from_next_account(
+        iter: &mut Iter<AccountInfo>
+    ) -> Result<Clock, ProgramError> {
+        let account_info = next_account_info(iter)?;
+        if !is_sysvar_id(account_info.key) {
+            msg!("Account is not a sysvar");
+            return Err(ProgramError::InvalidArgument);
+        }
+        Clock::from_account_info(&account_info)
+    }
+
+    fn calculate_expires(start: i64, duration: Duration) -> Result<i64, ProgramError> {
+        let expires_at = start.checked_add(duration.as_secs() as i64);
+        if expires_at == None {
+            return Err(ProgramError::InvalidArgument);
+        }
+        Ok(expires_at.unwrap())
     }
 }
