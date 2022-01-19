@@ -3,7 +3,7 @@ use itertools::Itertools;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{Pack, Sealed};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OptArray<A, const N: usize> {
     array: Box<[Option<A>; N]>
 }
@@ -42,7 +42,7 @@ impl<A, const N: usize> OptArray<A, N> {
         result
     }
 
-    pub fn add_items(&mut self, add_items: &Vec<A>)
+    pub fn add_items(&mut self, add_items: &Vec<A>) -> bool
         where
             A: Copy + PartialEq
     {
@@ -55,6 +55,8 @@ impl<A, const N: usize> OptArray<A, N> {
                 add_items.swap_remove(0);
             }
         }
+
+        add_items.is_empty()
     }
 
     // returns indexes of the removed items

@@ -8,12 +8,12 @@ use bitvec::prelude::*;
 pub type AllowedDestinations = BitArr!(for ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES, in u8);
 pub type Approvers = BitArr!(for ProgramConfig::MAX_SIGNERS, in u8);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WalletConfig {
     pub wallet_guid_hash: [u8; 32],
     pub wallet_name_hash: [u8; 32],
     pub approvals_required_for_transfer: u8,
-    pub approvers: Approvers,
+    pub transfer_approvers: Approvers,
     pub allowed_destinations: AllowedDestinations
 }
 
@@ -41,7 +41,7 @@ impl Pack for WalletConfig {
 
         approvals_required_for_transfer_dst[0] = self.approvals_required_for_transfer;
 
-        approvers_dst.copy_from_slice(self.approvers.as_raw_slice());
+        approvers_dst.copy_from_slice(self.transfer_approvers.as_raw_slice());
         allowed_destinations_dst.copy_from_slice(self.allowed_destinations.as_raw_slice());
     }
 
@@ -59,7 +59,7 @@ impl Pack for WalletConfig {
             wallet_guid_hash: *guid_hash_src,
             wallet_name_hash: *name_hash_src,
             approvals_required_for_transfer: approvals_required_for_transfer_src[0],
-            approvers: Approvers::new(*approvers_src),
+            transfer_approvers: Approvers::new(*approvers_src),
             allowed_destinations: AllowedDestinations::new(*allowed_destinations_src)
         })
     }

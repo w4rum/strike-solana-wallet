@@ -85,7 +85,7 @@ impl Processor {
         let initiator_account_info = next_account_info(accounts_iter)?;
 
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
-        program_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
+        program_config.validate_config_initiator(initiator_account_info)?;
         program_config.validate_update(config_update)?;
 
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
@@ -137,7 +137,8 @@ impl Processor {
 
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
-        program_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
+        program_config.validate_config_initiator(initiator_account_info)?;
+        program_config.validate_add_wallet_config(&wallet_guid_hash, config_update)?;
 
         multisig_op.init(
             program_config.get_config_approvers_keys(),
@@ -173,7 +174,7 @@ impl Processor {
         };
 
         if multisig_op.approved(&expected_params)? {
-            program_config.add_wallet_config(wallet_guid_hash, config_update);
+            program_config.add_wallet_config(wallet_guid_hash, config_update)?;
             ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
         }
 
@@ -189,10 +190,8 @@ impl Processor {
         let initiator_account_info = next_account_info(accounts_iter)?;
 
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
-        let wallet_config = program_config.get_wallet_config(wallet_guid_hash)?;
-
-        program_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
-        program_config.validate_wallet_config_update(wallet_config, config_update)?;
+        program_config.validate_config_initiator(initiator_account_info)?;
+        program_config.validate_wallet_config_update(wallet_guid_hash, config_update)?;
 
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
@@ -252,7 +251,7 @@ impl Processor {
             return Err(WalletError::DestinationNotAllowed.into());
         }
 
-        program_config.validate_transfer_initiator(wallet_config, initiator_account_info, &program_config.assistant)?;
+        program_config.validate_transfer_initiator(wallet_config, initiator_account_info)?;
 
         let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(

@@ -6,7 +6,7 @@ use itertools::Itertools;
 
 use solana_program::program_error::ProgramError;
 use solana_program::{
-    pubkey::{Pubkey, PUBKEY_BYTES},
+    pubkey::Pubkey,
     instruction::AccountMeta,
 };
 use solana_program::instruction::Instruction;
@@ -264,48 +264,12 @@ impl ProgramConfigUpdate {
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
         dst.push(self.approvals_required_for_config);
-
-        dst.push(self.add_signers.len() as u8);
-        for signer in self.add_signers.iter() {
-            let mut buf = Vec::with_capacity(Signer::LEN);
-            signer.pack_into_slice(&mut buf);
-            dst.extend_from_slice(buf.as_slice());
-        }
-
-        dst.push(self.remove_signers.len() as u8);
-        for signer in self.remove_signers.iter() {
-            let mut buf = Vec::with_capacity(Signer::LEN);
-            signer.pack_into_slice(&mut buf);
-            dst.extend_from_slice(buf.as_slice());
-        }
-
-        dst.push(self.add_config_approvers.len() as u8);
-        for signer in self.add_config_approvers.iter() {
-            let mut buf = Vec::with_capacity(Signer::LEN);
-            signer.pack_into_slice(&mut buf);
-            dst.extend_from_slice(buf.as_slice());
-        }
-
-        dst.push(self.remove_config_approvers.len() as u8);
-        for signer in self.remove_config_approvers.iter() {
-            let mut buf = Vec::with_capacity(Signer::LEN);
-            signer.pack_into_slice(&mut buf);
-            dst.extend_from_slice(buf.as_slice());
-        }
-
-        dst.push(self.add_address_book_entries.len() as u8);
-        for entry in self.add_address_book_entries.iter() {
-            let mut buf = Vec::with_capacity(AddressBookEntry::LEN);
-            entry.pack_into_slice(&mut buf);
-            dst.extend_from_slice(buf.as_slice());
-        }
-
-        dst.push(self.remove_address_book_entries.len() as u8);
-        for entry in self.remove_address_book_entries.iter() {
-            let mut buf = Vec::with_capacity(AddressBookEntry::LEN);
-            entry.pack_into_slice(&mut buf);
-            dst.extend_from_slice(buf.as_slice());
-        }
+        append_signers(&self.add_signers, dst);
+        append_signers(&self.remove_signers, dst);
+        append_signers(&self.add_config_approvers, dst);
+        append_signers(&self.remove_config_approvers, dst);
+        append_address_book_entries(&self.add_address_book_entries, dst);
+        append_address_book_entries(&self.remove_address_book_entries, dst);
     }
 }
 
@@ -313,8 +277,8 @@ impl ProgramConfigUpdate {
 pub struct WalletConfigUpdate {
     pub name_hash: [u8; 32],
     pub approvals_required_for_transfer: u8,
-    pub add_approvers: Vec<Signer>,
-    pub remove_approvers: Vec<Signer>,
+    pub add_transfer_approvers: Vec<Signer>,
+    pub remove_transfer_approvers: Vec<Signer>,
     pub add_allowed_destinations: Vec<AddressBookEntry>,
     pub remove_allowed_destinations: Vec<AddressBookEntry>,
 }
@@ -324,122 +288,93 @@ impl WalletConfigUpdate {
         if bytes.len() < 1 {
             return Err(ProgramError::InvalidInstructionData);
         }
-        let (name_hash_bytes, rest) = bytes.split_at(32);
-        let (approvals_config_bytes, rest) = rest.split_at(1);
+        let mut iter = bytes.iter();
+        let name_hash: [u8; 32] = *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let approvals_required_for_transfer = *read_u8(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
 
-        let add_approvers = unpack_approvers(rest)?;
-        let (_, remove_approvers_bytes) = rest.split_at(add_approvers.len() * PUBKEY_BYTES + 1);
-        let remove_approvers = unpack_approvers(remove_approvers_bytes)?;
-
-        let (_, allowed_destinations_bytes) = rest.split_at((add_approvers.len() + remove_approvers.len()) * PUBKEY_BYTES + 2);
-        let add_allowed_destinations = unpack_address_book_entries(allowed_destinations_bytes)?;
-        let (_, remove_allowed_destinations_bytes) = allowed_destinations_bytes.split_at(add_allowed_destinations.len() * AddressBookEntry::LEN + 1);
-        let remove_allowed_destinations = unpack_address_book_entries(remove_allowed_destinations_bytes)?;
+        let add_approvers = read_signers(&mut iter)?;
+        let remove_approvers = read_signers(&mut iter)?;
+        let add_allowed_destinations = read_address_book_entries(&mut iter)?;
+        let remove_allowed_destinations = read_address_book_entries(&mut iter)?;
 
         Ok(WalletConfigUpdate {
-            name_hash: name_hash_bytes.try_into().ok().ok_or(ProgramError::InvalidInstructionData)?,
-            approvals_required_for_transfer: approvals_config_bytes[0],
-            add_approvers,
-            remove_approvers,
+            name_hash,
+            approvals_required_for_transfer,
+            add_transfer_approvers: add_approvers,
+            remove_transfer_approvers: remove_approvers,
             add_allowed_destinations,
             remove_allowed_destinations
         })
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
-        let approvals_required_for_transfer_offset = 32;
-        let add_approvers_offset = approvals_required_for_transfer_offset + 1;
-        let remove_approvers_offset = add_approvers_offset + 1 + self.add_approvers.len() * PUBKEY_BYTES;
-        let add_allowed_destinations_offset = remove_approvers_offset + 1 + self.remove_approvers.len() * PUBKEY_BYTES;
-        let remove_allowed_destinations_offset = add_allowed_destinations_offset + 1 + self.add_allowed_destinations.len() * AddressBookEntry::LEN;
-        let len = remove_allowed_destinations_offset + 1 + self.remove_allowed_destinations.len() * AddressBookEntry::LEN;
-
-        dst.resize(dst.len() + len, 0);
-        dst[0..approvals_required_for_transfer_offset].copy_from_slice(&self.name_hash);
-        dst[approvals_required_for_transfer_offset] = self.approvals_required_for_transfer;
-
-        dst[add_approvers_offset] = self.add_approvers.len() as u8;
-        dst[add_approvers_offset + 1..remove_approvers_offset]
-            .chunks_exact_mut(PUBKEY_BYTES)
-            .enumerate()
-            .for_each(|(i, chunk)| self.add_approvers[i].pack_into_slice(chunk));
-
-        dst[remove_approvers_offset] = self.remove_approvers.len() as u8;
-        dst[remove_approvers_offset + 1..add_allowed_destinations_offset]
-            .chunks_exact_mut(PUBKEY_BYTES)
-            .enumerate()
-            .for_each(|(i, chunk)| self.remove_approvers[i].pack_into_slice(chunk));
-
-        dst[add_allowed_destinations_offset] = self.add_allowed_destinations.len() as u8;
-        dst[add_allowed_destinations_offset + 1..remove_allowed_destinations_offset]
-            .chunks_exact_mut(AddressBookEntry::LEN)
-            .enumerate()
-            .for_each(|(i, chunk)| self.add_allowed_destinations[i].pack_into_slice(chunk));
-
-        dst[remove_allowed_destinations_offset] = self.remove_allowed_destinations.len() as u8;
-        dst[remove_allowed_destinations_offset + 1..len]
-            .chunks_exact_mut(AddressBookEntry::LEN)
-            .enumerate()
-            .for_each(|(i, chunk)| self.remove_allowed_destinations[i].pack_into_slice(chunk));
+        dst.extend_from_slice(&self.name_hash);
+        dst.push(self.approvals_required_for_transfer);
+        append_signers(&self.add_transfer_approvers, dst);
+        append_signers(&self.remove_transfer_approvers, dst);
+        append_address_book_entries(&self.add_allowed_destinations, dst);
+        append_address_book_entries(&self.remove_allowed_destinations, dst);
     }
 }
 
 fn read_signers(iter: &mut Iter<u8>) -> Result<Vec<Signer>, ProgramError> {
-    let signers_count = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
-    let slice_len = usize::from(signers_count) * Signer::LEN;
-    iter.next();
-    let signers = iter.as_slice()
-        .get(0..slice_len)
+    let signers_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
+    read_slice(iter, usize::from(signers_count) * Signer::LEN)
         .ok_or(ProgramError::InvalidInstructionData)?
         .chunks_exact(Signer::LEN)
         .map(|chunk| Signer::unpack_from_slice(chunk))
-        .collect();
-    (0..slice_len).for_each(|_| {
-        iter.next();
-    });
-    signers
+        .collect()
 }
 
-// TODO: dry
+fn read_u8<'a>(iter: &'a mut Iter<u8>) -> Option<&'a u8> {
+    iter.next()
+}
+
+fn read_fixed_size_array<'a, const SIZE: usize>(iter: &'a mut Iter<u8>) -> Option<&'a [u8; SIZE]> {
+    read_slice(iter, SIZE).and_then(|slice| slice.try_into().ok())
+}
+
+fn read_slice<'a>(iter: &'a mut Iter<u8>, size: usize) -> Option<&'a [u8]> {
+    let slice = iter.as_slice().get(0..size);
+    if slice.is_some() {
+        for _ in 0..size {
+            iter.next();
+        }
+    }
+    return slice;
+}
+
+fn append_signers(signers: &Vec<Signer>, dst: &mut Vec<u8>) {
+    dst.push(signers.len() as u8);
+    for signer in signers.iter() {
+        let mut buf = vec![0; Signer::LEN];
+        signer.pack_into_slice(&mut buf);
+        dst.extend_from_slice(buf.as_slice());
+    }
+}
+
 fn read_address_book_entries(iter: &mut Iter<u8>) -> Result<Vec<AddressBookEntry>, ProgramError> {
-    let entries_count = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
-    let slice_len = usize::from(entries_count) * AddressBookEntry::LEN;
-    iter.next();
-    let entries = iter.as_slice()
-        .get(0..slice_len)
+    let entries_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
+    read_slice(iter, usize::from(entries_count) * AddressBookEntry::LEN)
         .ok_or(ProgramError::InvalidInstructionData)?
         .chunks_exact(AddressBookEntry::LEN)
         .map(|chunk| AddressBookEntry::unpack_from_slice(chunk))
-        .collect();
-    (0..slice_len).for_each(|_| {
-        iter.next();
-    });
-    entries
+        .collect()
 }
 
-fn unpack_approvers(bytes: &[u8]) -> Result<Vec<Signer>, ProgramError> {
-    let (count, rest) = bytes.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-    let approvers = rest
-        .get(0..usize::from(*count) * PUBKEY_BYTES).unwrap()
-        .chunks_exact(PUBKEY_BYTES)
-        .map(|chunk| Signer::unpack_from_slice(chunk).unwrap())
-        .collect();
-    return Ok(approvers)
+fn append_address_book_entries(entries: &Vec<AddressBookEntry>, dst: &mut Vec<u8>) {
+    dst.push(entries.len() as u8);
+    for entry in entries.iter() {
+        let mut buf = vec![0; AddressBookEntry::LEN];
+        entry.pack_into_slice(&mut buf);
+        dst.extend_from_slice(buf.as_slice());
+    }
 }
 
 fn unpack_wallet_guid_hash(bytes: &[u8]) -> Result<[u8; 32], ProgramError> {
     bytes.get(..32)
         .and_then(|slice| slice.try_into().ok())
         .ok_or(ProgramError::InvalidInstructionData)
-}
-
-fn unpack_address_book_entries(bytes: &[u8]) -> Result<Vec<AddressBookEntry>, ProgramError> {
-    let (count, rest) = bytes.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-    return rest
-        .get(0..usize::from(*count) * AddressBookEntry::LEN).unwrap()
-        .chunks_exact(AddressBookEntry::LEN)
-        .map(|chunk| AddressBookEntry::unpack_from_slice(chunk))
-        .collect::<Result<Vec<AddressBookEntry>, ProgramError>>()
 }
 
 pub fn program_init(
