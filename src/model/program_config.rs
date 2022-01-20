@@ -1,4 +1,5 @@
 use std::borrow::BorrowMut;
+use std::time::Duration;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::account_info::AccountInfo;
 use solana_program::program_pack::{Sealed, IsInitialized, Pack};
@@ -26,6 +27,7 @@ pub struct ProgramConfig {
     pub assistant: Signer,
     pub address_book: AddressBook,
     pub approvals_required_for_config: u8,
+    pub approval_timeout_for_config: Duration,
     pub config_approvers: Approvers,
     pub wallets: Vec<WalletConfig>
 }
@@ -103,6 +105,9 @@ impl ProgramConfig {
 
     pub fn update(&mut self, config_update: &ProgramConfigUpdate) -> ProgramResult {
         self.approvals_required_for_config = config_update.approvals_required_for_config;
+        if config_update.approval_timeout_for_config.as_secs() > 0 {
+            self.approval_timeout_for_config = config_update.approval_timeout_for_config;
+        }
 
         if config_update.add_signers.len() > 0 || config_update.remove_signers.len() > 0 {
             self.remove_signers(&config_update.remove_signers);
@@ -129,6 +134,21 @@ impl ProgramConfig {
             return Err(ProgramError::InvalidArgument);
         }
 
+        if self.approvals_required_for_config == 0 {
+            msg!("Approvals required for config can't be 0");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if self.approval_timeout_for_config.as_secs() == 0 {
+            msg!("Approvals timeout for config can't be 0");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if self.config_approvers.count_enabled() == 0 {
+            msg!("At least one config approver has to be configured");
+            return Err(ProgramError::InvalidArgument);
+        }
+
         Ok(())
     }
 
@@ -142,6 +162,7 @@ impl ProgramConfig {
             wallet_guid_hash: *wallet_guid_hash,
             wallet_name_hash: [0; 32],
             approvals_required_for_transfer: 0,
+            approval_timeout_for_transfer: Duration::from_secs(0),
             transfer_approvers: Approvers::zero(),
             allowed_destinations: AllowedDestinations::zero()
         };
@@ -170,6 +191,9 @@ impl ProgramConfig {
         let wallet_config = &mut self.wallets[wallet_config_idx].borrow_mut();
         wallet_config.wallet_name_hash = config_update.name_hash;
         wallet_config.approvals_required_for_transfer = config_update.approvals_required_for_transfer;
+        if config_update.approval_timeout_for_transfer.as_secs() > 0 {
+            wallet_config.approval_timeout_for_transfer = config_update.approval_timeout_for_transfer;
+        }
 
         let approvers_count_after_update = wallet_config.transfer_approvers.count_enabled();
         if usize::from(config_update.approvals_required_for_transfer) > approvers_count_after_update {
@@ -178,6 +202,21 @@ impl ProgramConfig {
                 config_update.approvals_required_for_transfer,
                 approvers_count_after_update
             );
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if wallet_config.approvals_required_for_transfer == 0 {
+            msg!("Approvals required for transfer can't be 0");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if wallet_config.approval_timeout_for_transfer.as_secs() == 0 {
+            msg!("Approvals timeout for transfer can't be 0");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if wallet_config.transfer_approvers.count_enabled() == 0 {
+            msg!("At least one transfer approver has to be configured");
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -284,6 +323,7 @@ impl Pack for ProgramConfig {
         Signer::LEN + // assistant
         AddressBook::LEN +
         1 + // approvals_required_for_config
+        8 + // approval_timeout_for_config
         Approvers::STORAGE_SIZE + // config approvers
         1 + WalletConfig::LEN * ProgramConfig::MAX_WALLETS; // wallets with size
 
@@ -295,6 +335,7 @@ impl Pack for ProgramConfig {
             assistant_account_dst,
             address_book_dst,
             approvals_required_for_config_dst,
+            approval_timeout_for_config_dst,
             config_approvers_dst,
             wallets_count_dst,
             wallets_dst
@@ -304,6 +345,7 @@ impl Pack for ProgramConfig {
             Signer::LEN,
             AddressBook::LEN,
             1,
+            8,
             Approvers::STORAGE_SIZE,
             1,
             WalletConfig::LEN * ProgramConfig::MAX_WALLETS
@@ -316,6 +358,7 @@ impl Pack for ProgramConfig {
         self.address_book.pack_into_slice(address_book_dst);
 
         approvals_required_for_config_dst[0] = self.approvals_required_for_config;
+        *approval_timeout_for_config_dst = self.approval_timeout_for_config.as_secs().to_le_bytes();
 
         config_approvers_dst.copy_from_slice(self.config_approvers.as_bytes());
 
@@ -336,6 +379,7 @@ impl Pack for ProgramConfig {
             assistant,
             address_book_src,
             approvals_required_for_config,
+            approval_timeout_for_config,
             config_approvers_src,
             wallets_count,
             wallets_src
@@ -345,6 +389,7 @@ impl Pack for ProgramConfig {
             Signer::LEN,
             AddressBook::LEN,
             1,
+            8,
             Approvers::STORAGE_SIZE,
             1,
             WalletConfig::LEN * ProgramConfig::MAX_WALLETS
@@ -370,6 +415,7 @@ impl Pack for ProgramConfig {
             assistant: Signer::unpack_from_slice(assistant)?,
             address_book: AddressBook::unpack_from_slice(address_book_src)?,
             approvals_required_for_config: approvals_required_for_config[0],
+            approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(*approval_timeout_for_config)),
             config_approvers: Approvers::new(*config_approvers_src),
             wallets
         })
