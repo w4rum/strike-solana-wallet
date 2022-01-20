@@ -10,14 +10,14 @@ use solana_program::msg;
 use crate::error::WalletError;
 use crate::model::wallet_config::{AddressBookEntry, WalletConfig};
 use itertools::Itertools;
-use crate::model::opt_array::{OptArrayFlags, OptArray};
 use crate::model::signer::Signer;
+use crate::utils::{OptArray, OptArrayFlags};
 
 pub type Signers = OptArray<Signer, { ProgramConfig::MAX_SIGNERS }>;
-pub type Approvers = OptArrayFlags<Signer, { ProgramConfig::MAX_SIGNERS }, { ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE }>;
+pub type Approvers = OptArrayFlags<Signer, { Signers::FLAGS_STORAGE_SIZE }>;
 
 pub type AddressBook = OptArray<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }>;
-pub type AllowedDestinations = OptArrayFlags<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }, { ProgramConfig::ADDRESS_BOOK_FLAGS_STORAGE_SIZE }>;
+pub type AllowedDestinations = OptArrayFlags<AddressBookEntry, { AddressBook::FLAGS_STORAGE_SIZE }>;
 
 #[derive(Debug, Clone)]
 pub struct ProgramConfig {
@@ -41,9 +41,7 @@ impl IsInitialized for ProgramConfig {
 impl ProgramConfig {
     pub const MAX_WALLETS: usize = 10;
     pub const MAX_SIGNERS: usize = 25;
-    pub const SIGNERS_FLAGS_STORAGE_SIZE: usize = bitvec::mem::elts::<u8>(ProgramConfig::MAX_SIGNERS);
     pub const MAX_ADDRESS_BOOK_ENTRIES: usize = 100;
-    pub const ADDRESS_BOOK_FLAGS_STORAGE_SIZE: usize = bitvec::mem::elts::<u8>(ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
 
     pub fn get_config_approvers_keys(&self) -> Vec<Pubkey> {
         self.get_approvers_keys(&self.config_approvers)
@@ -187,13 +185,13 @@ impl ProgramConfig {
     }
 
     fn enable_config_approvers(&mut self, approvers: &Vec<Signer>) -> ProgramResult {
-        let signer_indexes = self.signers.find_refs(approvers);
-        if signer_indexes.len() < approvers.len() {
+        let signer_refs = self.signers.find_refs(approvers);
+        if signer_refs.len() < approvers.len() {
             msg!("One of the given config approvers is not configured as signer");
             return Err(ProgramError::InvalidArgument);
         }
-        for signer_idx in signer_indexes {
-            self.config_approvers.enable(signer_idx);
+        for r in signer_refs {
+            self.config_approvers.enable(r);
         }
         Ok(())
     }
@@ -205,10 +203,11 @@ impl ProgramConfig {
     }
 
     fn add_signers(&mut self, signers_to_add: &Vec<Signer>) -> ProgramResult {
-        if !self.signers.insert_many(signers_to_add) {
+        if !self.signers.has_capacity(signers_to_add.len()) {
             msg!("Program config supports up to {} signers", ProgramConfig::MAX_SIGNERS);
             return Err(ProgramError::InvalidArgument);
         }
+        self.signers.insert_many(signers_to_add);
         Ok(())
     }
 
@@ -224,10 +223,11 @@ impl ProgramConfig {
     }
 
     fn add_address_book_entries(&mut self, entries_to_add: &Vec<AddressBookEntry>) -> ProgramResult {
-        if !self.address_book.insert_many(entries_to_add) {
+        if !self.address_book.has_capacity(entries_to_add.len()) {
             msg!("Program config supports up to {} address book entries", ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
             return Err(ProgramError::InvalidArgument);
         }
+        self.address_book.insert_many(entries_to_add);
         Ok(())
     }
 
@@ -284,7 +284,7 @@ impl Pack for ProgramConfig {
         Signer::LEN + // assistant
         AddressBook::LEN +
         1 + // approvals_required_for_config
-        ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE + // config approvers
+        Approvers::STORAGE_SIZE + // config approvers
         1 + WalletConfig::LEN * ProgramConfig::MAX_WALLETS; // wallets with size
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
@@ -304,7 +304,7 @@ impl Pack for ProgramConfig {
             Signer::LEN,
             AddressBook::LEN,
             1,
-            ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE,
+            Approvers::STORAGE_SIZE,
             1,
             WalletConfig::LEN * ProgramConfig::MAX_WALLETS
         ];
@@ -345,7 +345,7 @@ impl Pack for ProgramConfig {
             Signer::LEN,
             AddressBook::LEN,
             1,
-            ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE,
+            Approvers::STORAGE_SIZE,
             1,
             WalletConfig::LEN * ProgramConfig::MAX_WALLETS
         ];

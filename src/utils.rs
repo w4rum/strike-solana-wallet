@@ -7,11 +7,6 @@ use std::marker::PhantomData;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
 
-#[derive(Debug, Clone)]
-pub struct OptArray<A, const SIZE: usize> {
-    array: Box<[Option<A>; SIZE]>
-}
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct OptArrayRef<A> {
     id: usize,
@@ -24,6 +19,12 @@ impl<A> OptArrayRef<A> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct OptArray<A, const SIZE: usize> {
+    array: Box<[Option<A>; SIZE]>,
+    free_slots: Vec<OptArrayRef<A>>
+}
+
 impl<A, const SIZE: usize> Index<OptArrayRef<A>> for OptArray<A, SIZE> {
     type Output = Option<A>;
 
@@ -33,30 +34,37 @@ impl<A, const SIZE: usize> Index<OptArrayRef<A>> for OptArray<A, SIZE> {
 }
 
 impl<A: Copy + PartialEq, const SIZE: usize> OptArray<A, SIZE> {
+    pub const FLAGS_STORAGE_SIZE: usize = bitvec::mem::elts::<u8>(SIZE);
+
     pub fn from_vec(vec: Vec<Option<A>>) -> OptArray<A, SIZE> {
-        unsafe {
+        let array = unsafe {
             // convert vector into a boxed array with static size
-            OptArray { array: Box::from_raw(Box::into_raw(vec.into_boxed_slice()) as *mut [Option<A>; SIZE]) }
-        }
+            Box::from_raw(Box::into_raw(vec.into_boxed_slice()) as *mut [Option<A>; SIZE])
+        };
+        let free_slots = array.iter().positions(|it| it.is_none()).map(OptArrayRef::new).collect_vec();
+
+        OptArray { array, free_slots }
     }
 
-    pub fn insert_many(&mut self, add_items: &Vec<A>) -> bool {
-        let mut add_items = add_items.clone();
+    pub fn has_capacity(&self, capacity: usize) -> bool {
+        self.free_slots.len() >= capacity
+    }
 
-        for item_opt in self.array.iter_mut() {
-            if add_items.is_empty() { break }
-            if item_opt.is_none() {
-                *item_opt = Some(*add_items.first().unwrap());
-                add_items.swap_remove(0);
-            }
+    pub fn insert_many(&mut self, add_items: &Vec<A>) {
+        if !self.has_capacity(add_items.len()) {
+            panic!("Not enough free slots");
         }
 
-        add_items.is_empty()
+        for item in add_items {
+            let slot = self.free_slots.pop().unwrap();
+            self.array[slot.id] = Some(*item);
+        }
     }
 
     pub fn remove_by_refs(&mut self, refs: &Vec<OptArrayRef<A>>) {
         for r in refs {
             self.array[r.id] = None;
+            self.free_slots.push(*r);
         }
     }
 
@@ -108,12 +116,14 @@ impl<A: Pack + Copy + PartialEq, const SIZE: usize> Pack for OptArray<A, SIZE> {
 }
 
 #[derive(Debug, Clone)]
-pub struct OptArrayFlags<A, const SIZE: usize, const STORAGE_SIZE: usize> {
+pub struct OptArrayFlags<A, const STORAGE_SIZE: usize> {
     bit_arr: BitArray<[u8; STORAGE_SIZE]>,
     item_type: PhantomData<A>
 }
 
-impl<A, const SIZE: usize, const STORAGE_SIZE: usize> OptArrayFlags<A, SIZE, STORAGE_SIZE> {
+impl<A, const STORAGE_SIZE: usize> OptArrayFlags<A, STORAGE_SIZE> {
+    pub const STORAGE_SIZE: usize = STORAGE_SIZE;
+
     pub fn new(data: [u8; STORAGE_SIZE]) -> Self {
         Self { bit_arr: BitArray::new(data), item_type: PhantomData }
     }
