@@ -10,7 +10,7 @@ use solana_program::system_program;
 use solana_program::{
     instruction::AccountMeta,
     pubkey::{Pubkey, PUBKEY_BYTES},
-    sysvar
+    sysvar,
 };
 
 use crate::model::multisig_op::ApprovalDisposition;
@@ -71,17 +71,21 @@ pub enum ProgramInstruction {
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The wallet config account
+    /// 1. `[writable]` The wallet config account
     /// 2. `[]` The source account
     /// 3. `[]` The destination account
-    /// 4. `[signer]` The fee payer account
-    /// 5. `[]` The program config account
-    /// 6. `[signer]` The initiator account (either the transaction assistant or an approver)
-    /// 7. `[]` The sysvar clock account
+    /// 4. `[]` The program config account
+    /// 5. `[signer]` The initiator account (either the transaction assistant or an approver)
+    /// 6. `[]` The sysvar clock account
+    /// 7. `[]` The token mint (for SPL transfers, use system account otherwise)
+    /// 8. `[writable]` The destination token account (only used for SPL transfers)
+    /// 9. `[]` The system program (only used for SPL transfers)
+    /// 10. `[]` The SPL token program (only used for SPL transfers)
+    /// 11. `[]` The Rent sysvar program (only used for SPL transfers)
+    /// 12. `[]` The SPL associated token program (only used for SPL transfers)
     InitTransfer {
         amount: u64,
         destination_name_hash: [u8; 32],
-        token_mint: Pubkey,
     },
 
     /// 0  `[writable]` The multisig operation account
@@ -99,11 +103,11 @@ pub enum ProgramInstruction {
     /// 3. `[]` The wallet config account
     /// 4. `[]` The system program
     /// 5. `[signer]` The rent collector account
-    /// 6. `[writable]` The source token account, if this is an SPL transfer
-    /// 7. `[writable]` The destination token account, if this is an SPL transfer
-    /// 8. `[]` The SPL token program account, if this is an SPL transfer
-    /// 9. `[]` The token mint authority, if this is an SPL transfer
-    /// 10. `[]` The sysvar clock account
+    /// 6. `[]` The sysvar clock account
+    /// 7. `[writable]` The source token account, if this is an SPL transfer
+    /// 8. `[writable]` The destination token account, if this is an SPL transfer
+    /// 9. `[]` The SPL token program account, if this is an SPL transfer
+    /// 10. `[]` The token mint authority, if this is an SPL transfer
     FinalizeTransfer { amount: u64, token_mint: Pubkey },
 }
 
@@ -177,12 +181,10 @@ impl ProgramInstruction {
             &ProgramInstruction::InitTransfer {
                 ref amount,
                 ref destination_name_hash,
-                ref token_mint,
             } => {
                 buf.push(7);
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.extend_from_slice(destination_name_hash);
-                buf.extend_from_slice(&token_mint.to_bytes())
             }
             &ProgramInstruction::FinalizeTransfer {
                 ref amount,
@@ -304,17 +306,9 @@ impl ProgramInstruction {
             .and_then(|slice| slice.try_into().ok())
             .ok_or(ProgramError::InvalidInstructionData)?;
 
-        let token_mint = Pubkey::new_from_array(
-            bytes
-                .get(40..72)
-                .and_then(|slice| slice.try_into().ok())
-                .ok_or(ProgramError::InvalidInstructionData)?,
-        );
-
         Ok(Self::InitTransfer {
             amount,
             destination_name_hash,
-            token_mint,
         })
     }
 
@@ -483,7 +477,8 @@ impl WalletConfigUpdate {
         dst.resize(dst.len() + len, 0);
         dst[0..approvals_required_for_transfer_offset].copy_from_slice(&self.name_hash);
         dst[approvals_required_for_transfer_offset] = self.approvals_required_for_transfer;
-        dst[approval_timeout_offset..add_approvers_offset].copy_from_slice(&self.approval_timeout_for_transfer.as_secs().to_le_bytes());
+        dst[approval_timeout_offset..add_approvers_offset]
+            .copy_from_slice(&self.approval_timeout_for_transfer.as_secs().to_le_bytes());
 
         dst[add_approvers_offset] = self.add_approvers.len() as u8;
         dst[add_approvers_offset + 1..remove_approvers_offset]
@@ -532,7 +527,8 @@ fn unpack_wallet_guid_hash(bytes: &[u8]) -> Result<[u8; 32], ProgramError> {
 }
 
 fn unpack_timeout(bytes: &[u8]) -> Result<u64, ProgramError> {
-    bytes.get(..8)
+    bytes
+        .get(..8)
         .and_then(|slice| slice.try_into().ok())
         .map(u64::from_le_bytes)
         .ok_or(ProgramError::InvalidInstructionData)
@@ -639,7 +635,7 @@ pub fn set_approval_disposition(
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*approver, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false)
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     Instruction {
@@ -826,19 +822,27 @@ pub fn init_transfer(
     let data = ProgramInstruction::InitTransfer {
         amount,
         destination_name_hash,
-        token_mint: *token_mint,
     }
     .borrow()
     .pack();
 
+    let destination_token_account =
+        spl_associated_token_account::get_associated_token_address(destination_account, token_mint);
+
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*wallet_account, false),
-        AccountMeta::new_readonly(*source_account, false),
+        AccountMeta::new(*source_account, false),
         AccountMeta::new_readonly(*destination_account, false),
         AccountMeta::new_readonly(*program_config_account, false),
         AccountMeta::new_readonly(*assistant_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false)
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
+        AccountMeta::new_readonly(*token_mint, false),
+        AccountMeta::new(destination_token_account, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new_readonly(spl_token::id(), false),
+        AccountMeta::new_readonly(sysvar::rent::id(), false),
+        AccountMeta::new_readonly(spl_associated_token_account::id(), false),
     ];
 
     Instruction {

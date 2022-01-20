@@ -37,12 +37,12 @@ impl ApprovalDisposition {
     }
 }
 
-#[derive(Debug,PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum OperationDisposition {
     NONE = 0,
     APPROVED = 1,
     DENIED = 2,
-    EXPIRED = 3
+    EXPIRED = 3,
 }
 
 impl OperationDisposition {
@@ -101,7 +101,7 @@ pub struct MultisigOp {
     pub params_hash: Hash,
     pub started_at: i64,
     pub expires_at: i64,
-    pub operation_disposition: OperationDisposition
+    pub operation_disposition: OperationDisposition,
 }
 
 impl MultisigOp {
@@ -141,7 +141,7 @@ impl MultisigOp {
         &mut self,
         approver: &AccountInfo,
         disposition: ApprovalDisposition,
-        clock: &Clock
+        clock: &Clock,
     ) -> ProgramResult {
         if disposition != ApprovalDisposition::APPROVE && disposition != ApprovalDisposition::DENY {
             msg!("Invalid Disposition provided");
@@ -174,30 +174,39 @@ impl MultisigOp {
 
     pub fn update_operation_disposition(&mut self, clock: &Clock) -> OperationDisposition {
         if self.operation_disposition != OperationDisposition::NONE {
-            return self.operation_disposition
+            return self.operation_disposition;
         }
         if clock.unix_timestamp > self.expires_at {
             self.operation_disposition = OperationDisposition::EXPIRED
-        } else if self.get_disposition_count(ApprovalDisposition::APPROVE) == self.dispositions_required {
+        } else if self.get_disposition_count(ApprovalDisposition::APPROVE)
+            == self.dispositions_required
+        {
             self.operation_disposition = OperationDisposition::APPROVED
-        } else if self.get_disposition_count(ApprovalDisposition::DENY) == self.dispositions_required {
+        } else if self.get_disposition_count(ApprovalDisposition::DENY)
+            == self.dispositions_required
+        {
             self.operation_disposition = OperationDisposition::DENIED
         }
-        return self.operation_disposition
+        return self.operation_disposition;
     }
 
-
-    pub fn approved(&self, expected_params: &MultisigOpParams, clock: &Clock) -> Result<bool, ProgramError> {
+    pub fn approved(
+        &self,
+        expected_params: &MultisigOpParams,
+        clock: &Clock,
+    ) -> Result<bool, ProgramError> {
         if expected_params.hash() != self.params_hash {
             return Err(WalletError::InvalidSignature.into());
         }
 
-        if self.operation_disposition == OperationDisposition::NONE && clock.unix_timestamp < self.expires_at {
+        if self.operation_disposition == OperationDisposition::NONE
+            && clock.unix_timestamp < self.expires_at
+        {
             return Err(WalletError::TransferDispositionNotFinal.into());
         }
 
         if self.operation_disposition == OperationDisposition::APPROVED {
-            return Ok(true)
+            return Ok(true);
         }
 
         Ok(false)
@@ -226,7 +235,7 @@ impl Pack for MultisigOp {
             hash_dst,
             started_at_dst,
             expires_at_dst,
-            operation_disposition_dst
+            operation_disposition_dst,
         ) = mut_array_refs![
             dst,
             1,
@@ -246,7 +255,7 @@ impl Pack for MultisigOp {
             params_hash: hash,
             started_at,
             expires_at,
-            operation_disposition
+            operation_disposition,
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
@@ -275,7 +284,7 @@ impl Pack for MultisigOp {
             hash,
             started_at,
             expires_at,
-            operation_disposition
+            operation_disposition,
         ) = array_refs![
             src,
             1,
@@ -310,7 +319,7 @@ impl Pack for MultisigOp {
             params_hash: Hash::new_from_array(*hash),
             started_at: i64::from_le_bytes(*started_at),
             expires_at: i64::from_le_bytes(*expires_at),
-            operation_disposition: OperationDisposition::from_u8(operation_disposition[0])
+            operation_disposition: OperationDisposition::from_u8(operation_disposition[0]),
         })
     }
 }

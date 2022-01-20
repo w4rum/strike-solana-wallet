@@ -56,9 +56,10 @@ impl ProgramConfig {
     }
 
     pub fn validate_initial_settings(config_update: &ProgramConfigUpdate) -> ProgramResult {
-        if config_update.approvals_required_for_config == 0 ||
-            config_update.approval_timeout_for_config.as_secs() == 0 ||
-            config_update.add_approvers.len() == 0 {
+        if config_update.approvals_required_for_config == 0
+            || config_update.approval_timeout_for_config.as_secs() == 0
+            || config_update.add_approvers.len() == 0
+        {
             return Err(ProgramError::InvalidArgument);
         }
         Ok(())
@@ -196,7 +197,9 @@ impl Pack for ProgramConfig {
         Ok(ProgramConfig {
             is_initialized,
             approvals_required_for_config: approvals_required_for_config[0],
-            approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(*approval_timeout_for_config)),
+            approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(
+                *approval_timeout_for_config,
+            )),
             config_approvers,
             assistant: Pubkey::new_from_array(*assistant),
         })
