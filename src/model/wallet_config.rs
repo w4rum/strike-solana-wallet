@@ -2,11 +2,7 @@ use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::program_pack::{Sealed, Pack};
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
-use crate::model::program_config::ProgramConfig;
-use bitvec::prelude::*;
-
-pub type AllowedDestinations = BitArr!(for ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES, in u8);
-pub type Approvers = BitArr!(for ProgramConfig::MAX_SIGNERS, in u8);
+use crate::model::program_config::{AllowedDestinations, Approvers};
 
 #[derive(Debug, Clone)]
 pub struct WalletConfig {
