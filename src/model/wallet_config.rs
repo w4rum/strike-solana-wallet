@@ -2,7 +2,7 @@ use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::program_pack::{Sealed, Pack};
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
-use crate::model::program_config::{AllowedDestinations, Approvers};
+use crate::model::program_config::{AllowedDestinations, Approvers, ProgramConfig};
 
 #[derive(Debug, Clone)]
 pub struct WalletConfig {
@@ -19,8 +19,8 @@ impl Pack for WalletConfig {
     const LEN: usize = 32 + // guid_hash
         32 + // name_hash
         1 + // approvals_required_for_transfer
-        4 + // size of approvers bitvec
-        13; // size of allowed destinations bitvec
+        ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE + // transfer approvers
+        ProgramConfig::ADDRESS_BOOK_FLAGS_STORAGE_SIZE; // allowed destinations
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, WalletConfig::LEN];
@@ -30,15 +30,15 @@ impl Pack for WalletConfig {
             approvals_required_for_transfer_dst,
             approvers_dst,
             allowed_destinations_dst
-        ) = mut_array_refs![dst, 32, 32, 1, 4, 13];
+        ) = mut_array_refs![dst, 32, 32, 1, ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE, ProgramConfig::ADDRESS_BOOK_FLAGS_STORAGE_SIZE];
 
         guid_hash_dst.copy_from_slice(&self.wallet_guid_hash);
         name_hash_dst.copy_from_slice(&self.wallet_name_hash);
 
         approvals_required_for_transfer_dst[0] = self.approvals_required_for_transfer;
 
-        approvers_dst.copy_from_slice(self.transfer_approvers.as_raw_slice());
-        allowed_destinations_dst.copy_from_slice(self.allowed_destinations.as_raw_slice());
+        approvers_dst.copy_from_slice(self.transfer_approvers.as_bytes());
+        allowed_destinations_dst.copy_from_slice(self.allowed_destinations.as_bytes());
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -49,7 +49,7 @@ impl Pack for WalletConfig {
             approvals_required_for_transfer_src,
             approvers_src,
             allowed_destinations_src
-        ) = array_refs![src, 32, 32, 1, 4, 13];
+        ) = array_refs![src, 32, 32, 1, ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE, ProgramConfig::ADDRESS_BOOK_FLAGS_STORAGE_SIZE];
 
         Ok(WalletConfig {
             wallet_guid_hash: *guid_hash_src,

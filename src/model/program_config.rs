@@ -10,14 +10,14 @@ use solana_program::msg;
 use crate::error::WalletError;
 use crate::model::wallet_config::{AddressBookEntry, WalletConfig};
 use itertools::Itertools;
-use crate::model::opt_array::OptArray;
+use crate::model::opt_array::{OptArrayFlags, OptArray};
 use crate::model::signer::Signer;
-use bitvec::prelude::*;
 
 pub type Signers = OptArray<Signer, { ProgramConfig::MAX_SIGNERS }>;
+pub type Approvers = OptArrayFlags<Signer, { ProgramConfig::MAX_SIGNERS }, { ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE }>;
+
 pub type AddressBook = OptArray<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }>;
-pub type AllowedDestinations = BitArr!(for ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES, in u8);
-pub type Approvers = BitArr!(for ProgramConfig::MAX_SIGNERS, in u8);
+pub type AllowedDestinations = OptArrayFlags<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }, { ProgramConfig::ADDRESS_BOOK_FLAGS_STORAGE_SIZE }>;
 
 #[derive(Debug, Clone)]
 pub struct ProgramConfig {
@@ -41,7 +41,9 @@ impl IsInitialized for ProgramConfig {
 impl ProgramConfig {
     pub const MAX_WALLETS: usize = 10;
     pub const MAX_SIGNERS: usize = 25;
+    pub const SIGNERS_FLAGS_STORAGE_SIZE: usize = bitvec::mem::elts::<u8>(ProgramConfig::MAX_SIGNERS);
     pub const MAX_ADDRESS_BOOK_ENTRIES: usize = 100;
+    pub const ADDRESS_BOOK_FLAGS_STORAGE_SIZE: usize = bitvec::mem::elts::<u8>(ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
 
     pub fn get_config_approvers_keys(&self) -> Vec<Pubkey> {
         self.get_approvers_keys(&self.config_approvers)
@@ -53,8 +55,8 @@ impl ProgramConfig {
 
     fn get_approvers_keys(&self, approvers: &Approvers) -> Vec<Pubkey> {
         approvers
-            .iter_ones()
-            .filter_map(|idx| self.signers[idx].map(|it| it.key))
+            .iter_enabled()
+            .filter_map(|r| self.signers[r].map(|signer| signer.key))
             .collect_vec()
     }
 
@@ -90,8 +92,8 @@ impl ProgramConfig {
     }
 
     pub fn destination_allowed(&self, wallet_config: &WalletConfig, address: &Pubkey, name_hash: &[u8; 32]) -> Result<bool, ProgramError> {
-        Ok(match self.address_book.find_index(&AddressBookEntry { address: *address, name_hash: *name_hash }) {
-            Some(entry_idx) => wallet_config.allowed_destinations[entry_idx],
+        Ok(match self.address_book.find_ref(&AddressBookEntry { address: *address, name_hash: *name_hash }) {
+            Some(entry_ref) => wallet_config.allowed_destinations.is_enabled(entry_ref),
             None => false
         })
     }
@@ -119,7 +121,7 @@ impl ProgramConfig {
             self.add_address_book_entries(&config_update.add_address_book_entries)?;
         }
 
-        let approvers_count_after_update = self.config_approvers.count_ones();
+        let approvers_count_after_update = self.config_approvers.count_enabled();
         if usize::from(config_update.approvals_required_for_config) > approvers_count_after_update {
             msg!(
                 "Approvals required for config {} can't exceed configured approvers count {}",
@@ -142,8 +144,8 @@ impl ProgramConfig {
             wallet_guid_hash: *wallet_guid_hash,
             wallet_name_hash: [0; 32],
             approvals_required_for_transfer: 0,
-            transfer_approvers: Approvers::ZERO,
-            allowed_destinations: AllowedDestinations::ZERO
+            transfer_approvers: Approvers::zero(),
+            allowed_destinations: AllowedDestinations::zero()
         };
         self.wallets.push(wallet_config);
         self.update_wallet_config(wallet_guid_hash, config_update)
@@ -171,7 +173,7 @@ impl ProgramConfig {
         wallet_config.wallet_name_hash = config_update.name_hash;
         wallet_config.approvals_required_for_transfer = config_update.approvals_required_for_transfer;
 
-        let approvers_count_after_update = wallet_config.transfer_approvers.count_ones();
+        let approvers_count_after_update = wallet_config.transfer_approvers.count_enabled();
         if usize::from(config_update.approvals_required_for_transfer) > approvers_count_after_update {
             msg!(
                 "Approvals required for transfer {} can't exceed configured approvers count {}",
@@ -185,25 +187,25 @@ impl ProgramConfig {
     }
 
     fn enable_config_approvers(&mut self, approvers: &Vec<Signer>) -> ProgramResult {
-        let signer_indexes = self.signers.find_indexes(approvers);
+        let signer_indexes = self.signers.find_refs(approvers);
         if signer_indexes.len() < approvers.len() {
             msg!("One of the given config approvers is not configured as signer");
             return Err(ProgramError::InvalidArgument);
         }
         for signer_idx in signer_indexes {
-            self.config_approvers.set(signer_idx, true);
+            self.config_approvers.enable(signer_idx);
         }
         Ok(())
     }
 
     fn disable_config_approvers(&mut self, approvers: &Vec<Signer>) {
-        for signer_idx in self.signers.find_indexes(approvers) {
-            self.config_approvers.set(signer_idx, false);
+        for r in self.signers.find_refs(approvers) {
+            self.config_approvers.disable(r);
         }
     }
 
     fn add_signers(&mut self, signers_to_add: &Vec<Signer>) -> ProgramResult {
-        if !self.signers.add_items(signers_to_add) {
+        if !self.signers.insert_many(signers_to_add) {
             msg!("Program config supports up to {} signers", ProgramConfig::MAX_SIGNERS);
             return Err(ProgramError::InvalidArgument);
         }
@@ -211,16 +213,18 @@ impl ProgramConfig {
     }
 
     fn remove_signers(&mut self, signers_to_remove: &Vec<Signer>) {
-        for removed_signer_idx in self.signers.remove_items(signers_to_remove) {
-            self.config_approvers.set(removed_signer_idx, false);
+        let remove_refs = self.signers.find_refs(signers_to_remove);
+        for r in remove_refs.iter() {
+            self.config_approvers.disable(*r);
             for wallet_config in self.wallets.iter_mut() {
-                wallet_config.transfer_approvers.set(removed_signer_idx, false);
+                wallet_config.transfer_approvers.disable(*r);
             }
         }
+        self.signers.remove_by_refs(&remove_refs);
     }
 
     fn add_address_book_entries(&mut self, entries_to_add: &Vec<AddressBookEntry>) -> ProgramResult {
-        if !self.address_book.add_items(entries_to_add) {
+        if !self.address_book.insert_many(entries_to_add) {
             msg!("Program config supports up to {} address book entries", ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
             return Err(ProgramError::InvalidArgument);
         }
@@ -228,46 +232,48 @@ impl ProgramConfig {
     }
 
     fn remove_address_book_entries(&mut self, entries_to_remove: &Vec<AddressBookEntry>) {
-        for removed_entry_idx in self.address_book.remove_items(entries_to_remove) {
+        let entries_refs = self.address_book.find_refs(entries_to_remove);
+        for r in entries_refs.iter() {
             for wallet_config in self.wallets.iter_mut() {
-                wallet_config.allowed_destinations.set(removed_entry_idx, false);
+                wallet_config.allowed_destinations.disable(*r);
             }
         }
+        self.address_book.remove_by_refs(&entries_refs);
     }
 
     fn enable_transfer_approvers(&mut self, wallet_config_index: usize, approvers: &Vec<Signer>) -> ProgramResult {
-        let signer_indexes = self.signers.find_indexes(approvers);
-        if signer_indexes.len() < approvers.len() {
+        let signer_refs = self.signers.find_refs(approvers);
+        if signer_refs.len() < approvers.len() {
             msg!("One of the given transfer approvers is not configured as signer");
             return Err(ProgramError::InvalidArgument);
         }
-        for i in signer_indexes {
-            self.wallets[wallet_config_index].transfer_approvers.set(i, true);
+        for r in signer_refs {
+            self.wallets[wallet_config_index].transfer_approvers.enable(r);
         }
         Ok(())
     }
 
     fn disable_transfer_approvers(&mut self, wallet_config_index: usize, approvers: &Vec<Signer>) {
-        for i in self.signers.find_indexes(approvers) {
-            self.wallets[wallet_config_index].transfer_approvers.set(i, false);
+        for r in self.signers.find_refs(approvers) {
+            self.wallets[wallet_config_index].transfer_approvers.disable(r);
         }
     }
 
     fn enable_transfer_destinations(&mut self, wallet_config_index: usize, destinations: &Vec<AddressBookEntry>) -> ProgramResult {
-        let dst_indexes = self.address_book.find_indexes(destinations);
-        if dst_indexes.len() < destinations.len() {
+        let dst_refs = self.address_book.find_refs(destinations);
+        if dst_refs.len() < destinations.len() {
             msg!("Address book does not contain one of the given destinations");
             return Err(ProgramError::InvalidArgument);
         }
-        for i in dst_indexes {
-            self.wallets[wallet_config_index].allowed_destinations.set(i, true);
+        for r in dst_refs {
+            self.wallets[wallet_config_index].allowed_destinations.enable(r);
         }
         Ok(())
     }
 
     fn disable_transfer_destinations(&mut self, wallet_config_index: usize, destinations: &Vec<AddressBookEntry>) {
-        for i in self.address_book.find_indexes(destinations) {
-            self.wallets[wallet_config_index].allowed_destinations.set(i, false);
+        for r in self.address_book.find_refs(destinations) {
+            self.wallets[wallet_config_index].allowed_destinations.disable(r);
         }
     }
 }
@@ -278,7 +284,7 @@ impl Pack for ProgramConfig {
         Signer::LEN + // assistant
         AddressBook::LEN +
         1 + // approvals_required_for_config
-        4 + // config approvers bitvec
+        ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE + // config approvers
         1 + WalletConfig::LEN * ProgramConfig::MAX_WALLETS; // wallets with size
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
@@ -298,7 +304,7 @@ impl Pack for ProgramConfig {
             Signer::LEN,
             AddressBook::LEN,
             1,
-            4,
+            ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE,
             1,
             WalletConfig::LEN * ProgramConfig::MAX_WALLETS
         ];
@@ -311,7 +317,7 @@ impl Pack for ProgramConfig {
 
         approvals_required_for_config_dst[0] = self.approvals_required_for_config;
 
-        config_approvers_dst.copy_from_slice(self.config_approvers.as_raw_slice());
+        config_approvers_dst.copy_from_slice(self.config_approvers.as_bytes());
 
         wallets_count_dst[0] = self.wallets.len() as u8;
         wallets_dst.fill(0);
@@ -339,7 +345,7 @@ impl Pack for ProgramConfig {
             Signer::LEN,
             AddressBook::LEN,
             1,
-            4,
+            ProgramConfig::SIGNERS_FLAGS_STORAGE_SIZE,
             1,
             WalletConfig::LEN * ProgramConfig::MAX_WALLETS
         ];
