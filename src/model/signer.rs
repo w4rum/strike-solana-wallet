@@ -7,6 +7,12 @@ pub struct Signer {
     pub key: Pubkey
 }
 
+impl Signer {
+    pub fn new(key: Pubkey) -> Self {
+        Signer { key }
+    }
+}
+
 impl Sealed for Signer {}
 
 impl Pack for Signer {

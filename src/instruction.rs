@@ -514,15 +514,8 @@ fn init_multisig_op(
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
     data: Vec<u8>,
-    wallet_config_account: Option<&Pubkey>,
 ) -> Instruction {
     let mut accounts = vec![AccountMeta::new(*multisig_op_account, false)];
-    if wallet_config_account.is_some() {
-        accounts.push(AccountMeta::new_readonly(
-            *wallet_config_account.unwrap(),
-            false,
-        ))
-    }
     accounts.push(AccountMeta::new_readonly(*program_config_account, false));
     accounts.push(AccountMeta::new_readonly(*assistant_account, true));
     accounts.push(AccountMeta::new_readonly(sysvar::clock::id(), false));
@@ -566,7 +559,6 @@ pub fn program_init_config_update(
         multisig_op_account,
         assistant_account,
         data,
-        None,
     )
 }
 pub fn set_approval_disposition(
@@ -649,13 +641,12 @@ pub fn init_wallet_creation(
         multisig_op_account,
         assistant_account,
         data,
-        None,
     )
 }
+
 pub fn finalize_wallet_creation(
     program_id: &Pubkey,
     program_config_account: &Pubkey,
-    wallet_config_account: &Pubkey,
     multisig_op_account: &Pubkey,
     rent_collector_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
@@ -670,7 +661,6 @@ pub fn finalize_wallet_creation(
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*program_config_account, false),
-        AccountMeta::new(*wallet_config_account, false),
         AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
@@ -686,7 +676,6 @@ pub fn init_wallet_config_update(
     program_config_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
-    wallet_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
     name_hash: [u8; 32],
     approvals_required_for_transfer: u8,
@@ -715,13 +704,12 @@ pub fn init_wallet_config_update(
         program_config_account,
         multisig_op_account,
         assistant_account,
-        data,
-        Some(wallet_account),
+        data
     )
 }
 pub fn finalize_wallet_config_update(
     program_id: &Pubkey,
-    wallet_config_account: &Pubkey,
+    program_config_account: &Pubkey,
     multisig_op_account: &Pubkey,
     rent_collector_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
@@ -735,7 +723,7 @@ pub fn finalize_wallet_config_update(
     .pack();
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*wallet_config_account, false),
+        AccountMeta::new(*program_config_account, false),
         AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
@@ -751,8 +739,6 @@ pub fn init_transfer(
     program_config_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
-    wallet_account: &Pubkey,
-    source_account: &Pubkey,
     destination_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
     amount: u64,
@@ -769,10 +755,8 @@ pub fn init_transfer(
     .pack();
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*wallet_account, false),
-        AccountMeta::new_readonly(*source_account, false),
-        AccountMeta::new_readonly(*destination_account, false),
         AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new_readonly(*destination_account, false),
         AccountMeta::new_readonly(*assistant_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false)
     ];
@@ -783,12 +767,13 @@ pub fn init_transfer(
         data,
     }
 }
+
 pub fn finalize_transfer(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
+    program_config_account: &Pubkey,
     source_account: &Pubkey,
     destination_account: &Pubkey,
-    wallet_config_account: &Pubkey,
     rent_collector_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
     amount: u64,
@@ -804,9 +789,9 @@ pub fn finalize_transfer(
     .pack();
     let mut accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new_readonly(*program_config_account, false),
         AccountMeta::new(*source_account, false),
         AccountMeta::new(*destination_account, false),
-        AccountMeta::new_readonly(*wallet_config_account, false),
         AccountMeta::new_readonly(system_program::id(), false),
         AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),

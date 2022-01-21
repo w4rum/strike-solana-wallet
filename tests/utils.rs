@@ -15,14 +15,14 @@ use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, MultisigOp, MultisigOpParams,
     OperationDisposition
 };
-use strike_wallet::model::wallet_config::{AllowedDestination, WalletConfig};
+use strike_wallet::model::wallet_config::{AddressBookEntry, WalletConfig};
 use uuid::Uuid;
 use {
     solana_program::{program_pack::Pack, pubkey::Pubkey},
     solana_program_test::BanksClient,
     solana_sdk::{
         hash::Hash,
-        signature::{Keypair, Signer},
+        signature::{Keypair, Signer as SdkSigner},
         system_instruction,
         transaction::Transaction,
         transport::TransportError,
@@ -31,6 +31,8 @@ use {
         instruction::program_init, model::program_config::ProgramConfig, processor::Processor,
     },
 };
+use strike_wallet::model::signer::Signer;
+use itertools::Itertools;
 
 pub async fn init_program(
     banks_client: &mut BanksClient,
@@ -40,8 +42,10 @@ pub async fn init_program(
     program_config_account: &Keypair,
     assistant_account: &Keypair,
     approvals_required_for_config: Option<u8>,
-    config_approvers: Option<Vec<Pubkey>>,
+    signers: Option<Vec<Signer>>,
+    config_approvers: Option<Vec<Signer>>,
     approval_timeout_for_config: Option<Duration>,
+    address_book: Option<Vec<AddressBookEntry>>,
 ) -> Result<(), TransportError> {
     let rent = banks_client.get_rent().await.unwrap();
     let program_rent = rent.minimum_balance(ProgramConfig::LEN);
@@ -59,9 +63,11 @@ pub async fn init_program(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
                 &assistant_account.pubkey(),
+                signers.unwrap_or(Vec::new()),
                 config_approvers.unwrap_or(Vec::new()),
                 approvals_required_for_config.unwrap_or(0),
                 approval_timeout_for_config.unwrap_or(Duration::from_secs(0)),
+                address_book.unwrap_or(Vec::new())
             ),
         ],
         Some(&payer.pubkey()),
@@ -83,6 +89,15 @@ pub struct ProgramConfigUpdateContext {
     pub expected_config_update: ProgramConfigUpdate,
 }
 
+pub trait SignerKey {
+    fn pubkey_as_signer(&self) -> Signer;
+}
+impl SignerKey for Keypair {
+    fn pubkey_as_signer(&self) -> Signer {
+        Signer::new(self.pubkey())
+    }
+}
+
 pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
     let program_owner = Keypair::new();
     let mut pt = ProgramTest::new(
@@ -98,6 +113,13 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
 
+    let address_book = vec![
+        AddressBookEntry {
+            address: Pubkey::new_unique(),
+            name_hash: [0; 32],
+        }
+    ];
+
     // first initialize the program config
     init_program(
         &mut banks_client,
@@ -107,8 +129,10 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
         &program_config_account,
         &assistant_account,
         Some(1),
-        Some(vec![approvers[0].pubkey(), approvers[1].pubkey()]),
-        Some(Duration::from_secs(3600))
+        Some(vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer()]),
+        Some(vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer()]),
+        Some(Duration::from_secs(3600)),
+        Some(address_book)
     )
     .await
     .unwrap();
@@ -132,8 +156,12 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
                 &assistant_account.pubkey(),
                 2,
                 Duration::from_secs(7200),
-                vec![approvers[2].pubkey()],
-                vec![approvers[0].pubkey()],
+                Vec::new(),
+                Vec::new(),
+                vec![approvers[2].pubkey_as_signer()],
+                vec![approvers[0].pubkey_as_signer()],
+                Vec::new(),
+                Vec::new()
             ),
         ],
         Some(&payer.pubkey()),
@@ -148,8 +176,12 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
     let expected_config_update = ProgramConfigUpdate {
         approvals_required_for_config: 2,
         approval_timeout_for_config: Duration::from_secs(7200),
-        add_approvers: vec![approvers[2].pubkey()],
-        remove_approvers: vec![approvers[0].pubkey()],
+        add_signers: Vec::new(),
+        remove_signers: Vec::new(),
+        add_config_approvers: vec![approvers[2].pubkey_as_signer()],
+        remove_config_approvers: vec![approvers[0].pubkey_as_signer()],
+        add_address_book_entries: Vec::new(),
+        remove_address_book_entries: Vec::new()
     };
 
     ProgramConfigUpdateContext {
@@ -181,6 +213,7 @@ pub async fn approve_or_deny_n_of_n_multisig_op(
                 program_owner,
                 multisig_op_account,
                 &approver.pubkey(),
+                &payer.pubkey(),
                 disposition
             )],
             Some(&payer.pubkey()),
@@ -232,6 +265,7 @@ pub async fn approve_or_deny_1_of_2_multisig_op(
             program_owner,
             multisig_op_account,
             &approver.pubkey(),
+            &payer.pubkey(),
             disposition
         )],
         Some(&payer.pubkey()),
@@ -288,7 +322,7 @@ pub struct WalletTestContext {
     pub wallet_name_hash: [u8; 32],
     pub wallet_guid_hash: [u8; 32],
     pub destination_name_hash: [u8; 32],
-    pub allowed_destination: AllowedDestination,
+    pub allowed_destination: AddressBookEntry,
     pub destination: Keypair,
 }
 
@@ -307,6 +341,13 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
 
+    let destination = Keypair::new();
+    let destination_name_hash = hash_of(b"Destination Name");
+    let addr_book_entry = AddressBookEntry {
+        address: destination.pubkey(),
+        name_hash: destination_name_hash,
+    };
+
     // first initialize the program config
     init_program(
         &mut banks_client,
@@ -316,8 +357,10 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
         &program_config_account,
         &assistant_account,
         Some(1),
-        Some(vec![approvers[0].pubkey(), approvers[1].pubkey()]),
-        Some(Duration::from_secs(3600))
+        Some(vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer()]),
+        Some(vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer()]),
+        Some(Duration::from_secs(3600)),
+        Some(vec![addr_book_entry])
     )
     .await
     .unwrap();
@@ -327,13 +370,7 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let wallet_guid = Uuid::new_v4();
     let account_name_hash = hash_of(b"Account Name");
-    let destination = Keypair::new();
-    let destination_name_hash = hash_of(b"Destination Name");
     let wallet_guid_hash = hash_of(wallet_guid.as_bytes());
-    let allowed_destination = AllowedDestination {
-        address: destination.pubkey(),
-        name_hash: destination_name_hash,
-    };
 
     let init_transaction = Transaction::new_signed_with_payer(
         &[
@@ -353,8 +390,8 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
                 account_name_hash,
                 2,
                 Duration::from_secs(1800),
-                vec![approvers[1].pubkey(), approvers[2].pubkey()],
-                vec![allowed_destination],
+                vec![approvers[1].pubkey_as_signer(), approvers[2].pubkey_as_signer()],
+                vec![addr_book_entry],
             ),
         ],
         Some(&payer.pubkey()),
@@ -396,9 +433,9 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
         name_hash: *array_ref!(account_name_hash, 0, 32),
         approvals_required_for_transfer: 2,
         approval_timeout_for_transfer: Duration::from_secs(1800),
-        add_approvers: vec![approvers[1].pubkey(), approvers[2].pubkey()],
-        remove_approvers: vec![],
-        add_allowed_destinations: vec![allowed_destination],
+        add_transfer_approvers: vec![approvers[1].pubkey_as_signer(), approvers[2].pubkey_as_signer()],
+        remove_transfer_approvers: vec![],
+        add_allowed_destinations: vec![addr_book_entry],
         remove_allowed_destinations: vec![],
     };
 
@@ -425,7 +462,7 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
         wallet_name_hash: account_name_hash,
         wallet_guid_hash,
         destination_name_hash,
-        allowed_destination,
+        allowed_destination: addr_book_entry,
         destination,
     }
 }
@@ -457,11 +494,11 @@ pub async fn setup_init_wallet_failure_tests(bpf_compute_max_units: Option<u64>,
         &program_config_account,
         &assistant_account,
         Some(1),
-        Some(vec![approvers[0].pubkey(), approvers[1].pubkey()]),
-        Some(Duration::from_secs(3600))
-    )
-        .await
-        .unwrap();
+        Some(vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer()]),
+        Some(vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer()]),
+        Some(Duration::from_secs(3600)),
+        Some(vec![]),
+    ).await.unwrap();
 
     // now initialize a wallet creation
     let rent = banks_client.get_rent().await.unwrap();
@@ -488,7 +525,7 @@ pub async fn setup_init_wallet_failure_tests(bpf_compute_max_units: Option<u64>,
                 account_name_hash,
                 approvals_required_for_transfer,
                 approval_timeout_for_transfer,
-                transfer_approvers,
+                transfer_approvers.iter().map(|pk| Signer::new(*pk)).collect_vec(),
                 vec![],
             ),
         ],
@@ -503,23 +540,12 @@ pub async fn setup_init_wallet_failure_tests(bpf_compute_max_units: Option<u64>,
         .unwrap()
 }
 
-pub async fn finalize_wallet(context: &mut WalletTestContext) -> Keypair {
-    let wallet_account = Keypair::new();
-    let rent = context.banks_client.get_rent().await.unwrap();
-    let wallet_account_rent = rent.minimum_balance(WalletConfig::LEN);
+pub async fn finalize_wallet(context: &mut WalletTestContext) {
     let finalize_transaction = Transaction::new_signed_with_payer(
         &[
-            system_instruction::create_account(
-                &context.payer.pubkey(),
-                &wallet_account.pubkey(),
-                wallet_account_rent,
-                WalletConfig::LEN as u64,
-                &context.program_owner.pubkey(),
-            ),
             finalize_wallet_creation(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
-                &wallet_account.pubkey(),
                 &context.multisig_op_account.pubkey(),
                 &context.payer.pubkey(),
                 context.wallet_guid_hash,
@@ -527,7 +553,7 @@ pub async fn finalize_wallet(context: &mut WalletTestContext) -> Keypair {
             ),
         ],
         Some(&context.payer.pubkey()),
-        &[&context.payer, &wallet_account],
+        &[&context.payer],
         context.recent_blockhash,
     );
     context
@@ -535,12 +561,11 @@ pub async fn finalize_wallet(context: &mut WalletTestContext) -> Keypair {
         .process_transaction(finalize_transaction)
         .await
         .unwrap();
-    wallet_account
 }
 
 pub async fn setup_wallet_tests_and_finalize(
     bpf_compute_max_units: Option<u64>,
-) -> (WalletTestContext, Keypair, Pubkey) {
+) -> (WalletTestContext, Pubkey) {
     let mut context = setup_wallet_tests(bpf_compute_max_units).await;
 
     approve_or_deny_1_of_2_multisig_op(
@@ -555,18 +580,17 @@ pub async fn setup_wallet_tests_and_finalize(
     )
     .await;
 
-    let account_data = finalize_wallet(context.borrow_mut()).await;
+    finalize_wallet(context.borrow_mut()).await;
     let (source_account, _) = Pubkey::find_program_address(
-        &[&account_data.pubkey().to_bytes()],
+        &[&context.wallet_guid_hash],
         &context.program_owner.pubkey(),
     );
 
-    (context, account_data, source_account)
+    (context, source_account)
 }
 
 pub async fn add_n_destinations(
     context: &mut WalletTestContext,
-    wallet_account: &Pubkey,
     n: usize,
 ) -> (Transaction, Keypair, WalletConfigUpdate) {
     let rent = context.banks_client.get_rent().await.unwrap();
@@ -574,17 +598,17 @@ pub async fn add_n_destinations(
     let multisig_op_account = Keypair::new();
 
     let new_destinations = (1..n)
-        .map(|_| AllowedDestination {
+        .map(|_| AddressBookEntry {
             address: Pubkey::new_unique(),
             name_hash: [0; 32],
         })
-        .collect::<Vec<AllowedDestination>>();
+        .collect::<Vec<AddressBookEntry>>();
     let expected_config = WalletConfigUpdate {
         name_hash: context.wallet_name_hash,
         approvals_required_for_transfer: 2,
         approval_timeout_for_transfer: Duration::from_secs(3600),
-        add_approvers: vec![],
-        remove_approvers: vec![],
+        add_transfer_approvers: vec![],
+        remove_transfer_approvers: vec![],
         add_allowed_destinations: new_destinations.clone(),
         remove_allowed_destinations: vec![],
     };
@@ -603,7 +627,6 @@ pub async fn add_n_destinations(
                     &context.program_config_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &context.assistant_account.pubkey(),
-                    &wallet_account,
                     context.wallet_guid_hash,
                     context.wallet_name_hash,
                     2,
@@ -629,8 +652,6 @@ pub async fn add_n_destinations(
 
 pub async fn setup_transfer_test(
     context: &mut WalletTestContext,
-    wallet_account: &Keypair,
-    balance_account: &Pubkey,
     token_mint: Option<&Pubkey>,
     amount: Option<u64>,
 ) -> (Keypair, transport::Result<()>) {
@@ -654,9 +675,8 @@ pub async fn setup_transfer_test(
                     &context.program_config_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &context.assistant_account.pubkey(),
-                    &wallet_account.pubkey(),
-                    &balance_account,
                     &context.destination.pubkey(),
+                    context.wallet_guid_hash,
                     amount.unwrap_or(123),
                     context.destination_name_hash,
                     token_mint.unwrap_or(&system_program::id()),
