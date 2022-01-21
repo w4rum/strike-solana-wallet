@@ -250,7 +250,6 @@ impl ProgramConfigUpdate {
         let mut iter = bytes.iter();
         let approvals_required_for_config = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
         let approval_timeout_for_config = read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
-
         let add_signers = read_signers(&mut iter)?;
         let remove_signers = read_signers(&mut iter)?;
         let add_config_approvers = read_signers(&mut iter)?;
@@ -302,7 +301,6 @@ impl WalletConfigUpdate {
         let name_hash: [u8; 32] = *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let approvals_required_for_transfer = *read_u8(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let approval_timeout_for_transfer = read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
-
         let add_approvers = read_signers(&mut iter)?;
         let remove_approvers = read_signers(&mut iter)?;
         let add_allowed_destinations = read_address_book_entries(&mut iter)?;
@@ -321,8 +319,8 @@ impl WalletConfigUpdate {
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
         dst.extend_from_slice(&self.name_hash);
-        append_duration(&self.approval_timeout_for_transfer, dst);
         dst.push(self.approvals_required_for_transfer);
+        append_duration(&self.approval_timeout_for_transfer, dst);
         append_signers(&self.add_transfer_approvers, dst);
         append_signers(&self.remove_transfer_approvers, dst);
         append_address_book_entries(&self.add_allowed_destinations, dst);

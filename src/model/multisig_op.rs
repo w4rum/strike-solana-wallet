@@ -221,7 +221,7 @@ impl Pack for MultisigOp {
             is_initialized_dst,
             disposition_records_count_dst,
             disposition_records_dst,
-            dispositions_required_for_transfer_dst,
+            dispositions_required_dst,
             hash_dst,
             started_at_dst,
             expires_at_dst,
@@ -231,18 +231,14 @@ impl Pack for MultisigOp {
         let MultisigOp {
             is_initialized,
             disposition_records,
-            dispositions_required: dispositions_required_for_transfer,
-            params_hash: hash,
+            dispositions_required,
+            params_hash,
             started_at,
             expires_at,
             operation_disposition
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
-        dispositions_required_for_transfer_dst[0] = *dispositions_required_for_transfer;
-        *started_at_dst = started_at.to_le_bytes();
-        *expires_at_dst = expires_at.to_le_bytes();
-        operation_disposition_dst[0] = operation_disposition.to_u8();
 
         disposition_records_count_dst[0] = disposition_records.len() as u8;
         disposition_records_dst.fill(0);
@@ -251,7 +247,15 @@ impl Pack for MultisigOp {
             .take(disposition_records.len())
             .enumerate()
             .for_each(|(i, chunk)| disposition_records[i].pack_into_slice(chunk));
-        hash_dst.copy_from_slice(hash.to_bytes().as_ref())
+
+        dispositions_required_dst[0] = *dispositions_required;
+
+        hash_dst.copy_from_slice(params_hash.to_bytes().as_ref());
+
+        *started_at_dst = started_at.to_le_bytes();
+        *expires_at_dst = expires_at.to_le_bytes();
+
+        operation_disposition_dst[0] = operation_disposition.to_u8();
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -260,8 +264,8 @@ impl Pack for MultisigOp {
             is_initialized,
             disposition_records_count,
             disposition_record_bytes,
-            dispositions_required_for_transfer,
-            hash,
+            dispositions_required,
+            params_hash,
             started_at,
             expires_at,
             operation_disposition
@@ -285,8 +289,8 @@ impl Pack for MultisigOp {
         Ok(MultisigOp {
             is_initialized,
             disposition_records,
-            dispositions_required: dispositions_required_for_transfer[0],
-            params_hash: Hash::new_from_array(*hash),
+            dispositions_required: dispositions_required[0],
+            params_hash: Hash::new_from_array(*params_hash),
             started_at: i64::from_le_bytes(*started_at),
             expires_at: i64::from_le_bytes(*expires_at),
             operation_disposition: OperationDisposition::from_u8(operation_disposition[0])
