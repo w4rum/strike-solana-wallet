@@ -3,7 +3,6 @@ use std::convert::TryInto;
 use std::mem::size_of;
 use std::slice::Iter;
 use std::time::Duration;
-use bitvec::view::BitViewSized;
 
 use solana_program::program_error::ProgramError;
 use solana_program::{instruction::AccountMeta, pubkey::Pubkey, system_program, sysvar};
@@ -115,13 +114,91 @@ impl ProgramInstruction {
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &ProgramInstruction::Init {
-                ref config_update
-            } => {
+            &ProgramInstruction::Init { ref config_update } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
                 buf.push(0);
-                config_update.pack(&mut buf);
+                buf.extend_from_slice(&config_update_bytes);
             }
-            _ => ()
+            &ProgramInstruction::InitConfigUpdate { ref config_update } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(1);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::FinalizeConfigUpdate { ref config_update } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(2);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::SetApprovalDisposition { ref disposition } => {
+                buf.push(9);
+                buf.push(disposition.to_u8());
+            }
+            &ProgramInstruction::InitWalletCreation {
+                ref wallet_guid_hash,
+                ref config_update,
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(3);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::FinalizeWalletCreation {
+                ref wallet_guid_hash,
+                ref config_update,
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(4);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::InitWalletConfigUpdate {
+                ref wallet_guid_hash,
+                ref config_update,
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(5);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::FinalizeWalletConfigUpdate {
+                ref wallet_guid_hash,
+                ref config_update,
+            } => {
+                let mut config_update_bytes: Vec<u8> = Vec::new();
+                config_update.pack(&mut config_update_bytes);
+                buf.push(6);
+                buf.extend_from_slice(wallet_guid_hash);
+                buf.extend_from_slice(&config_update_bytes);
+            }
+            &ProgramInstruction::InitTransfer {
+                ref wallet_guid_hash,
+                ref amount,
+                ref destination_name_hash,
+                ref token_mint,
+            } => {
+                buf.push(7);
+                buf.extend_from_slice(&wallet_guid_hash[..]);
+                buf.extend_from_slice(&amount.to_le_bytes());
+                buf.extend_from_slice(destination_name_hash);
+                buf.extend_from_slice(&token_mint.to_bytes())
+            }
+            &ProgramInstruction::FinalizeTransfer {
+                ref wallet_guid_hash,
+                ref amount,
+                ref token_mint,
+            } => {
+                buf.push(8);
+                buf.extend_from_slice(&wallet_guid_hash[..]);
+                buf.extend_from_slice(&amount.to_le_bytes());
+                buf.extend_from_slice(&token_mint.to_bytes());
+                buf.push(0);
+            }
         }
         buf
     }
@@ -360,7 +437,7 @@ fn read_duration(iter: &mut Iter<u8>) -> Option<Duration> {
 }
 
 fn append_duration(duration: &Duration, dst: &mut Vec<u8>) {
-    dst.extend_from_slice(duration.as_secs().to_le_bytes().as_raw_slice())
+    dst.extend_from_slice(&duration.as_secs().to_le_bytes()[..])
 }
 
 fn append_signers(signers: &Vec<Signer>, dst: &mut Vec<u8>) {
@@ -405,7 +482,7 @@ pub fn program_init(
     approvals_required_for_config: u8,
     approval_timeout_for_config: Duration,
     address_book: Vec<AddressBookEntry>
-) -> Result<Instruction, ProgramError> {
+) -> Instruction {
     let data = ProgramInstruction::Init {
         config_update: ProgramConfigUpdate {
             approvals_required_for_config,
@@ -424,11 +501,11 @@ pub fn program_init(
         AccountMeta::new_readonly(*assistant_account, true),
     ];
 
-    Ok(Instruction {
+    Instruction {
         program_id: *program_id,
         accounts,
         data
-    })
+    }
 }
 
 fn init_multisig_op(

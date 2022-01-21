@@ -68,7 +68,7 @@ impl Pack for WalletConfig {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Ord, PartialOrd)]
 pub struct AddressBookEntry {
     pub address: Pubkey,
     pub name_hash: [u8; 32],

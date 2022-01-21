@@ -2,7 +2,7 @@ use solana_program::program_error::ProgramError;
 use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 use solana_program::program_pack::{Sealed, Pack};
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Ord, PartialOrd)]
 pub struct Signer {
     pub key: Pubkey
 }
