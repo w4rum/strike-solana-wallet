@@ -33,8 +33,7 @@ use {
 };
 use strike_wallet::model::signer::Signer;
 use std::collections::HashSet;
-use crate::utils::{AsSet, SignerKey};
-use crate::utils::get_program_config;
+use crate::utils::{AsSet, SignerKey, get_program_config, assert_multisig_op_timestamps};
 use itertools::Itertools;
 
 mod utils;
@@ -149,8 +148,7 @@ async fn config_update() {
     );
     assert_eq!(multisig_op.dispositions_required, 1);
     assert_eq!(multisig_op.operation_disposition, OperationDisposition::NONE);
-    assert_eq!(multisig_op.started_at, start);
-    assert_eq!(multisig_op.expires_at, start + 3600);
+    assert_multisig_op_timestamps(&multisig_op, start, Duration::from_secs(3600));
 
     assert_eq!(
         multisig_op.params_hash,
@@ -270,8 +268,7 @@ async fn config_update_is_denied() {
             .data(),
     ).unwrap();
     assert_eq!(multisig_op.operation_disposition, OperationDisposition::DENIED);
-    assert_eq!(multisig_op.started_at, start);
-    assert_eq!(multisig_op.expires_at, start + 3600);
+    assert_multisig_op_timestamps(&multisig_op, start, Duration::from_secs(3600));
 
     // finalize the multisig op
     let finalize_transaction = Transaction::new_signed_with_payer(

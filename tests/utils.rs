@@ -903,3 +903,8 @@ pub async fn get_program_config(banks_client: &mut BanksClient, account: &Pubkey
             .data(),
     ).unwrap()
 }
+
+pub fn assert_multisig_op_timestamps(multisig_op: &MultisigOp, start: i64, approval_timeout: Duration) {
+    assert!(multisig_op.started_at - start <= 2);
+    assert!(multisig_op.expires_at - start - approval_timeout.as_secs() as i64 <= 2);
+}
