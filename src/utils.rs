@@ -21,7 +21,7 @@ impl<A> FixedVecRef<A> {
 
 #[derive(Debug, Clone)]
 pub struct FixedVec<A, const SIZE: usize> {
-    array: Box<[Option<A>; SIZE]>,
+    pub array: Box<[Option<A>; SIZE]>,
     free_slots: usize
 }
 

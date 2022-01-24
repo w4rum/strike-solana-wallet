@@ -86,8 +86,7 @@ pub enum ProgramInstruction {
 
     /// 0  `[writable]` The multisig operation account
     /// 1. `[signer]` The approver account
-    /// 2. `[signer]` The fee payer account
-    /// 3. `[]` The sysvar clock account
+    /// 2. `[]` The sysvar clock account
     SetApprovalDisposition {
         disposition: ApprovalDisposition
     },
@@ -526,6 +525,7 @@ fn init_multisig_op(
         data,
     }
 }
+
 pub fn program_init_config_update(
     program_id: &Pubkey,
     program_config_account: &Pubkey,
@@ -561,11 +561,11 @@ pub fn program_init_config_update(
         data,
     )
 }
+
 pub fn set_approval_disposition(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
     approver: &Pubkey,
-    payer: &Pubkey,
     disposition: ApprovalDisposition
 ) -> Instruction {
     let data = ProgramInstruction::SetApprovalDisposition { disposition }
@@ -575,7 +575,6 @@ pub fn set_approval_disposition(
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*approver, true),
-        AccountMeta::new_readonly(*payer, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false)
     ];
 
@@ -585,6 +584,7 @@ pub fn set_approval_disposition(
         data,
     }
 }
+
 pub fn finalize_config_update(
     program_id: &Pubkey,
     program_config_account: &Pubkey,
@@ -660,7 +660,7 @@ pub fn finalize_wallet_creation(
     .pack();
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new(*program_config_account, false),
         AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
@@ -671,6 +671,7 @@ pub fn finalize_wallet_creation(
         data,
     }
 }
+
 pub fn init_wallet_config_update(
     program_id: &Pubkey,
     program_config_account: &Pubkey,
@@ -707,6 +708,7 @@ pub fn init_wallet_config_update(
         data
     )
 }
+
 pub fn finalize_wallet_config_update(
     program_id: &Pubkey,
     program_config_account: &Pubkey,
@@ -734,6 +736,7 @@ pub fn finalize_wallet_config_update(
         data,
     }
 }
+
 pub fn init_transfer(
     program_id: &Pubkey,
     program_config_account: &Pubkey,

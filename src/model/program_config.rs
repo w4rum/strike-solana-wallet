@@ -60,6 +60,13 @@ impl ProgramConfig {
             .collect_vec()
     }
 
+    pub fn get_allowed_destinations(&self, wallet_config: &WalletConfig) -> Vec<AddressBookEntry> {
+        wallet_config.allowed_destinations
+            .iter_enabled()
+            .filter_map(|r| self.address_book[r])
+            .collect_vec()
+    }
+
     fn get_wallet_config_index(&self, wallet_guid_hash: &[u8; 32]) -> Result<usize, ProgramError> {
         self.wallets
             .iter()
