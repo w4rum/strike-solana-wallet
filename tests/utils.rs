@@ -34,7 +34,7 @@ use {
 use strike_wallet::model::signer::Signer;
 use itertools::Itertools;
 use std::collections::HashSet;
-use strike_wallet::utils::FixedVec;
+use strike_wallet::utils::Slots;
 
 pub trait SignerKey {
     fn pubkey_as_signer(&self) -> Signer;
@@ -49,7 +49,7 @@ pub trait AsSet<A> {
     fn to_set(&self) -> HashSet<A>;
 }
 
-impl<A: core::hash::Hash + Eq + Clone, const SIZE: usize> AsSet<A> for FixedVec<A, SIZE> {
+impl<A: core::hash::Hash + Eq + Clone, const SIZE: usize> AsSet<A> for Slots<A, SIZE> {
     fn to_set(&self) -> HashSet<A> {
         let mut set = HashSet::new();
         for opt in self.array.iter() {

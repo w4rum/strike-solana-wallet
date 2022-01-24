@@ -12,6 +12,7 @@ use solana_program::program_pack::Pack;
 use crate::model::wallet_config::AddressBookEntry;
 use crate::model::multisig_op::ApprovalDisposition;
 use crate::model::signer::Signer;
+use crate::utils::SlotId;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -310,12 +311,12 @@ impl ProgramInstruction {
 pub struct ProgramConfigUpdate {
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
-    pub add_signers: Vec<Signer>,
-    pub remove_signers: Vec<Signer>,
-    pub add_config_approvers: Vec<Signer>,
-    pub remove_config_approvers: Vec<Signer>,
-    pub add_address_book_entries: Vec<AddressBookEntry>,
-    pub remove_address_book_entries: Vec<AddressBookEntry>,
+    pub add_signers: Vec<(SlotId<Signer>, Signer)>,
+    pub remove_signers: Vec<(SlotId<Signer>, Signer)>,
+    pub add_config_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub remove_config_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub add_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    pub remove_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 }
 
 impl ProgramConfigUpdate {
@@ -362,10 +363,10 @@ pub struct WalletConfigUpdate {
     pub name_hash: [u8; 32],
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
-    pub add_transfer_approvers: Vec<Signer>,
-    pub remove_transfer_approvers: Vec<Signer>,
-    pub add_allowed_destinations: Vec<AddressBookEntry>,
-    pub remove_allowed_destinations: Vec<AddressBookEntry>,
+    pub add_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub remove_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub add_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    pub remove_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 }
 
 impl WalletConfigUpdate {
@@ -404,15 +405,6 @@ impl WalletConfigUpdate {
     }
 }
 
-fn read_signers(iter: &mut Iter<u8>) -> Result<Vec<Signer>, ProgramError> {
-    let signers_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
-    read_slice(iter, usize::from(signers_count) * Signer::LEN)
-        .ok_or(ProgramError::InvalidInstructionData)?
-        .chunks_exact(Signer::LEN)
-        .map(|chunk| Signer::unpack_from_slice(chunk))
-        .collect()
-}
-
 fn read_u8<'a>(iter: &'a mut Iter<u8>) -> Option<&'a u8> {
     iter.next()
 }
@@ -439,29 +431,54 @@ fn append_duration(duration: &Duration, dst: &mut Vec<u8>) {
     dst.extend_from_slice(&duration.as_secs().to_le_bytes()[..])
 }
 
-fn append_signers(signers: &Vec<Signer>, dst: &mut Vec<u8>) {
+fn read_signers(iter: &mut Iter<u8>) -> Result<Vec<(SlotId<Signer>, Signer)>, ProgramError> {
+    let signers_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
+    read_slice(iter, usize::from(signers_count) * (1 + Signer::LEN))
+        .ok_or(ProgramError::InvalidInstructionData)?
+        .chunks_exact(1 + Signer::LEN)
+        .map(|chunk| {
+            Signer::unpack_from_slice(&chunk[1..1 + Signer::LEN]).map(|signer| {
+                (
+                    SlotId::new(usize::from(chunk[0])),
+                    signer
+                )
+            })
+        })
+        .collect()
+}
+
+fn append_signers(signers: &Vec<(SlotId<Signer>, Signer)>, dst: &mut Vec<u8>) {
     dst.push(signers.len() as u8);
-    for signer in signers.iter() {
-        let mut buf = vec![0; Signer::LEN];
-        signer.pack_into_slice(&mut buf);
+    for (slot_id, signer) in signers.iter() {
+        let mut buf = vec![0; 1 + Signer::LEN];
+        buf[0] = slot_id.value as u8;
+        signer.pack_into_slice(&mut buf[1..1 + Signer::LEN]);
         dst.extend_from_slice(buf.as_slice());
     }
 }
 
-fn read_address_book_entries(iter: &mut Iter<u8>) -> Result<Vec<AddressBookEntry>, ProgramError> {
+fn read_address_book_entries(iter: &mut Iter<u8>) -> Result<Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>, ProgramError> {
     let entries_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
-    read_slice(iter, usize::from(entries_count) * AddressBookEntry::LEN)
+    read_slice(iter, usize::from(entries_count) * (1 + AddressBookEntry::LEN))
         .ok_or(ProgramError::InvalidInstructionData)?
-        .chunks_exact(AddressBookEntry::LEN)
-        .map(|chunk| AddressBookEntry::unpack_from_slice(chunk))
+        .chunks_exact(1 + AddressBookEntry::LEN)
+        .map(|chunk| {
+            AddressBookEntry::unpack_from_slice(&chunk[1..1 + AddressBookEntry::LEN]).map(|entry| {
+                (
+                    SlotId::new(usize::from(chunk[0])),
+                    entry
+                )
+            })
+        })
         .collect()
 }
 
-fn append_address_book_entries(entries: &Vec<AddressBookEntry>, dst: &mut Vec<u8>) {
+fn append_address_book_entries(entries: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>, dst: &mut Vec<u8>) {
     dst.push(entries.len() as u8);
-    for entry in entries.iter() {
-        let mut buf = vec![0; AddressBookEntry::LEN];
-        entry.pack_into_slice(&mut buf);
+    for (slot_id, entry) in entries.iter() {
+        let mut buf = vec![0; 1 + AddressBookEntry::LEN];
+        buf[0] = slot_id.value as u8;
+        entry.pack_into_slice(&mut buf[1..1 + AddressBookEntry::LEN]);
         dst.extend_from_slice(buf.as_slice());
     }
 }
@@ -476,11 +493,11 @@ pub fn program_init(
     program_id: &Pubkey,
     program_config_account: &Pubkey,
     assistant_account: &Pubkey,
-    signers: Vec<Signer>,
-    config_approvers: Vec<Signer>,
+    signers: Vec<(SlotId<Signer>, Signer)>,
+    config_approvers: Vec<(SlotId<Signer>, Signer)>,
     approvals_required_for_config: u8,
     approval_timeout_for_config: Duration,
-    address_book: Vec<AddressBookEntry>
+    address_book: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>
 ) -> Instruction {
     let data = ProgramInstruction::Init {
         config_update: ProgramConfigUpdate {
@@ -533,12 +550,12 @@ pub fn program_init_config_update(
     assistant_account: &Pubkey,
     approvals_required_for_config: u8,
     approval_timeout_for_config: Duration,
-    add_signers: Vec<Signer>,
-    remove_signers: Vec<Signer>,
-    add_config_approvers: Vec<Signer>,
-    remove_config_approvers: Vec<Signer>,
-    add_address_book_entries: Vec<AddressBookEntry>,
-    remove_address_book_entries: Vec<AddressBookEntry>,
+    add_signers: Vec<(SlotId<Signer>, Signer)>,
+    remove_signers: Vec<(SlotId<Signer>, Signer)>,
+    add_config_approvers: Vec<(SlotId<Signer>, Signer)>,
+    remove_config_approvers: Vec<(SlotId<Signer>, Signer)>,
+    add_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    remove_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 ) -> Instruction {
     let config_update = ProgramConfigUpdate {
         approvals_required_for_config,
@@ -618,8 +635,8 @@ pub fn init_wallet_creation(
     name_hash: [u8; 32],
     approvals_required_for_transfer: u8,
     approval_timeout_for_transfer: Duration,
-    approvers: Vec<Signer>,
-    allowed_destinations: Vec<AddressBookEntry>,
+    approvers: Vec<(SlotId<Signer>, Signer)>,
+    allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 ) -> Instruction {
     let data = ProgramInstruction::InitWalletCreation {
         wallet_guid_hash,
@@ -681,10 +698,10 @@ pub fn init_wallet_config_update(
     name_hash: [u8; 32],
     approvals_required_for_transfer: u8,
     approval_timeout_for_transfer: Duration,
-    add_transfer_approvers: Vec<Signer>,
-    remove_transfer_approvers: Vec<Signer>,
-    add_allowed_destinations: Vec<AddressBookEntry>,
-    remove_allowed_destinations: Vec<AddressBookEntry>,
+    add_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
+    remove_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
+    add_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    remove_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 ) -> Instruction {
     let data = ProgramInstruction::InitWalletConfigUpdate {
         wallet_guid_hash,

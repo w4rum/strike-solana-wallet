@@ -1,3 +1,4 @@
+use arrayref::array_ref;
 use solana_program::program_error::ProgramError;
 use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 use solana_program::program_pack::{Sealed, Pack};
@@ -23,8 +24,9 @@ impl Pack for Signer {
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        let src = array_ref![src, 0, Signer::LEN];
         Ok(Signer {
-            key: Pubkey::new(src)
+            key: Pubkey::new_from_array(*src)
         })
     }
 }

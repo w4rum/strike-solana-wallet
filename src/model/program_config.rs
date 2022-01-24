@@ -12,13 +12,13 @@ use crate::error::WalletError;
 use crate::model::wallet_config::{AddressBookEntry, WalletConfig};
 use itertools::Itertools;
 use crate::model::signer::Signer;
-use crate::utils::{FixedVec, FixedVecFlags};
+use crate::utils::{Slots, SlotFlags, SlotId, GetSlotIds};
 
-pub type Signers = FixedVec<Signer, { ProgramConfig::MAX_SIGNERS }>;
-pub type Approvers = FixedVecFlags<Signer, { Signers::FLAGS_STORAGE_SIZE }>;
+pub type Signers = Slots<Signer, { ProgramConfig::MAX_SIGNERS }>;
+pub type Approvers = SlotFlags<Signer, { Signers::FLAGS_STORAGE_SIZE }>;
 
-pub type AddressBook = FixedVec<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }>;
-pub type AllowedDestinations = FixedVecFlags<AddressBookEntry, { AddressBook::FLAGS_STORAGE_SIZE }>;
+pub type AddressBook = Slots<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }>;
+pub type AllowedDestinations = SlotFlags<AddressBookEntry, { AddressBook::FLAGS_STORAGE_SIZE }>;
 
 #[derive(Debug, Clone)]
 pub struct ProgramConfig {
@@ -99,8 +99,8 @@ impl ProgramConfig {
     }
 
     pub fn destination_allowed(&self, wallet_config: &WalletConfig, address: &Pubkey, name_hash: &[u8; 32]) -> Result<bool, ProgramError> {
-        Ok(match self.address_book.find_ref(&AddressBookEntry { address: *address, name_hash: *name_hash }) {
-            Some(entry_ref) => wallet_config.allowed_destinations.is_enabled(entry_ref),
+        Ok(match self.address_book.find_id(&AddressBookEntry { address: *address, name_hash: *name_hash }) {
+            Some(entry_ref) => wallet_config.allowed_destinations.is_enabled(&entry_ref),
             None => false
         })
     }
@@ -116,12 +116,12 @@ impl ProgramConfig {
             self.approval_timeout_for_config = config_update.approval_timeout_for_config;
         }
 
-        self.disable_config_approvers(&config_update.remove_config_approvers);
+        self.disable_config_approvers(&config_update.remove_config_approvers)?;
         self.remove_signers(&config_update.remove_signers)?;
         self.add_signers(&config_update.add_signers)?;
+        self.enable_config_approvers(&config_update.add_config_approvers)?;
         self.remove_address_book_entries(&config_update.remove_address_book_entries)?;
         self.add_address_book_entries(&config_update.add_address_book_entries)?;
-        self.enable_config_approvers(&config_update.add_config_approvers)?;
 
         let approvers_count_after_update = self.config_approvers.count_enabled();
         if usize::from(config_update.approvals_required_for_config) > approvers_count_after_update {
@@ -177,9 +177,9 @@ impl ProgramConfig {
     pub fn update_wallet_config(&mut self, wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
         let wallet_config_idx = self.get_wallet_config_index(wallet_guid_hash)?;
 
-        self.disable_transfer_approvers(wallet_config_idx, &config_update.remove_transfer_approvers);
+        self.disable_transfer_approvers(wallet_config_idx, &config_update.remove_transfer_approvers)?;
         self.enable_transfer_approvers(wallet_config_idx, &config_update.add_transfer_approvers)?;
-        self.disable_transfer_destinations(wallet_config_idx, &config_update.remove_allowed_destinations);
+        self.disable_transfer_destinations(wallet_config_idx, &config_update.remove_allowed_destinations)?;
         self.enable_transfer_destinations(wallet_config_idx, &config_update.add_allowed_destinations)?;
 
         let wallet_config = &mut self.wallets[wallet_config_idx].borrow_mut();
@@ -217,104 +217,122 @@ impl ProgramConfig {
         Ok(())
     }
 
-    fn add_signers(&mut self, signers_to_add: &Vec<Signer>) -> ProgramResult {
-        if !self.signers.has_capacity(signers_to_add.len()) {
-            msg!("Program config supports up to {} signers", ProgramConfig::MAX_SIGNERS);
+    fn add_signers(&mut self, signers_to_add: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
+        if !self.signers.can_be_inserted(signers_to_add) {
+            msg!("Failed to add signers: at least on the provided slots is already taken");
             return Err(ProgramError::InvalidArgument);
         }
         self.signers.insert_many(signers_to_add);
         Ok(())
     }
 
-    fn remove_signers(&mut self, signers_to_remove: &Vec<Signer>) -> ProgramResult {
-        let remove_refs = self.signers.find_refs(signers_to_remove);
-        if self.config_approvers.any_enabled(&remove_refs) {
-            msg!("Not allowed to remove a config approving signer");
+    fn remove_signers(&mut self, signers_to_remove: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
+        if !self.signers.can_be_removed(signers_to_remove) {
+            msg!("Failed to remove signers: at least one of the provided signers is not present in the config");
             return Err(ProgramError::InvalidArgument);
         }
+        let slot_ids = signers_to_remove.slot_ids();
+
+        if self.config_approvers.any_enabled(&slot_ids) {
+            msg!("Failed to remove signers: not allowed to remove a config approving signer");
+            return Err(ProgramError::InvalidArgument);
+        };
         for wallet_config in &self.wallets {
-            if wallet_config.transfer_approvers.any_enabled(&remove_refs) {
-                msg!("Not allowed to remove a transfer approving signer");
+            if wallet_config.transfer_approvers.any_enabled(&slot_ids) {
+                msg!("Failed to remove signers: not allowed to remove a transfer approving signer");
                 return Err(ProgramError::InvalidArgument);
             }
         }
-        self.signers.remove_by_refs(&remove_refs);
+        self.signers.remove_many(signers_to_remove);
         Ok(())
     }
 
-    fn add_address_book_entries(&mut self, entries_to_add: &Vec<AddressBookEntry>) -> ProgramResult {
-        if !self.address_book.has_capacity(entries_to_add.len()) {
-            msg!("Program config supports up to {} address book entries", ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES);
+    fn add_address_book_entries(&mut self, entries_to_add: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>) -> ProgramResult {
+        if !self.address_book.can_be_inserted(entries_to_add) {
+            msg!("Failed to add address book entries: at least on the provided slots is already taken");
             return Err(ProgramError::InvalidArgument);
         }
         self.address_book.insert_many(entries_to_add);
         Ok(())
     }
 
-    fn remove_address_book_entries(&mut self, entries_to_remove: &Vec<AddressBookEntry>) -> ProgramResult {
-        let remove_refs = self.address_book.find_refs(entries_to_remove);
+    fn remove_address_book_entries(&mut self, entries_to_remove: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>) -> ProgramResult {
+        if !self.address_book.can_be_removed(entries_to_remove) {
+            msg!("Failed to remove address book entries: at least one of the provided entries is not present in the config");
+            return Err(ProgramError::InvalidArgument);
+        }
+        let slot_ids = entries_to_remove.slot_ids();
         for wallet_config in &self.wallets {
-            if wallet_config.allowed_destinations.any_enabled(&remove_refs) {
-                msg!("Not allowed to remove an allowed address book entry");
+            if wallet_config.allowed_destinations.any_enabled(&slot_ids) {
+                msg!("Failed to remove address book entries: not allowed to remove an allowed address book entry");
                 return Err(ProgramError::InvalidArgument);
             }
         }
-        self.address_book.remove_by_refs(&remove_refs);
+        self.address_book.remove_many(entries_to_remove);
         Ok(())
     }
 
-    fn enable_config_approvers(&mut self, approvers: &Vec<Signer>) -> ProgramResult {
-        let signer_refs = self.signers.find_refs(approvers);
-        if signer_refs.len() < approvers.len() {
-            msg!("One of the given config approvers is not configured as signer");
+    fn enable_config_approvers(&mut self, approvers: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
+        if !self.signers.contains(approvers) {
+            msg!("Failed to enable config approvers: one of the given config approvers is not configured as signer");
             return Err(ProgramError::InvalidArgument);
         }
-        for r in signer_refs {
-            self.config_approvers.enable(r);
+        self.config_approvers.enable_many(&approvers.slot_ids());
+        Ok(())
+    }
+
+    fn disable_config_approvers(&mut self, approvers: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
+        for (id, signer) in approvers {
+            if self.signers[*id] == Some(*signer) || self.signers[*id] == None {
+                self.config_approvers.disable(id);
+            } else {
+                msg!("Failed to disable config approvers: unexpected slot value");
+                return Err(ProgramError::InvalidArgument);
+            }
         }
         Ok(())
     }
 
-    fn disable_config_approvers(&mut self, approvers: &Vec<Signer>) {
-        for r in self.signers.find_refs(approvers) {
-            self.config_approvers.disable(r);
-        }
-    }
-
-    fn enable_transfer_approvers(&mut self, wallet_config_index: usize, approvers: &Vec<Signer>) -> ProgramResult {
-        let signer_refs = self.signers.find_refs(approvers);
-        if signer_refs.len() < approvers.len() {
-            msg!("One of the given transfer approvers is not configured as signer");
+    fn enable_transfer_approvers(&mut self, wallet_config_index: usize, approvers: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
+        if !self.signers.contains(approvers) {
+            msg!("Failed to enable transfer approvers: one of the given transfer approvers is not configured as signer");
             return Err(ProgramError::InvalidArgument);
         }
-        for r in signer_refs {
-            self.wallets[wallet_config_index].transfer_approvers.enable(r);
+        self.wallets[wallet_config_index].transfer_approvers.enable_many(&approvers.slot_ids());
+        Ok(())
+    }
+
+    fn disable_transfer_approvers(&mut self, wallet_config_index: usize, approvers: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
+        for (id, signer) in approvers {
+            if self.signers[*id] == Some(*signer) || self.signers[*id] == None {
+                self.wallets[wallet_config_index].transfer_approvers.disable(id);
+            } else {
+                msg!("Failed to disable transfer approvers: unexpected slot value");
+                return Err(ProgramError::InvalidArgument);
+            }
         }
         Ok(())
     }
 
-    fn disable_transfer_approvers(&mut self, wallet_config_index: usize, approvers: &Vec<Signer>) {
-        for r in self.signers.find_refs(approvers) {
-            self.wallets[wallet_config_index].transfer_approvers.disable(r);
-        }
-    }
-
-    fn enable_transfer_destinations(&mut self, wallet_config_index: usize, destinations: &Vec<AddressBookEntry>) -> ProgramResult {
-        let dst_refs = self.address_book.find_refs(destinations);
-        if dst_refs.len() < destinations.len() {
-            msg!("Address book does not contain one of the given destinations");
+    fn enable_transfer_destinations(&mut self, wallet_config_index: usize, destinations: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>) -> ProgramResult {
+        if !self.address_book.contains(destinations) {
+            msg!("Failed to enable transfer destinations: address book does not contain one of the given destinations");
             return Err(ProgramError::InvalidArgument);
         }
-        for r in dst_refs {
-            self.wallets[wallet_config_index].allowed_destinations.enable(r);
-        }
+        self.wallets[wallet_config_index].allowed_destinations.enable_many(&destinations.slot_ids());
         Ok(())
     }
 
-    fn disable_transfer_destinations(&mut self, wallet_config_index: usize, destinations: &Vec<AddressBookEntry>) {
-        for r in self.address_book.find_refs(destinations) {
-            self.wallets[wallet_config_index].allowed_destinations.disable(r);
+    fn disable_transfer_destinations(&mut self, wallet_config_index: usize, destinations: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>) -> ProgramResult {
+        for (id, address_book_entry) in destinations {
+            if self.address_book[*id] == Some(*address_book_entry) || self.address_book[*id] == None {
+                self.wallets[wallet_config_index].allowed_destinations.disable(id);
+            } else {
+                msg!("Failed to disable transfer destinations: unexpected slot value");
+                return Err(ProgramError::InvalidArgument);
+            }
         }
+        Ok(())
     }
 }
 
