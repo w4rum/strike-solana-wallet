@@ -1,11 +1,11 @@
 use arrayref::array_ref;
 use solana_program::program_error::ProgramError;
+use solana_program::program_pack::{Pack, Sealed};
 use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
-use solana_program::program_pack::{Sealed, Pack};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Ord, PartialOrd)]
 pub struct Signer {
-    pub key: Pubkey
+    pub key: Pubkey,
 }
 
 impl Signer {
@@ -26,7 +26,7 @@ impl Pack for Signer {
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, Signer::LEN];
         Ok(Signer {
-            key: Pubkey::new_from_array(*src)
+            key: Pubkey::new_from_array(*src),
         })
     }
 }

@@ -9,11 +9,26 @@ use solana_program::instruction::InstructionError::{
 use solana_program::system_program;
 use solana_sdk::transaction::TransactionError;
 
+use crate::utils::{
+    assert_multisig_op_timestamps, get_program_config, hash_of, verify_multisig_op_init_fails,
+    SignerKey, ToSet,
+};
+use itertools::Itertools;
+use solana_program::instruction::InstructionError;
+use std::collections::HashSet;
 use strike_wallet::error::WalletError;
-use strike_wallet::instruction::{finalize_config_update, finalize_transfer, finalize_wallet_config_update, finalize_wallet_creation, init_wallet_config_update, set_approval_disposition, WalletConfigUpdate, program_init_config_update};
-use strike_wallet::model::multisig_op::{ApprovalDisposition, ApprovalDispositionRecord,
-                                        OperationDisposition};
-use strike_wallet::model::wallet_config::{AddressBookEntry};
+use strike_wallet::instruction::{
+    finalize_config_update, finalize_transfer, finalize_wallet_config_update,
+    finalize_wallet_creation, init_wallet_config_update, program_init_config_update,
+    set_approval_disposition, WalletConfigUpdate,
+};
+use strike_wallet::model::multisig_op::{
+    ApprovalDisposition, ApprovalDispositionRecord, OperationDisposition,
+};
+use strike_wallet::model::program_config::{AddressBook, Approvers, ProgramConfig, Signers};
+use strike_wallet::model::signer::Signer;
+use strike_wallet::model::wallet_config::AddressBookEntry;
+use strike_wallet::utils::SlotId;
 use {
     solana_program::system_instruction,
     solana_program_test::{processor, tokio, ProgramTest},
@@ -25,19 +40,10 @@ use {
         transaction::Transaction,
     },
     strike_wallet::{
-        model::{
-            multisig_op::{MultisigOp, MultisigOpParams}
-        },
+        model::multisig_op::{MultisigOp, MultisigOpParams},
         processor::Processor,
     },
 };
-use strike_wallet::model::signer::Signer;
-use std::collections::HashSet;
-use crate::utils::{ToSet, SignerKey, get_program_config, assert_multisig_op_timestamps, verify_multisig_op_init_fails, hash_of};
-use itertools::Itertools;
-use strike_wallet::utils::{SlotId};
-use strike_wallet::model::program_config::{Signers, AddressBook, Approvers, ProgramConfig};
-use solana_program::instruction::{InstructionError};
 
 mod utils;
 
@@ -51,9 +57,13 @@ async fn init_program() {
         (SlotId::new(2), Signer::new(Pubkey::new_unique())),
     ];
     let config_approvers = signers.clone();
-    let address_book = vec![
-        (SlotId::new(0), AddressBookEntry { address: Pubkey::new_unique(), name_hash: [0; 32] })
-    ];
+    let address_book = vec![(
+        SlotId::new(0),
+        AddressBookEntry {
+            address: Pubkey::new_unique(),
+            name_hash: [0; 32],
+        },
+    )];
 
     let program_owner = Keypair::new();
     let mut pt = ProgramTest::new(
@@ -77,10 +87,13 @@ async fn init_program() {
         Some(signers.clone()),
         Some(config_approvers.clone()),
         Some(approval_timeout_for_config),
-        Some(address_book.clone())
-    ).await.unwrap();
+        Some(address_book.clone()),
+    )
+    .await
+    .unwrap();
 
-    let program_config = get_program_config(&mut banks_client, &program_config_account.pubkey()).await;
+    let program_config =
+        get_program_config(&mut banks_client, &program_config_account.pubkey()).await;
     assert_eq!(
         program_config,
         ProgramConfig {
@@ -91,7 +104,10 @@ async fn init_program() {
             approvals_required_for_config,
             approval_timeout_for_config,
             config_approvers: Approvers::from_enabled_vec(
-                config_approvers.into_iter().map(|(slot_id, _)| slot_id).collect_vec()
+                config_approvers
+                    .into_iter()
+                    .map(|(slot_id, _)| slot_id)
+                    .collect_vec()
             ),
             wallets: Vec::new()
         }
@@ -132,7 +148,10 @@ async fn config_update() {
         ])
     );
     assert_eq!(multisig_op.dispositions_required, 1);
-    assert_eq!(multisig_op.operation_disposition, OperationDisposition::NONE);
+    assert_eq!(
+        multisig_op.operation_disposition,
+        OperationDisposition::NONE
+    );
     assert_multisig_op_timestamps(&multisig_op, start, Duration::from_secs(3600));
 
     assert_eq!(
@@ -202,7 +221,11 @@ async fn config_update() {
         .unwrap();
 
     // verify the config has been updated
-    let program_config = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
+    let program_config = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
     assert_eq!(context.expected_config_after_update, program_config);
 
     // verify the multisig op account is closed
@@ -238,10 +261,20 @@ async fn config_update_invalid_updates() {
     let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
-    let signers = vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer(), approvers[2].pubkey_as_signer()];
+    let signers = vec![
+        approvers[0].pubkey_as_signer(),
+        approvers[1].pubkey_as_signer(),
+        approvers[2].pubkey_as_signer(),
+    ];
 
-    let address_book_entry = AddressBookEntry { address: Pubkey::new_unique(), name_hash: [0; 32] };
-    let new_address_book_entry = AddressBookEntry { address: Pubkey::new_unique(), name_hash: [0; 32] };
+    let address_book_entry = AddressBookEntry {
+        address: Pubkey::new_unique(),
+        name_hash: [0; 32],
+    };
+    let new_address_book_entry = AddressBookEntry {
+        address: Pubkey::new_unique(),
+        name_hash: [0; 32],
+    };
 
     // first initialize the program config
     utils::init_program(
@@ -254,23 +287,27 @@ async fn config_update_invalid_updates() {
         Some(1),
         Some(vec![
             (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1])
+            (SlotId::new(1), signers[1]),
         ]),
         Some(vec![
             (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1])
+            (SlotId::new(1), signers[1]),
         ]),
         Some(Duration::from_secs(3600)),
-        Some(vec![
-            (SlotId::new(0), address_book_entry)
-        ])
-    ).await.unwrap();
+        Some(vec![(SlotId::new(0), address_book_entry)]),
+    )
+    .await
+    .unwrap();
 
     // verify approvals required for config can't exceed configured approvers count
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -283,16 +320,21 @@ async fn config_update_invalid_updates() {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
-                Vec::new()
+                Vec::new(),
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to place a signer into a non-empty slot
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -300,23 +342,26 @@ async fn config_update_invalid_updates() {
                 &assistant_account.pubkey(),
                 2,
                 Duration::from_secs(7200),
-                vec![
-                    (SlotId::new(0), signers[2])
-                ],
+                vec![(SlotId::new(0), signers[2])],
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
-                Vec::new()
+                Vec::new(),
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to remove a signer from a slot when slot value does not match the provided one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -325,22 +370,25 @@ async fn config_update_invalid_updates() {
                 2,
                 Duration::from_secs(7200),
                 Vec::new(),
-                vec![
-                    (SlotId::new(0), signers[2])
-                ],
+                vec![(SlotId::new(0), signers[2])],
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
-                Vec::new()
+                Vec::new(),
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to place an address book entry into a non-empty slot
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -352,19 +400,22 @@ async fn config_update_invalid_updates() {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
-                vec![
-                    (SlotId::new(0), new_address_book_entry)
-                ],
-                Vec::new()
+                vec![(SlotId::new(0), new_address_book_entry)],
+                Vec::new(),
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to remove an address book entry from a slot when slot value does not match the provided one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -377,18 +428,21 @@ async fn config_update_invalid_updates() {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
-                vec![
-                    (SlotId::new(0), new_address_book_entry)
-                ]
+                vec![(SlotId::new(0), new_address_book_entry)],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to add a config approver that is not configured as signer
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -398,21 +452,24 @@ async fn config_update_invalid_updates() {
                 Duration::from_secs(7200),
                 Vec::new(),
                 Vec::new(),
-                vec![
-                    (SlotId::new(2), signers[2])
-                ],
+                vec![(SlotId::new(2), signers[2])],
                 Vec::new(),
                 Vec::new(),
-                Vec::new()
+                Vec::new(),
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to add a config approver when provided slot value does not match the stored one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -422,21 +479,24 @@ async fn config_update_invalid_updates() {
                 Duration::from_secs(7200),
                 Vec::new(),
                 Vec::new(),
-                vec![
-                    (SlotId::new(0), signers[2])
-                ],
+                vec![(SlotId::new(0), signers[2])],
                 Vec::new(),
                 Vec::new(),
-                Vec::new()
+                Vec::new(),
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to remove a config approver when provided slot value does not match the stored one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut banks_client, recent_blockhash, &payer, &assistant_account, &multisig_op_account,
+            &mut banks_client,
+            recent_blockhash,
+            &payer,
+            &assistant_account,
+            &multisig_op_account,
             program_init_config_update(
                 &program_owner.pubkey(),
                 &program_config_account.pubkey(),
@@ -447,14 +507,13 @@ async fn config_update_invalid_updates() {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
-                vec![
-                    (SlotId::new(0), signers[2])
-                ],
+                vec![(SlotId::new(0), signers[2])],
                 Vec::new(),
-                Vec::new()
+                Vec::new(),
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
 }
 
@@ -466,7 +525,11 @@ async fn config_update_is_denied() {
         .as_secs() as i64;
     let mut context = utils::setup_program_config_update_test().await;
 
-    let initial_program_config = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
+    let initial_program_config = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
 
     utils::approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
@@ -489,8 +552,12 @@ async fn config_update_is_denied() {
             .unwrap()
             .unwrap()
             .data(),
-    ).unwrap();
-    assert_eq!(multisig_op.operation_disposition, OperationDisposition::DENIED);
+    )
+    .unwrap();
+    assert_eq!(
+        multisig_op.operation_disposition,
+        OperationDisposition::DENIED
+    );
     assert_multisig_op_timestamps(&multisig_op, start, Duration::from_secs(3600));
 
     // finalize the multisig op
@@ -525,7 +592,11 @@ async fn config_update_is_denied() {
     // verify the config has not been updated
     assert_eq!(
         initial_program_config,
-        get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await
+        get_program_config(
+            &mut context.banks_client,
+            &context.program_config_account.pubkey()
+        )
+        .await
     );
 
     // verify the multisig op account is closed
@@ -667,8 +738,14 @@ async fn test_wallet_creation() {
     utils::finalize_wallet(context.borrow_mut()).await;
 
     // verify that it was created as expected
-    let program_config = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
-    let wallet_config = program_config.get_wallet_config(&context.wallet_guid_hash).unwrap();
+    let program_config = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
+    let wallet_config = program_config
+        .get_wallet_config(&context.wallet_guid_hash)
+        .unwrap();
 
     assert_eq!(
         wallet_config.wallet_guid_hash,
@@ -679,11 +756,15 @@ async fn test_wallet_creation() {
         context.wallet_name_hash.as_slice()
     );
     assert_eq!(
-        program_config.get_transfer_approvers_keys(wallet_config).to_set(),
+        program_config
+            .get_transfer_approvers_keys(wallet_config)
+            .to_set(),
         HashSet::from([context.approvers[0].pubkey(), context.approvers[1].pubkey()])
     );
     assert_eq!(
-        program_config.get_allowed_destinations(wallet_config).to_set(),
+        program_config
+            .get_allowed_destinations(wallet_config)
+            .to_set(),
         HashSet::from([context.allowed_destination])
     );
     assert_eq!(wallet_config.approvals_required_for_transfer, 2);
@@ -786,16 +867,14 @@ async fn test_wallet_creation_incorrect_hash() {
     let mut wrong_guid_hash = context.wallet_guid_hash.clone();
     wrong_guid_hash.reverse();
     let finalize_transaction_wrong_wallet_guid_hash = Transaction::new_signed_with_payer(
-        &[
-            finalize_wallet_creation(
-                &context.program_owner.pubkey(),
-                &context.program_config_account.pubkey(),
-                &context.multisig_op_account.pubkey(),
-                &context.payer.pubkey(),
-                wrong_guid_hash,
-                context.expected_config_update.clone(),
-            ),
-        ],
+        &[finalize_wallet_creation(
+            &context.program_owner.pubkey(),
+            &context.program_config_account.pubkey(),
+            &context.multisig_op_account.pubkey(),
+            &context.payer.pubkey(),
+            wrong_guid_hash,
+            context.expected_config_update.clone(),
+        )],
         Some(&context.payer.pubkey()),
         &[&context.payer],
         context.recent_blockhash,
@@ -812,16 +891,14 @@ async fn test_wallet_creation_incorrect_hash() {
     let altered_config = context.expected_config_update.borrow_mut();
     altered_config.approvals_required_for_transfer = 0;
     let finalize_transaction_wrong_config_update = Transaction::new_signed_with_payer(
-        &[
-            finalize_wallet_creation(
-                &context.program_owner.pubkey(),
-                &context.program_config_account.pubkey(),
-                &context.multisig_op_account.pubkey(),
-                &context.payer.pubkey(),
-                context.wallet_guid_hash,
-                altered_config.clone(),
-            ),
-        ],
+        &[finalize_wallet_creation(
+            &context.program_owner.pubkey(),
+            &context.program_config_account.pubkey(),
+            &context.multisig_op_account.pubkey(),
+            &context.payer.pubkey(),
+            context.wallet_guid_hash,
+            altered_config.clone(),
+        )],
         Some(&context.payer.pubkey()),
         &[&context.payer],
         context.recent_blockhash,
@@ -855,7 +932,11 @@ async fn test_wallet_config_update() {
 
     utils::finalize_wallet(context.borrow_mut()).await;
 
-    let program_config = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
+    let program_config = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
 
     let rent = context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
@@ -863,7 +944,9 @@ async fn test_wallet_config_update() {
 
     let wallet_name_hash = utils::hash_of(b"New Wallet Name");
     let destination_name_hash = utils::hash_of(b"Destination 2 Name");
-    let new_allowed_destination = program_config.address_book.filled_slots()
+    let new_allowed_destination = program_config
+        .address_book
+        .filled_slots()
         .into_iter()
         .find(|(_, addr_book_entry)| addr_book_entry.name_hash == destination_name_hash)
         .unwrap();
@@ -886,18 +969,10 @@ async fn test_wallet_config_update() {
                 wallet_name_hash,
                 1,
                 Duration::from_secs(7200),
-                vec![
-                    (SlotId::new(2), context.approvers[2].pubkey_as_signer())
-                ],
-                vec![
-                    (SlotId::new(0), context.approvers[0].pubkey_as_signer())
-                ],
-                vec![
-                    new_allowed_destination
-                ],
-                vec![
-                    (SlotId::new(0), context.allowed_destination)
-                ],
+                vec![(SlotId::new(2), context.approvers[2].pubkey_as_signer())],
+                vec![(SlotId::new(0), context.approvers[0].pubkey_as_signer())],
+                vec![new_allowed_destination],
+                vec![(SlotId::new(0), context.allowed_destination)],
             ),
         ],
         Some(&context.payer.pubkey()),
@@ -930,18 +1005,10 @@ async fn test_wallet_config_update() {
         name_hash: wallet_name_hash,
         approvals_required_for_transfer: 1,
         approval_timeout_for_transfer: Duration::from_secs(7200),
-        add_transfer_approvers: vec![
-            (SlotId::new(2), context.approvers[2].pubkey_as_signer())
-        ],
-        remove_transfer_approvers: vec![
-            (SlotId::new(0), context.approvers[0].pubkey_as_signer())
-        ],
-        add_allowed_destinations: vec![
-            new_allowed_destination
-        ],
-        remove_allowed_destinations: vec![
-            (SlotId::new(0), context.allowed_destination)
-        ],
+        add_transfer_approvers: vec![(SlotId::new(2), context.approvers[2].pubkey_as_signer())],
+        remove_transfer_approvers: vec![(SlotId::new(0), context.approvers[0].pubkey_as_signer())],
+        add_allowed_destinations: vec![new_allowed_destination],
+        remove_allowed_destinations: vec![(SlotId::new(0), context.allowed_destination)],
     };
 
     // finalize the config update
@@ -975,7 +1042,11 @@ async fn test_wallet_config_update() {
         .unwrap();
 
     // verify that it was updated as expected
-    let config = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
+    let config = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
     let wallet_config = config.get_wallet_config(&context.wallet_guid_hash).unwrap();
 
     assert_eq!(
@@ -1034,8 +1105,14 @@ async fn test_wallet_config_update_is_denied() {
 
     utils::finalize_wallet(context.borrow_mut()).await;
 
-    let program_config = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
-    let wallet_config = program_config.get_wallet_config(&context.wallet_guid_hash).unwrap();
+    let program_config = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
+    let wallet_config = program_config
+        .get_wallet_config(&context.wallet_guid_hash)
+        .unwrap();
 
     let rent = context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
@@ -1043,7 +1120,9 @@ async fn test_wallet_config_update_is_denied() {
 
     let wallet_name_hash = utils::hash_of(b"New Wallet Name");
     let destination_name_hash = utils::hash_of(b"Destination 2 Name");
-    let new_allowed_destination = program_config.address_book.filled_slots()
+    let new_allowed_destination = program_config
+        .address_book
+        .filled_slots()
         .into_iter()
         .find(|(_, addr_book_entry)| addr_book_entry.name_hash == destination_name_hash)
         .unwrap();
@@ -1066,18 +1145,10 @@ async fn test_wallet_config_update_is_denied() {
                 wallet_name_hash,
                 1,
                 Duration::from_secs(7200),
-                vec![
-                    (SlotId::new(2), context.approvers[2].pubkey_as_signer())
-                ],
-                vec![
-                    (SlotId::new(0), context.approvers[0].pubkey_as_signer())
-                ],
-                vec![
-                    new_allowed_destination
-                ],
-                vec![
-                    (SlotId::new(0), context.allowed_destination)
-                ],
+                vec![(SlotId::new(2), context.approvers[2].pubkey_as_signer())],
+                vec![(SlotId::new(0), context.approvers[0].pubkey_as_signer())],
+                vec![new_allowed_destination],
+                vec![(SlotId::new(0), context.allowed_destination)],
             ),
         ],
         Some(&context.payer.pubkey()),
@@ -1110,18 +1181,10 @@ async fn test_wallet_config_update_is_denied() {
         name_hash: wallet_name_hash,
         approvals_required_for_transfer: 1,
         approval_timeout_for_transfer: Duration::from_secs(7200),
-        add_transfer_approvers: vec![
-            (SlotId::new(2), context.approvers[2].pubkey_as_signer())
-        ],
-        remove_transfer_approvers: vec![
-            (SlotId::new(0), context.approvers[0].pubkey_as_signer())
-        ],
-        add_allowed_destinations: vec![
-            new_allowed_destination
-        ],
-        remove_allowed_destinations: vec![
-            (SlotId::new(0), context.allowed_destination)
-        ],
+        add_transfer_approvers: vec![(SlotId::new(2), context.approvers[2].pubkey_as_signer())],
+        remove_transfer_approvers: vec![(SlotId::new(0), context.approvers[0].pubkey_as_signer())],
+        add_allowed_destinations: vec![new_allowed_destination],
+        remove_allowed_destinations: vec![(SlotId::new(0), context.allowed_destination)],
     };
 
     // finalize the config update
@@ -1155,23 +1218,46 @@ async fn test_wallet_config_update_is_denied() {
         .unwrap();
 
     // verify that wallet config was not changed
-    let program_config_after_update = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
-    let wallet_config_after_update = program_config.get_wallet_config(&context.wallet_guid_hash).unwrap();
+    let program_config_after_update = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
+    let wallet_config_after_update = program_config
+        .get_wallet_config(&context.wallet_guid_hash)
+        .unwrap();
 
     assert_eq!(
         wallet_config_after_update.wallet_guid_hash,
         wallet_config.wallet_guid_hash
     );
-    assert_eq!(wallet_config_after_update.approvals_required_for_transfer, wallet_config.approvals_required_for_transfer);
-    assert_eq!(wallet_config_after_update.approval_timeout_for_transfer, wallet_config.approval_timeout_for_transfer);
-    assert_eq!(wallet_config_after_update.wallet_name_hash, wallet_config.wallet_name_hash);
     assert_eq!(
-        program_config_after_update.get_transfer_approvers_keys(wallet_config_after_update).to_set(),
-        program_config.get_transfer_approvers_keys(wallet_config).to_set()
+        wallet_config_after_update.approvals_required_for_transfer,
+        wallet_config.approvals_required_for_transfer
     );
     assert_eq!(
-        program_config_after_update.get_allowed_destinations(wallet_config_after_update).to_set(),
-        program_config.get_allowed_destinations(wallet_config).to_set()
+        wallet_config_after_update.approval_timeout_for_transfer,
+        wallet_config.approval_timeout_for_transfer
+    );
+    assert_eq!(
+        wallet_config_after_update.wallet_name_hash,
+        wallet_config.wallet_name_hash
+    );
+    assert_eq!(
+        program_config_after_update
+            .get_transfer_approvers_keys(wallet_config_after_update)
+            .to_set(),
+        program_config
+            .get_transfer_approvers_keys(wallet_config)
+            .to_set()
+    );
+    assert_eq!(
+        program_config_after_update
+            .get_allowed_destinations(wallet_config_after_update)
+            .to_set(),
+        program_config
+            .get_allowed_destinations(wallet_config)
+            .to_set()
     );
 
     // verify the multisig op account is closed
@@ -1196,14 +1282,22 @@ async fn test_wallet_config_update_is_denied() {
 #[tokio::test]
 async fn wallet_config_update_invalid_updates() {
     let (mut context, _) = utils::setup_wallet_tests_and_finalize(None).await;
-    let program_config = get_program_config(&mut context.banks_client, &context.program_config_account.pubkey()).await;
+    let program_config = get_program_config(
+        &mut context.banks_client,
+        &context.program_config_account.pubkey(),
+    )
+    .await;
 
     // verify error when updating non existing wallet
     {
         let wrong_wallet_guid_hash = [0; 32];
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1218,14 +1312,19 @@ async fn wallet_config_update_invalid_updates() {
                 vec![],
                 vec![],
             ),
-            Custom(WalletError::WalletNotFound as u32)
-        ).await;
+            Custom(WalletError::WalletNotFound as u32),
+        )
+        .await;
     }
     // verify approvals required for transfer can't exceed configured approvers count
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1240,14 +1339,19 @@ async fn wallet_config_update_invalid_updates() {
                 vec![],
                 vec![],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify not allowed to add transfer approver that is not configured as signer
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1257,21 +1361,24 @@ async fn wallet_config_update_invalid_updates() {
                 context.wallet_name_hash,
                 2,
                 Duration::from_secs(7200),
-                vec![
-                    (SlotId::new(2), Keypair::new().pubkey_as_signer())
-                ],
+                vec![(SlotId::new(2), Keypair::new().pubkey_as_signer())],
                 vec![],
                 vec![],
                 vec![],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to add a transfer approver when provided slot value does not match the stored one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1281,21 +1388,24 @@ async fn wallet_config_update_invalid_updates() {
                 context.wallet_name_hash,
                 2,
                 Duration::from_secs(7200),
-                vec![
-                    (SlotId::new(0), context.approvers[1].pubkey_as_signer())
-                ],
+                vec![(SlotId::new(0), context.approvers[1].pubkey_as_signer())],
                 vec![],
                 vec![],
                 vec![],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to remove a transfer approver when provided slot value does not match the stored one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1306,20 +1416,23 @@ async fn wallet_config_update_invalid_updates() {
                 2,
                 Duration::from_secs(7200),
                 vec![],
-                vec![
-                    (SlotId::new(0), context.approvers[1].pubkey_as_signer())
-                ],
+                vec![(SlotId::new(0), context.approvers[1].pubkey_as_signer())],
                 vec![],
                 vec![],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify not allowed to add an allowed destination that is not in the address book
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1331,19 +1444,28 @@ async fn wallet_config_update_invalid_updates() {
                 Duration::from_secs(7200),
                 vec![],
                 vec![],
-                vec![
-                    (SlotId::new(2), AddressBookEntry { address: Keypair::new().pubkey(), name_hash: hash_of(b"Destination 3") })
-                ],
+                vec![(
+                    SlotId::new(2),
+                    AddressBookEntry {
+                        address: Keypair::new().pubkey(),
+                        name_hash: hash_of(b"Destination 3"),
+                    },
+                )],
                 vec![],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to add an allowed destination when provided slot value does not match the stored one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1355,19 +1477,25 @@ async fn wallet_config_update_invalid_updates() {
                 Duration::from_secs(7200),
                 vec![],
                 vec![],
-                vec![
-                    (program_config.address_book.filled_slots()[0].0, program_config.address_book.filled_slots()[1].1)
-                ],
+                vec![(
+                    program_config.address_book.filled_slots()[0].0,
+                    program_config.address_book.filled_slots()[1].1,
+                )],
                 vec![],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
     // verify it's not allowed to remove allowed destination when provided slot value does not match the stored one
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client, context.recent_blockhash, &context.payer, &context.assistant_account, &multisig_op_account,
+            &mut context.banks_client,
+            context.recent_blockhash,
+            &context.payer,
+            &context.assistant_account,
+            &multisig_op_account,
             init_wallet_config_update(
                 &context.program_owner.pubkey(),
                 &context.program_config_account.pubkey(),
@@ -1380,25 +1508,22 @@ async fn wallet_config_update_invalid_updates() {
                 vec![],
                 vec![],
                 vec![],
-                vec![
-                    (program_config.address_book.filled_slots()[0].0, program_config.address_book.filled_slots()[1].1)
-                ],
+                vec![(
+                    program_config.address_book.filled_slots()[0].0,
+                    program_config.address_book.filled_slots()[1].1,
+                )],
             ),
-            InstructionError::InvalidArgument
-        ).await;
+            InstructionError::InvalidArgument,
+        )
+        .await;
     }
 }
 
 #[tokio::test]
 async fn test_transfer_sol() {
     let (mut context, balance_account) = utils::setup_wallet_tests_and_finalize(None).await;
-    let (multisig_op_account, result) = utils::setup_transfer_test(
-        context.borrow_mut(),
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (multisig_op_account, result) =
+        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
     utils::approve_or_deny_n_of_n_multisig_op(
@@ -1489,12 +1614,8 @@ async fn test_transfer_sol() {
 #[tokio::test]
 async fn test_transfer_sol_denied() {
     let (mut context, balance_account) = utils::setup_wallet_tests_and_finalize(None).await;
-    let (multisig_op_account, result) = utils::setup_transfer_test(
-        context.borrow_mut(),
-        &balance_account,
-        None,
-        None,
-    ).await;
+    let (multisig_op_account, result) =
+        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
     utils::approve_or_deny_n_of_n_multisig_op(
@@ -1505,8 +1626,9 @@ async fn test_transfer_sol_denied() {
         &context.payer,
         context.recent_blockhash,
         ApprovalDisposition::DENY,
-        OperationDisposition::DENIED
-    ).await;
+        OperationDisposition::DENIED,
+    )
+    .await;
 
     // transfer enough balance from fee payer to source account
     context
@@ -1588,13 +1710,8 @@ async fn test_transfer_wrong_destination_name_hash() {
 
     context.destination_name_hash = [0; 32];
 
-    let (_, result) = utils::setup_transfer_test(
-        context.borrow_mut(),
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (_, result) =
+        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -1604,13 +1721,8 @@ async fn test_transfer_wrong_destination_name_hash() {
 #[tokio::test]
 async fn test_transfer_requires_multisig() {
     let (mut context, balance_account) = utils::setup_wallet_tests_and_finalize(None).await;
-    let (multisig_op_account, result) = utils::setup_transfer_test(
-        context.borrow_mut(),
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (multisig_op_account, result) =
+        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
     utils::approve_or_deny_1_of_2_multisig_op(
@@ -1659,13 +1771,8 @@ async fn test_transfer_requires_multisig() {
 async fn test_approval_fails_if_incorrect_params_hash() {
     let (mut context, balance_account) = utils::setup_wallet_tests_and_finalize(None).await;
 
-    let (multisig_op_account, result) = utils::setup_transfer_test(
-        context.borrow_mut(),
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (multisig_op_account, result) =
+        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
     assert_eq!(
@@ -1693,13 +1800,8 @@ async fn test_approval_fails_if_incorrect_params_hash() {
 #[tokio::test]
 async fn test_transfer_insufficient_balance() {
     let (mut context, balance_account) = utils::setup_wallet_tests_and_finalize(None).await;
-    let (multisig_op_account, result) = utils::setup_transfer_test(
-        context.borrow_mut(),
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (multisig_op_account, result) =
+        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
     utils::approve_or_deny_n_of_n_multisig_op(
@@ -1771,9 +1873,7 @@ async fn test_transfer_unwhitelisted_address() {
                 vec![],
                 vec![],
                 vec![],
-                vec![
-                    (SlotId::new(0), context.allowed_destination)
-                ],
+                vec![(SlotId::new(0), context.allowed_destination)],
             ),
         ],
         Some(&context.payer.pubkey()),
@@ -1809,9 +1909,7 @@ async fn test_transfer_unwhitelisted_address() {
         add_transfer_approvers: vec![],
         remove_transfer_approvers: vec![],
         add_allowed_destinations: vec![],
-        remove_allowed_destinations: vec![
-            (SlotId::new(0), context.allowed_destination)
-        ],
+        remove_allowed_destinations: vec![(SlotId::new(0), context.allowed_destination)],
     };
 
     // finalize the config update
@@ -1834,13 +1932,8 @@ async fn test_transfer_unwhitelisted_address() {
         .await
         .unwrap();
 
-    let (_, result) = utils::setup_transfer_test(
-        context.borrow_mut(),
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (_, result) =
+        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -1866,8 +1959,7 @@ async fn test_transfer_spl(
     create_destination_token_account: bool,
     fund_source_account_to_pay_for_token: bool,
 ) {
-    let (mut context, balance_account) =
-        utils::setup_wallet_tests_and_finalize(Some(50000)).await;
+    let (mut context, balance_account) = utils::setup_wallet_tests_and_finalize(Some(50000)).await;
 
     let spl_context = utils::setup_spl_transfer_test(
         &mut context,
@@ -1967,7 +2059,8 @@ async fn test_transfer_spl_insufficient_balance() {
         &balance_account,
         Some(&spl_context.mint.pubkey()),
         Some(1230),
-    ).await;
+    )
+    .await;
     result.unwrap();
 
     utils::approve_or_deny_n_of_n_multisig_op(

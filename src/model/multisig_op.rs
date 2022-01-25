@@ -222,7 +222,8 @@ impl IsInitialized for MultisigOp {
 }
 
 impl Pack for MultisigOp {
-    const LEN: usize = 1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS + 1 + 1 + 32 + 8 + 8 + 1;
+    const LEN: usize =
+        1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS + 1 + 1 + 32 + 8 + 8 + 1;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
@@ -420,7 +421,15 @@ impl MultisigOpParams {
                     destination_ref,
                     amount_ref,
                     token_mint_ref,
-                ) = mut_array_refs![bytes_ref, 1, PUBKEY_BYTES, 32, PUBKEY_BYTES, 8, PUBKEY_BYTES];
+                ) = mut_array_refs![
+                    bytes_ref,
+                    1,
+                    PUBKEY_BYTES,
+                    32,
+                    PUBKEY_BYTES,
+                    8,
+                    PUBKEY_BYTES
+                ];
                 type_code_ref[0] = 3;
                 program_config_address_ref.copy_from_slice(program_config_address.as_ref());
                 wallet_guid_hash_ref.copy_from_slice(wallet_guid_hash.as_ref());

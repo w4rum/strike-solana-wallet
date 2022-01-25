@@ -1,9 +1,9 @@
-use std::time::Duration;
-use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
-use solana_program::program_pack::{Sealed, Pack};
-use solana_program::program_error::ProgramError;
-use solana_program::pubkey::Pubkey;
 use crate::model::program_config::{AllowedDestinations, Approvers};
+use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
+use solana_program::program_error::ProgramError;
+use solana_program::program_pack::{Pack, Sealed};
+use solana_program::pubkey::Pubkey;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WalletConfig {
@@ -12,7 +12,7 @@ pub struct WalletConfig {
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
     pub transfer_approvers: Approvers,
-    pub allowed_destinations: AllowedDestinations
+    pub allowed_destinations: AllowedDestinations,
 }
 
 impl Sealed for WalletConfig {}
@@ -33,8 +33,16 @@ impl Pack for WalletConfig {
             approvals_required_for_transfer_dst,
             approval_timeout_for_transfer_dst,
             approvers_dst,
-            allowed_destinations_dst
-        ) = mut_array_refs![dst, 32, 32, 1, 8, Approvers::STORAGE_SIZE, AllowedDestinations::STORAGE_SIZE];
+            allowed_destinations_dst,
+        ) = mut_array_refs![
+            dst,
+            32,
+            32,
+            1,
+            8,
+            Approvers::STORAGE_SIZE,
+            AllowedDestinations::STORAGE_SIZE
+        ];
 
         guid_hash_dst.copy_from_slice(&self.wallet_guid_hash);
         name_hash_dst.copy_from_slice(&self.wallet_name_hash);
@@ -55,16 +63,26 @@ impl Pack for WalletConfig {
             approvals_required_for_transfer_src,
             approval_timeout_for_transfer_src,
             approvers_src,
-            allowed_destinations_src
-        ) = array_refs![src, 32, 32, 1, 8, Approvers::STORAGE_SIZE, AllowedDestinations::STORAGE_SIZE];
+            allowed_destinations_src,
+        ) = array_refs![
+            src,
+            32,
+            32,
+            1,
+            8,
+            Approvers::STORAGE_SIZE,
+            AllowedDestinations::STORAGE_SIZE
+        ];
 
         Ok(WalletConfig {
             wallet_guid_hash: *guid_hash_src,
             wallet_name_hash: *name_hash_src,
             approvals_required_for_transfer: approvals_required_for_transfer_src[0],
-            approval_timeout_for_transfer: Duration::from_secs(u64::from_le_bytes(*approval_timeout_for_transfer_src)),
+            approval_timeout_for_transfer: Duration::from_secs(u64::from_le_bytes(
+                *approval_timeout_for_transfer_src,
+            )),
             transfer_approvers: Approvers::new(*approvers_src),
-            allowed_destinations: AllowedDestinations::new(*allowed_destinations_src)
+            allowed_destinations: AllowedDestinations::new(*allowed_destinations_src),
         })
     }
 }
@@ -82,10 +100,7 @@ impl Pack for AddressBookEntry {
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, AddressBookEntry::LEN];
-        let (
-            address_dst,
-            name_hash_dst
-        ) = mut_array_refs![dst, 32, 32];
+        let (address_dst, name_hash_dst) = mut_array_refs![dst, 32, 32];
 
         address_dst.copy_from_slice(self.address.as_ref());
         name_hash_dst.copy_from_slice(&self.name_hash);
@@ -93,15 +108,11 @@ impl Pack for AddressBookEntry {
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
         let src = array_ref![src, 0, AddressBookEntry::LEN];
-        let (
-            address_bytes,
-            name_hash_bytes
-        ) = array_refs![src, 32, 32];
+        let (address_bytes, name_hash_bytes) = array_refs![src, 32, 32];
 
         Ok(AddressBookEntry {
             address: Pubkey::new_from_array(*address_bytes),
-            name_hash: *name_hash_bytes
+            name_hash: *name_hash_bytes,
         })
     }
 }
-

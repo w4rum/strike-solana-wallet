@@ -20,9 +20,9 @@ use spl_token::state::{Account as SPLAccount, Account};
 
 use crate::error::WalletError;
 use crate::instruction::{ProgramConfigUpdate, ProgramInstruction, WalletConfigUpdate};
-use crate::model::signer::Signer;
 use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, MultisigOpParams};
 use crate::model::program_config::ProgramConfig;
+use crate::model::signer::Signer;
 use solana_program::clock::Clock;
 use solana_program::rent::Rent;
 
@@ -58,23 +58,59 @@ impl Processor {
                 &config_update,
             ),
 
-            ProgramInstruction::FinalizeWalletCreation { wallet_guid_hash, config_update } =>
-                Self::handle_finalize_wallet_creation(program_id, accounts, &wallet_guid_hash, &config_update),
+            ProgramInstruction::FinalizeWalletCreation {
+                wallet_guid_hash,
+                config_update,
+            } => Self::handle_finalize_wallet_creation(
+                program_id,
+                accounts,
+                &wallet_guid_hash,
+                &config_update,
+            ),
 
-            ProgramInstruction::InitWalletConfigUpdate { wallet_guid_hash, config_update } =>
-                Self::handle_init_wallet_config_update(program_id, accounts, &wallet_guid_hash, &config_update),
+            ProgramInstruction::InitWalletConfigUpdate {
+                wallet_guid_hash,
+                config_update,
+            } => Self::handle_init_wallet_config_update(
+                program_id,
+                accounts,
+                &wallet_guid_hash,
+                &config_update,
+            ),
 
-            ProgramInstruction::FinalizeWalletConfigUpdate { wallet_guid_hash, config_update } =>
-                Self::handle_finalize_wallet_config_update(program_id, accounts, &wallet_guid_hash, &config_update),
+            ProgramInstruction::FinalizeWalletConfigUpdate {
+                wallet_guid_hash,
+                config_update,
+            } => Self::handle_finalize_wallet_config_update(
+                program_id,
+                accounts,
+                &wallet_guid_hash,
+                &config_update,
+            ),
 
             ProgramInstruction::InitTransfer {
                 wallet_guid_hash,
                 amount,
                 destination_name_hash,
-            } => Self::handle_init_transfer(program_id, &accounts, &wallet_guid_hash, amount, &destination_name_hash),
+            } => Self::handle_init_transfer(
+                program_id,
+                &accounts,
+                &wallet_guid_hash,
+                amount,
+                &destination_name_hash,
+            ),
 
-            ProgramInstruction::FinalizeTransfer { wallet_guid_hash, amount, token_mint } =>
-                Self::handle_finalize_transfer(program_id, &accounts, wallet_guid_hash, amount, token_mint),
+            ProgramInstruction::FinalizeTransfer {
+                wallet_guid_hash,
+                amount,
+                token_mint,
+            } => Self::handle_finalize_transfer(
+                program_id,
+                &accounts,
+                wallet_guid_hash,
+                amount,
+                token_mint,
+            ),
 
             ProgramInstruction::SetApprovalDisposition {
                 disposition,
@@ -93,14 +129,17 @@ impl Processor {
             Self::next_program_account_info(accounts_iter, program_id)?;
         let assistant_account_info = next_account_info(accounts_iter)?;
 
-        let mut program_config = ProgramConfig::unpack_unchecked(&program_config_account_info.data.borrow())?;
+        let mut program_config =
+            ProgramConfig::unpack_unchecked(&program_config_account_info.data.borrow())?;
 
         if program_config.is_initialized() {
             return Err(ProgramError::AccountAlreadyInitialized);
         }
 
         program_config.is_initialized = true;
-        program_config.assistant = Signer { key: *assistant_account_info.key };
+        program_config.assistant = Signer {
+            key: *assistant_account_info.key,
+        };
         program_config.update(config_update)?;
         ProgramConfig::pack(
             program_config,
@@ -198,7 +237,8 @@ impl Processor {
         let initiator_account_info = next_account_info(accounts_iter)?;
         let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
-        let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
+        let mut multisig_op =
+            MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         program_config.validate_config_initiator(initiator_account_info)?;
         program_config.validate_add_wallet_config(&wallet_guid_hash, config_update)?;
@@ -222,10 +262,16 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_finalize_wallet_creation(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
+    fn handle_finalize_wallet_creation(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        wallet_guid_hash: &[u8; 32],
+        config_update: &WalletConfigUpdate,
+    ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let program_config_account_info =
+            Self::next_program_account_info(accounts_iter, program_id)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
         let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
@@ -234,7 +280,8 @@ impl Processor {
         }
 
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
-        let mut program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow_mut())?;
+        let mut program_config =
+            ProgramConfig::unpack(&program_config_account_info.data.borrow_mut())?;
 
         let expected_params = MultisigOpParams::CreateWallet {
             wallet_guid_hash: *wallet_guid_hash,
@@ -244,7 +291,10 @@ impl Processor {
 
         if multisig_op.approved(&expected_params, &clock)? {
             program_config.add_wallet_config(wallet_guid_hash, config_update)?;
-            ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
+            ProgramConfig::pack(
+                program_config,
+                &mut program_config_account_info.data.borrow_mut(),
+            )?;
         }
 
         Self::collect_remaining_balance(&multisig_op_account_info, &rent_collector_account_info)?;
@@ -252,10 +302,16 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_init_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
+    fn handle_init_wallet_config_update(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        wallet_guid_hash: &[u8; 32],
+        config_update: &WalletConfigUpdate,
+    ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let program_config_account_info =
+            Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
         let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
@@ -263,7 +319,8 @@ impl Processor {
         program_config.validate_config_initiator(initiator_account_info)?;
         program_config.validate_wallet_config_update(wallet_guid_hash, config_update)?;
 
-        let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
+        let mut multisig_op =
+            MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
             program_config.get_config_approvers_keys(),
             program_config.approvals_required_for_config,
@@ -275,18 +332,24 @@ impl Processor {
             MultisigOpParams::UpdateWalletConfig {
                 program_config_address: *program_config_account_info.key,
                 wallet_guid_hash: *wallet_guid_hash,
-                config_update: config_update.clone()
-            }
+                config_update: config_update.clone(),
+            },
         )?;
         MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
         Ok(())
     }
 
-    fn handle_finalize_wallet_config_update(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], config_update: &WalletConfigUpdate) -> ProgramResult {
+    fn handle_finalize_wallet_config_update(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        wallet_guid_hash: &[u8; 32],
+        config_update: &WalletConfigUpdate,
+    ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let program_config_account_info =
+            Self::next_program_account_info(accounts_iter, program_id)?;
         let rent_collector_account_info = next_account_info(accounts_iter)?;
         let clock = Self::get_clock_from_next_account(accounts_iter)?;
 
@@ -299,12 +362,16 @@ impl Processor {
         let expected_params = MultisigOpParams::UpdateWalletConfig {
             wallet_guid_hash: *wallet_guid_hash,
             program_config_address: *program_config_account_info.key,
-            config_update: config_update.clone()
+            config_update: config_update.clone(),
         };
         if multisig_op.approved(&expected_params, &clock)? {
-            let mut program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
+            let mut program_config =
+                ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
             program_config.update_wallet_config(wallet_guid_hash, config_update)?;
-            ProgramConfig::pack(program_config, &mut program_config_account_info.data.borrow_mut())?;
+            ProgramConfig::pack(
+                program_config,
+                &mut program_config_account_info.data.borrow_mut(),
+            )?;
         }
 
         Self::collect_remaining_balance(&multisig_op_account_info, &rent_collector_account_info)?;
@@ -312,10 +379,17 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_init_transfer(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: &[u8; 32], amount: u64, destination_name_hash: &[u8; 32]) -> ProgramResult {
+    fn handle_init_transfer(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        wallet_guid_hash: &[u8; 32],
+        amount: u64,
+        destination_name_hash: &[u8; 32],
+    ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let program_config_account_info =
+            Self::next_program_account_info(accounts_iter, program_id)?;
         let source_account = next_account_info(accounts_iter)?;
         let destination_account = next_account_info(accounts_iter)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
@@ -326,7 +400,11 @@ impl Processor {
         let program_config = ProgramConfig::unpack(&program_config_account_info.data.borrow())?;
         let wallet_config = program_config.get_wallet_config(wallet_guid_hash)?;
 
-        if !program_config.destination_allowed(wallet_config, destination_account.key, destination_name_hash)? {
+        if !program_config.destination_allowed(
+            wallet_config,
+            destination_account.key,
+            destination_name_hash,
+        )? {
             msg!("Destination account is not whitelisted");
             return Err(WalletError::DestinationNotAllowed.into());
         }
@@ -341,10 +419,8 @@ impl Processor {
             // frst check if the source account has sufficient funds to create it
             let rent = Rent::get()?;
             if rent.is_exempt(source_account.lamports(), Account::LEN) {
-                let (source_account_pda, bump_seed) = Pubkey::find_program_address(
-                    &[&wallet_guid_hash[..]],
-                    program_id,
-                );
+                let (source_account_pda, bump_seed) =
+                    Pubkey::find_program_address(&[&wallet_guid_hash[..]], program_id);
                 if &source_account_pda != source_account.key {
                     return Err(WalletError::InvalidSourceAccount.into());
                 }
@@ -386,7 +462,8 @@ impl Processor {
             }
         }
 
-        let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
+        let mut multisig_op =
+            MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
         multisig_op.init(
             program_config.get_transfer_approvers_keys(wallet_config),
             wallet_config.approvals_required_for_transfer,
@@ -407,10 +484,17 @@ impl Processor {
         Ok(())
     }
 
-    fn handle_finalize_transfer(program_id: &Pubkey, accounts: &[AccountInfo], wallet_guid_hash: [u8; 32], amount: u64, token_mint: Pubkey) -> ProgramResult {
+    fn handle_finalize_transfer(
+        program_id: &Pubkey,
+        accounts: &[AccountInfo],
+        wallet_guid_hash: [u8; 32],
+        amount: u64,
+        token_mint: Pubkey,
+    ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
-        let program_config_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
+        let program_config_account_info =
+            Self::next_program_account_info(accounts_iter, program_id)?;
         let source_account = next_account_info(accounts_iter)?;
         let destination_account = next_account_info(accounts_iter)?;
         let system_program_account = next_account_info(accounts_iter)?;
@@ -438,7 +522,8 @@ impl Processor {
         };
 
         if multisig_op.approved(&expected_params, &clock)? {
-            let (source_account_pda, bump_seed) = Pubkey::find_program_address(&[&wallet_guid_hash], program_id);
+            let (source_account_pda, bump_seed) =
+                Pubkey::find_program_address(&[&wallet_guid_hash], program_id);
             if &source_account_pda != source_account.key {
                 return Err(WalletError::InvalidSourceAccount.into());
             }

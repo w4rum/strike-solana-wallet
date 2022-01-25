@@ -1,21 +1,24 @@
-use std::iter::Map;
-use std::ops::Index;
+use bitvec::prelude::*;
+use bitvec::slice::IterOnes;
 use itertools::Itertools;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{Pack, Sealed};
+use std::iter::Map;
 use std::marker::PhantomData;
-use bitvec::prelude::*;
-use bitvec::slice::IterOnes;
+use std::ops::Index;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct SlotId<A> {
     pub value: usize,
-    item_type: PhantomData<A>
+    item_type: PhantomData<A>,
 }
 
 impl<A> SlotId<A> {
     pub fn new(id: usize) -> Self {
-        Self { value: id, item_type: PhantomData }
+        Self {
+            value: id,
+            item_type: PhantomData,
+        }
     }
 }
 
@@ -36,7 +39,9 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
     pub const FLAGS_STORAGE_SIZE: usize = bitvec::mem::elts::<u8>(SIZE);
 
     pub fn new() -> Slots<A, SIZE> {
-        Slots { array: Box::new([None; SIZE]) }
+        Slots {
+            array: Box::new([None; SIZE]),
+        }
     }
 
     pub fn from_vec(vec: Vec<(SlotId<A>, A)>) -> Slots<A, SIZE> {
@@ -53,15 +58,15 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
                 if slot_item != item {
                     panic!("Failed inserting: slot is already taken");
                 }
-            },
-            None => {
-                self.array[id.value] = Some(item)
             }
+            None => self.array[id.value] = Some(item),
         }
     }
 
     pub fn can_be_inserted(&self, items: &Vec<(SlotId<A>, A)>) -> bool {
-        items.iter().all(|(id, value)| id.value < SIZE && (self[*id] == None || self[*id] == Some(*value)))
+        items
+            .iter()
+            .all(|(id, value)| id.value < SIZE && (self[*id] == None || self[*id] == Some(*value)))
     }
 
     pub fn insert_many(&mut self, items: &Vec<(SlotId<A>, A)>) {
@@ -73,10 +78,10 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
     pub fn contains(&self, items: &Vec<(SlotId<A>, A)>) -> bool {
         for (id, value) in items {
             if id.value >= SIZE || self[*id] != Some(*value) {
-                return false
+                return false;
             }
         }
-        return true
+        return true;
     }
 
     pub fn remove(&mut self, id: SlotId<A>, item: A) {
@@ -90,7 +95,9 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
     }
 
     pub fn can_be_removed(&self, items: &Vec<(SlotId<A>, A)>) -> bool {
-        items.iter().all(|(id, value)| id.value < SIZE && (self[*id] == None || self[*id] == Some(*value)))
+        items
+            .iter()
+            .all(|(id, value)| id.value < SIZE && (self[*id] == None || self[*id] == Some(*value)))
     }
 
     pub fn remove_many(&mut self, items: &Vec<(SlotId<A>, A)>) {
@@ -148,7 +155,7 @@ impl<A: Pack + Copy + PartialEq + Ord, const SIZE: usize> Pack for Slots<A, SIZE
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotFlags<A, const STORAGE_SIZE: usize> {
     bit_arr: BitArray<[u8; STORAGE_SIZE]>,
-    item_type: PhantomData<A>
+    item_type: PhantomData<A>,
 }
 
 pub type IterEnabledIds<'a, A> = Map<IterOnes<'a, u8, Lsb0>, fn(usize) -> SlotId<A>>;
@@ -157,7 +164,10 @@ impl<A, const STORAGE_SIZE: usize> SlotFlags<A, STORAGE_SIZE> {
     pub const STORAGE_SIZE: usize = STORAGE_SIZE;
 
     pub fn new(data: [u8; STORAGE_SIZE]) -> Self {
-        Self { bit_arr: BitArray::new(data), item_type: PhantomData }
+        Self {
+            bit_arr: BitArray::new(data),
+            item_type: PhantomData,
+        }
     }
 
     pub fn from_enabled_vec(vec: Vec<SlotId<A>>) -> Self {
