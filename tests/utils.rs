@@ -135,6 +135,7 @@ pub struct ProgramConfigUpdateContext {
     pub approvers: Vec<Keypair>,
     pub recent_blockhash: Hash,
     pub expected_config_update: ProgramConfigUpdate,
+    pub params_hash: Hash
 }
 
 pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
@@ -236,6 +237,17 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
         remove_address_book_entries: Vec::new()
     };
 
+    let multisig_op = MultisigOp::unpack_from_slice(
+        banks_client
+            .get_account(multisig_op_account.pubkey())
+            .await
+            .unwrap()
+            .unwrap()
+            .data(),
+    )
+        .unwrap();
+    assert!(multisig_op.is_initialized);
+
     ProgramConfigUpdateContext {
         payer,
         program_owner,
@@ -245,6 +257,7 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
         approvers,
         recent_blockhash,
         expected_config_update,
+        params_hash: multisig_op.params_hash
     }
 }
 
@@ -258,6 +271,11 @@ pub async fn approve_or_deny_n_of_n_multisig_op(
     disposition: ApprovalDisposition,
     expected_operation_disposition: OperationDisposition
 ) {
+
+    let params_hash = get_operation_hash(
+        banks_client.borrow_mut(),
+        *multisig_op_account).await;
+
     // approve the config change
     for approver in approvers.iter() {
         let approve_transaction = Transaction::new_signed_with_payer(
@@ -265,7 +283,8 @@ pub async fn approve_or_deny_n_of_n_multisig_op(
                 program_owner,
                 multisig_op_account,
                 &approver.pubkey(),
-                disposition
+                disposition,
+                params_hash
             )],
             Some(&payer.pubkey()),
             &[payer, approver],
@@ -311,13 +330,18 @@ pub async fn approve_or_deny_1_of_2_multisig_op(
     recent_blockhash: Hash,
     disposition: ApprovalDisposition
 ) {
+    let params_hash = get_operation_hash(
+        banks_client.borrow_mut(),
+        *multisig_op_account).await;
+
     // approve the config change
     let approve_transaction = Transaction::new_signed_with_payer(
         &[set_approval_disposition(
             program_owner,
             multisig_op_account,
             &approver.pubkey(),
-            disposition
+            disposition,
+            params_hash
         )],
         Some(&payer.pubkey()),
         &[payer, approver],
@@ -385,6 +409,7 @@ pub struct WalletTestContext {
     pub destination_name_hash: [u8; 32],
     pub allowed_destination: AddressBookEntry,
     pub destination: Keypair,
+    pub params_hash: Hash
 }
 
 pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTestContext {
@@ -547,8 +572,22 @@ pub async fn setup_wallet_tests(bpf_compute_max_units: Option<u64>) -> WalletTes
         wallet_guid_hash,
         destination_name_hash: addr_book_entry.name_hash,
         allowed_destination: addr_book_entry,
-        destination
+        destination,
+        params_hash: multisig_op.params_hash,
     }
+}
+
+pub async fn get_operation_hash(banks_client: &mut BanksClient, op_address: Pubkey) -> Hash {
+    let multisig_op = MultisigOp::unpack_from_slice(
+        banks_client
+            .get_account(op_address)
+            .await
+            .unwrap()
+            .unwrap()
+            .data(),
+    ).unwrap();
+
+    multisig_op.params_hash
 }
 
 pub async fn setup_init_wallet_failure_tests(bpf_compute_max_units: Option<u64>,

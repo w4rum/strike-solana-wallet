@@ -4,9 +4,9 @@ use std::mem::size_of;
 use std::slice::Iter;
 use std::time::Duration;
 
+use solana_program::hash::Hash;
 use solana_program::program_error::ProgramError;
-use solana_program::{instruction::AccountMeta, pubkey::Pubkey, system_program, sysvar};
-use solana_program::instruction::Instruction;
+use solana_program::{instruction::Instruction, instruction::AccountMeta, pubkey::Pubkey, system_program, sysvar};
 use solana_program::program_pack::Pack;
 
 use crate::model::wallet_config::AddressBookEntry;
@@ -89,7 +89,8 @@ pub enum ProgramInstruction {
     /// 1. `[signer]` The approver account
     /// 2. `[]` The sysvar clock account
     SetApprovalDisposition {
-        disposition: ApprovalDisposition
+        disposition: ApprovalDisposition,
+        params_hash: Hash,
     },
 
     /// 0  `[writable]` The multisig operation account
@@ -132,9 +133,10 @@ impl ProgramInstruction {
                 buf.push(2);
                 buf.extend_from_slice(&config_update_bytes);
             }
-            &ProgramInstruction::SetApprovalDisposition { ref disposition } => {
+            &ProgramInstruction::SetApprovalDisposition { ref disposition, ref params_hash } => {
                 buf.push(9);
                 buf.push(disposition.to_u8());
+                buf.extend_from_slice(params_hash.as_ref());
             }
             &ProgramInstruction::InitWalletCreation {
                 ref wallet_guid_hash,
@@ -287,9 +289,19 @@ impl ProgramInstruction {
         Ok(Self::InitTransfer { wallet_guid_hash, amount, destination_name_hash, token_mint })
     }
 
-    fn unpack_set_approval_disposition_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
-        let (disposition, _) = bytes.split_first().ok_or(ProgramError::InvalidInstructionData)?;
-        Ok(Self::SetApprovalDisposition { disposition: ApprovalDisposition::from_u8(*disposition) })
+    fn unpack_set_approval_disposition_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        let (disposition, rest) = bytes
+            .split_first()
+            .ok_or(ProgramError::InvalidInstructionData)?;
+        Ok(Self::SetApprovalDisposition {
+            disposition: ApprovalDisposition::from_u8(*disposition),
+            params_hash: Hash::new_from_array(rest
+                .get(0..32)
+                .and_then(|slice| slice.try_into().ok())
+                .ok_or(ProgramError::InvalidInstructionData)?)
+        })
     }
 
     fn unpack_finalize_transfer_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
@@ -583,9 +595,10 @@ pub fn set_approval_disposition(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
     approver: &Pubkey,
-    disposition: ApprovalDisposition
+    disposition: ApprovalDisposition,
+    params_hash: Hash
 ) -> Instruction {
-    let data = ProgramInstruction::SetApprovalDisposition { disposition }
+    let data = ProgramInstruction::SetApprovalDisposition { disposition, params_hash }
         .borrow()
         .pack();
 

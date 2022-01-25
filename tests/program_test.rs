@@ -2,6 +2,7 @@
 use std::borrow::BorrowMut;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use solana_program::hash::Hash;
 use solana_program::instruction::InstructionError::{
     Custom, InvalidArgument, MissingRequiredSignature,
 };
@@ -370,7 +371,8 @@ async fn config_update_invalid_approval() {
             &context.program_owner.pubkey(),
             &context.multisig_op_account.pubkey(),
             &context.approvers[2].pubkey(),
-            ApprovalDisposition::APPROVE
+            ApprovalDisposition::APPROVE,
+            context.params_hash
         )],
         Some(&context.payer.pubkey()),
         &[&context.payer, &context.approvers[2]],
@@ -1383,6 +1385,42 @@ async fn test_transfer_requires_multisig() {
         TransactionError::InstructionError(
             0,
             Custom(WalletError::TransferDispositionNotFinal as u32)
+        ),
+    );
+}
+
+#[tokio::test]
+async fn test_approval_fails_if_incorrect_params_hash() {
+    let (mut context, _) = utils::setup_wallet_tests_and_finalize(None).await;
+
+    let (multisig_op_account, result) = utils::setup_transfer_test(
+        context.borrow_mut(),
+        None,
+        None,
+    ).await;
+    result.unwrap();
+
+    assert_eq!(
+        context
+            .banks_client
+            .process_transaction(Transaction::new_signed_with_payer(
+                &[set_approval_disposition(
+                    &context.program_owner.pubkey(),
+                    &multisig_op_account.pubkey(),
+                    &context.approvers[1].pubkey(),
+                    ApprovalDisposition::APPROVE,
+                    Hash::new_from_array([0;32])
+                )],
+                Some(&context.payer.pubkey()),
+                &[&context.payer, &context.approvers[1]],
+                context.recent_blockhash,
+            ))
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(
+            0,
+            Custom(WalletError::InvalidSignature as u32)
         ),
     );
 }
