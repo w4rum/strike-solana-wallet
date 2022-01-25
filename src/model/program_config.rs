@@ -434,7 +434,9 @@ impl Pack for ProgramConfig {
             assistant: Signer::unpack_from_slice(assistant)?,
             address_book: AddressBook::unpack_from_slice(address_book_src)?,
             approvals_required_for_config: approvals_required_for_config[0],
-            approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(*approval_timeout_for_config)),
+            approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(
+                *approval_timeout_for_config,
+            )),
             config_approvers: Approvers::new(*config_approvers_src),
             wallets
         })

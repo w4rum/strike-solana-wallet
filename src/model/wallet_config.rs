@@ -40,7 +40,8 @@ impl Pack for WalletConfig {
         name_hash_dst.copy_from_slice(&self.wallet_name_hash);
 
         approvals_required_for_transfer_dst[0] = self.approvals_required_for_transfer;
-        *approval_timeout_for_transfer_dst = self.approval_timeout_for_transfer.as_secs().to_le_bytes();
+        *approval_timeout_for_transfer_dst =
+            self.approval_timeout_for_transfer.as_secs().to_le_bytes();
 
         approvers_dst.copy_from_slice(self.transfer_approvers.as_bytes());
         allowed_destinations_dst.copy_from_slice(self.allowed_destinations.as_bytes());

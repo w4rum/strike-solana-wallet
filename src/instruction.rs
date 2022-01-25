@@ -74,15 +74,23 @@ pub enum ProgramInstruction {
 
     /// 0  `[writable]` The multisig operation account
     /// 1. `[]` The program config account
-    /// 2. `[]` The destination account
-    /// 3. `[signer]` The fee payer account
+    /// 2. `[]` The source account
+    /// 3. `[]` The destination account
     /// 4. `[signer]` The initiator account (either the transaction assistant or an approver)
     /// 5. `[]` The sysvar clock account
+    /// 6. `[]` The token mint (for SPL transfers, use system account otherwise)
+    /// 7. `[writable]` The destination token account (only used for SPL transfers)
+    /// 8. `[signer, writable]` The fee payer, used if we need to create destination token account
+    ///     for an SPL transfer and the source account does not have enough funds (only used for
+    ///     SPL transfers)
+    /// 9. `[]` The system program (only used for SPL transfers)
+    /// 10. `[]` The SPL token program (only used for SPL transfers)
+    /// 11. `[]` The Rent sysvar program (only used for SPL transfers)
+    /// 12. `[]` The SPL associated token program (only used for SPL transfers)
     InitTransfer {
         wallet_guid_hash: [u8; 32],
         amount: u64,
         destination_name_hash: [u8; 32],
-        token_mint: Pubkey,
     },
 
     /// 0  `[writable]` The multisig operation account
@@ -99,11 +107,11 @@ pub enum ProgramInstruction {
     /// 3. `[writable]` The destination account
     /// 4. `[]` The system program
     /// 5. `[signer]` The rent collector account
-    /// 6. `[writable]` The source token account, if this is an SPL transfer
-    /// 7. `[writable]` The destination token account, if this is an SPL transfer
-    /// 8. `[]` The SPL token program account, if this is an SPL transfer
-    /// 9. `[]` The token mint authority, if this is an SPL transfer
-    /// 10. `[]` The sysvar clock account
+    /// 6. `[]` The sysvar clock account
+    /// 7. `[writable]` The source token account, if this is an SPL transfer
+    /// 8. `[writable]` The destination token account, if this is an SPL transfer
+    /// 9. `[]` The SPL token program account, if this is an SPL transfer
+    /// 10. `[]` The token mint authority, if this is an SPL transfer
     FinalizeTransfer {
         wallet_guid_hash: [u8; 32],
         amount: u64,
@@ -133,7 +141,10 @@ impl ProgramInstruction {
                 buf.push(2);
                 buf.extend_from_slice(&config_update_bytes);
             }
-            &ProgramInstruction::SetApprovalDisposition { ref disposition, ref params_hash } => {
+            &ProgramInstruction::SetApprovalDisposition {
+                ref disposition,
+                ref params_hash,
+            } => {
                 buf.push(9);
                 buf.push(disposition.to_u8());
                 buf.extend_from_slice(params_hash.as_ref());
@@ -182,13 +193,11 @@ impl ProgramInstruction {
                 ref wallet_guid_hash,
                 ref amount,
                 ref destination_name_hash,
-                ref token_mint,
             } => {
                 buf.push(7);
                 buf.extend_from_slice(&wallet_guid_hash[..]);
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.extend_from_slice(destination_name_hash);
-                buf.extend_from_slice(&token_mint.to_bytes())
             }
             &ProgramInstruction::FinalizeTransfer {
                 ref wallet_guid_hash,
@@ -281,12 +290,7 @@ impl ProgramInstruction {
             .and_then(|slice| slice.try_into().ok())
             .ok_or(ProgramError::InvalidInstructionData)?;
 
-        let token_mint = Pubkey::new_from_array(
-            bytes.get(72..104)
-                .and_then(|slice| slice.try_into().ok())
-                .ok_or(ProgramError::InvalidInstructionData)?);
-
-        Ok(Self::InitTransfer { wallet_guid_hash, amount, destination_name_hash, token_mint })
+        Ok(Self::InitTransfer { wallet_guid_hash, amount, destination_name_hash })
     }
 
     fn unpack_set_approval_disposition_instruction(
@@ -297,10 +301,11 @@ impl ProgramInstruction {
             .ok_or(ProgramError::InvalidInstructionData)?;
         Ok(Self::SetApprovalDisposition {
             disposition: ApprovalDisposition::from_u8(*disposition),
-            params_hash: Hash::new_from_array(rest
-                .get(0..32)
-                .and_then(|slice| slice.try_into().ok())
-                .ok_or(ProgramError::InvalidInstructionData)?)
+            params_hash: Hash::new_from_array(
+                rest.get(0..32)
+                    .and_then(|slice| slice.try_into().ok())
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            ),
         })
     }
 
@@ -596,16 +601,19 @@ pub fn set_approval_disposition(
     multisig_op_account: &Pubkey,
     approver: &Pubkey,
     disposition: ApprovalDisposition,
-    params_hash: Hash
+    params_hash: Hash,
 ) -> Instruction {
-    let data = ProgramInstruction::SetApprovalDisposition { disposition, params_hash }
-        .borrow()
-        .pack();
+    let data = ProgramInstruction::SetApprovalDisposition {
+        disposition: disposition,
+        params_hash,
+    }
+    .borrow()
+    .pack();
 
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*approver, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false)
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     Instruction {
@@ -772,26 +780,39 @@ pub fn init_transfer(
     program_config_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
+    source_account: &Pubkey,
     destination_account: &Pubkey,
     wallet_guid_hash: [u8; 32],
     amount: u64,
     destination_name_hash: [u8; 32],
     token_mint: &Pubkey,
+    fee_payer: &Pubkey,
 ) -> Instruction {
     let data = ProgramInstruction::InitTransfer {
         wallet_guid_hash,
         amount,
         destination_name_hash,
-        token_mint: *token_mint,
     }
     .borrow()
     .pack();
+
+    let destination_token_account =
+        spl_associated_token_account::get_associated_token_address(destination_account, token_mint);
+
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new(*source_account, false),
         AccountMeta::new_readonly(*destination_account, false),
         AccountMeta::new_readonly(*assistant_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false)
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
+        AccountMeta::new_readonly(*token_mint, false),
+        AccountMeta::new(destination_token_account, false),
+        AccountMeta::new(*fee_payer, true),
+        AccountMeta::new_readonly(system_program::id(), false),
+        AccountMeta::new_readonly(spl_token::id(), false),
+        AccountMeta::new_readonly(sysvar::rent::id(), false),
+        AccountMeta::new_readonly(spl_associated_token_account::id(), false),
     ];
 
     Instruction {

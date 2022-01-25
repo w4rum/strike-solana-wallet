@@ -9,4 +9,4 @@ deploy_and_test: build
 	cargo test-bpf
 
 test:
-	cargo test-bpf -- --nocapture
+	cargo test-bpf ${tests} -- --nocapture
