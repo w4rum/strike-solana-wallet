@@ -5,7 +5,7 @@ use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::hash::Hash;
 use solana_program::instruction::{AccountMeta, Instruction};
-use solana_program::program::invoke_signed;
+use solana_program::program::{invoke, invoke_signed};
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{IsInitialized, Pack};
 use solana_program::pubkey::Pubkey;
@@ -16,7 +16,7 @@ use solana_program::{msg, sysvar};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::id as SPL_TOKEN_ID;
 use spl_token::instruction as spl_instruction;
-use spl_token::state::Account as SPLAccount;
+use spl_token::state::{Account as SPLAccount, Account};
 
 use crate::error::WalletError;
 use crate::instruction::{ProgramConfigUpdate, ProgramInstruction, WalletConfigUpdate};
@@ -24,6 +24,7 @@ use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, MultisigOpParam
 use crate::model::program_config::ProgramConfig;
 use crate::model::wallet_config::WalletConfig;
 use solana_program::clock::Clock;
+use solana_program::rent::Rent;
 
 pub struct Processor;
 impl Processor {
@@ -96,9 +97,10 @@ impl Processor {
                 Self::handle_finalize_transfer(program_id, &accounts, amount, token_mint)
             }
 
-            ProgramInstruction::SetApprovalDisposition { disposition, params_hash } => {
-                Self::handle_approval_disposition(program_id, &accounts, disposition, params_hash)
-            }
+            ProgramInstruction::SetApprovalDisposition {
+                disposition,
+                params_hash,
+            } => Self::handle_approval_disposition(program_id, &accounts, disposition, params_hash),
         }
     }
 
@@ -412,30 +414,54 @@ impl Processor {
         if *token_mint.key != Pubkey::default()
             && *destination_token_account.owner == Pubkey::default()
         {
-            let (source_account_pda, bump_seed) = Pubkey::find_program_address(
-                &[&wallet_config_account_info.key.to_bytes()],
-                program_id,
-            );
-            if &source_account_pda != source_account.key {
-                return Err(WalletError::InvalidSourceAccount.into());
+            // we need to create the destination token account (if it had been created already
+            // it would be owned by the Token program).
+            // frst check if the source account has sufficient funds to create it
+            let rent = Rent::get()?;
+            if rent.is_exempt(source_account.lamports(), Account::LEN) {
+                let (source_account_pda, bump_seed) = Pubkey::find_program_address(
+                    &[&wallet_config_account_info.key.to_bytes()],
+                    program_id,
+                );
+                if &source_account_pda != source_account.key {
+                    return Err(WalletError::InvalidSourceAccount.into());
+                }
+                invoke_signed(
+                    &Instruction {
+                        program_id: spl_associated_token_account::id(),
+                        accounts: vec![
+                            AccountMeta::new(source_account_pda, true),
+                            AccountMeta::new(*destination_token_account.key, false),
+                            AccountMeta::new_readonly(*destination_account.key, false),
+                            AccountMeta::new_readonly(*token_mint.key, false),
+                            AccountMeta::new_readonly(solana_program::system_program::id(), false),
+                            AccountMeta::new_readonly(spl_token::id(), false),
+                            AccountMeta::new_readonly(sysvar::rent::id(), false),
+                        ],
+                        data: vec![],
+                    },
+                    accounts,
+                    &[&[&wallet_config_account_info.key.to_bytes()[..], &[bump_seed]]],
+                )?;
+            } else {
+                let fee_payer_account = next_account_info(accounts_iter)?;
+                invoke(
+                    &Instruction {
+                        program_id: spl_associated_token_account::id(),
+                        accounts: vec![
+                            AccountMeta::new(*fee_payer_account.key, true),
+                            AccountMeta::new(*destination_token_account.key, false),
+                            AccountMeta::new_readonly(*destination_account.key, false),
+                            AccountMeta::new_readonly(*token_mint.key, false),
+                            AccountMeta::new_readonly(solana_program::system_program::id(), false),
+                            AccountMeta::new_readonly(spl_token::id(), false),
+                            AccountMeta::new_readonly(sysvar::rent::id(), false),
+                        ],
+                        data: vec![],
+                    },
+                    accounts,
+                )?;
             }
-            invoke_signed(
-                &Instruction {
-                    program_id: spl_associated_token_account::id(),
-                    accounts: vec![
-                        AccountMeta::new(source_account_pda, true),
-                        AccountMeta::new(*destination_token_account.key, false),
-                        AccountMeta::new_readonly(*destination_account.key, false),
-                        AccountMeta::new_readonly(*token_mint.key, false),
-                        AccountMeta::new_readonly(solana_program::system_program::id(), false),
-                        AccountMeta::new_readonly(spl_token::id(), false),
-                        AccountMeta::new_readonly(sysvar::rent::id(), false),
-                    ],
-                    data: vec![],
-                },
-                accounts,
-                &[&[&wallet_config_account_info.key.to_bytes()[..], &[bump_seed]]],
-            )?;
         }
 
         let program_config = ProgramConfig::unpack(&program_account_info.data.borrow())?;
@@ -601,7 +627,11 @@ impl Processor {
             return Err(WalletError::InvalidSignature.into());
         }
 
-        multisig_op.validate_and_record_approval_disposition(&signer_account_info, disposition, &clock)?;
+        multisig_op.validate_and_record_approval_disposition(
+            &signer_account_info,
+            disposition,
+            &clock,
+        )?;
         MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
         Ok(())

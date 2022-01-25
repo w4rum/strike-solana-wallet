@@ -3,8 +3,8 @@ use std::convert::TryInto;
 use std::mem::size_of;
 use std::time::Duration;
 
-use solana_program::instruction::Instruction;
 use solana_program::hash::Hash;
+use solana_program::instruction::Instruction;
 use solana_program::program_error::ProgramError;
 use solana_program::system_program;
 use solana_program::{
@@ -79,10 +79,13 @@ pub enum ProgramInstruction {
     /// 6. `[]` The sysvar clock account
     /// 7. `[]` The token mint (for SPL transfers, use system account otherwise)
     /// 8. `[writable]` The destination token account (only used for SPL transfers)
-    /// 9. `[]` The system program (only used for SPL transfers)
-    /// 10. `[]` The SPL token program (only used for SPL transfers)
-    /// 11. `[]` The Rent sysvar program (only used for SPL transfers)
-    /// 12. `[]` The SPL associated token program (only used for SPL transfers)
+    /// 9. `[signer, writable]` The fee payer, used if we need to create destination token account
+    ///     for an SPL transfer and the source account does not have enough funds (only used for
+    ///     SPL transfers)
+    /// 10. `[]` The system program (only used for SPL transfers)
+    /// 11. `[]` The SPL token program (only used for SPL transfers)
+    /// 12. `[]` The Rent sysvar program (only used for SPL transfers)
+    /// 13. `[]` The SPL associated token program (only used for SPL transfers)
     InitTransfer {
         amount: u64,
         destination_name_hash: [u8; 32],
@@ -133,7 +136,10 @@ impl ProgramInstruction {
                 buf.push(2);
                 buf.extend_from_slice(&config_update_bytes);
             }
-            &ProgramInstruction::SetApprovalDisposition { ref disposition, ref params_hash } => {
+            &ProgramInstruction::SetApprovalDisposition {
+                ref disposition,
+                ref params_hash,
+            } => {
                 buf.push(9);
                 buf.push(disposition.to_u8());
                 buf.extend_from_slice(params_hash.as_ref());
@@ -320,10 +326,11 @@ impl ProgramInstruction {
             .ok_or(ProgramError::InvalidInstructionData)?;
         Ok(Self::SetApprovalDisposition {
             disposition: ApprovalDisposition::from_u8(*disposition),
-            params_hash: Hash::new_from_array(rest
-                .get(0..32)
-                .and_then(|slice| slice.try_into().ok())
-                .ok_or(ProgramError::InvalidInstructionData)?)
+            params_hash: Hash::new_from_array(
+                rest.get(0..32)
+                    .and_then(|slice| slice.try_into().ok())
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            ),
         })
     }
 
@@ -467,12 +474,16 @@ impl WalletConfigUpdate {
             add_approvers_offset + 1 + self.add_approvers.len() * PUBKEY_BYTES;
         let add_allowed_destinations_offset =
             remove_approvers_offset + 1 + self.remove_approvers.len() * PUBKEY_BYTES;
-        let remove_allowed_destinations_offset = add_allowed_destinations_offset.
-            checked_add(1).unwrap().
-            checked_add(self.add_allowed_destinations.len() * AllowedDestination::LEN).unwrap();
-        let len = remove_allowed_destinations_offset.
-            checked_add(1).unwrap().
-            checked_add(self.remove_allowed_destinations.len() * AllowedDestination::LEN).unwrap();
+        let remove_allowed_destinations_offset = add_allowed_destinations_offset
+            .checked_add(1)
+            .unwrap()
+            .checked_add(self.add_allowed_destinations.len() * AllowedDestination::LEN)
+            .unwrap();
+        let len = remove_allowed_destinations_offset
+            .checked_add(1)
+            .unwrap()
+            .checked_add(self.remove_allowed_destinations.len() * AllowedDestination::LEN)
+            .unwrap();
 
         dst.resize(dst.len() + len, 0);
         dst[0..approvals_required_for_transfer_offset].copy_from_slice(&self.name_hash);
@@ -623,11 +634,11 @@ pub fn set_approval_disposition(
     multisig_op_account: &Pubkey,
     approver: &Pubkey,
     disposition: ApprovalDisposition,
-    params_hash: Hash
+    params_hash: Hash,
 ) -> Instruction {
     let data = ProgramInstruction::SetApprovalDisposition {
         disposition: disposition,
-        params_hash
+        params_hash,
     }
     .borrow()
     .pack();
@@ -818,6 +829,7 @@ pub fn init_transfer(
     amount: u64,
     destination_name_hash: [u8; 32],
     token_mint: &Pubkey,
+    fee_payer: &Pubkey,
 ) -> Instruction {
     let data = ProgramInstruction::InitTransfer {
         amount,
@@ -839,6 +851,7 @@ pub fn init_transfer(
         AccountMeta::new_readonly(sysvar::clock::id(), false),
         AccountMeta::new_readonly(*token_mint, false),
         AccountMeta::new(destination_token_account, false),
+        AccountMeta::new(*fee_payer, true),
         AccountMeta::new_readonly(system_program::id(), false),
         AccountMeta::new_readonly(spl_token::id(), false),
         AccountMeta::new_readonly(sysvar::rent::id(), false),

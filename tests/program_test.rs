@@ -400,7 +400,7 @@ async fn config_update_invalid_approval() {
             &context.multisig_op_account.pubkey(),
             &context.approvers[2].pubkey(),
             ApprovalDisposition::APPROVE,
-            context.params_hash
+            context.params_hash,
         )],
         Some(&context.payer.pubkey()),
         &[&context.payer, &context.approvers[2]],
@@ -1564,9 +1564,9 @@ async fn test_approval_fails_if_incorrect_params_hash() {
         &balance_account,
         None,
         None,
-    ).await;
+    )
+    .await;
     result.unwrap();
-
 
     assert_eq!(
         context
@@ -1577,7 +1577,7 @@ async fn test_approval_fails_if_incorrect_params_hash() {
                     &multisig_op_account.pubkey(),
                     &context.approvers[1].pubkey(),
                     ApprovalDisposition::APPROVE,
-                    Hash::new_from_array([0;32])
+                    Hash::new_from_array([0; 32])
                 )],
                 Some(&context.payer.pubkey()),
                 &[&context.payer, &context.approvers[1]],
@@ -1586,12 +1586,8 @@ async fn test_approval_fails_if_incorrect_params_hash() {
             .await
             .unwrap_err()
             .unwrap(),
-        TransactionError::InstructionError(
-            0,
-            Custom(WalletError::InvalidSignature as u32)
-        ),
+        TransactionError::InstructionError(0, Custom(WalletError::InvalidSignature as u32)),
     );
-
 }
 
 #[tokio::test]
@@ -1753,22 +1749,30 @@ async fn test_transfer_unwhitelisted_address() {
 
 #[tokio::test]
 async fn test_transfer_spl_happy() {
-    test_transfer_spl(true).await
+    test_transfer_spl(false, true).await
+}
+
+#[tokio::test]
+async fn test_transfer_spl_no_funds_in_source() {
+    test_transfer_spl(false, false).await
 }
 
 #[tokio::test]
 async fn test_transfer_spl_destination_token_account_exists() {
-    test_transfer_spl(false).await
+    test_transfer_spl(true, false).await
 }
 
-async fn test_transfer_spl(create_destination_token_account: bool) {
+async fn test_transfer_spl(
+    create_destination_token_account: bool,
+    fund_source_account_to_pay_for_token: bool,
+) {
     let (mut context, wallet_account, balance_account) =
         utils::setup_wallet_tests_and_finalize(Some(50000)).await;
 
     let spl_context = utils::setup_spl_transfer_test(
         &mut context,
         &balance_account,
-        !create_destination_token_account,
+        fund_source_account_to_pay_for_token,
     )
     .await;
 
