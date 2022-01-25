@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 use bitvec::prelude::*;
 use bitvec::slice::IterOnes;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct SlotId<A> {
     pub value: usize,
     item_type: PhantomData<A>
@@ -21,7 +21,7 @@ impl<A> SlotId<A> {
 
 #[derive(Debug, Clone)]
 pub struct Slots<A, const SIZE: usize> {
-    pub array: Box<[Option<A>; SIZE]>,
+    array: Box<[Option<A>; SIZE]>,
 }
 
 impl<A, const SIZE: usize> Index<SlotId<A>> for Slots<A, SIZE> {
@@ -96,6 +96,14 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
             .iter()
             .position(|value_opt| *value_opt == Some(*value))
             .map(|pos| SlotId::new(usize::from(pos)))
+    }
+
+    pub fn filled_slots(&self) -> Vec<(SlotId<A>, A)> {
+        self.array
+            .iter()
+            .enumerate()
+            .filter_map(|(i, value_opt)| value_opt.map(|value| (SlotId::new(i), value)))
+            .collect_vec()
     }
 }
 
