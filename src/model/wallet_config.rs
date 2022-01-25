@@ -5,7 +5,7 @@ use solana_program::program_error::ProgramError;
 use solana_program::pubkey::Pubkey;
 use crate::model::program_config::{AllowedDestinations, Approvers};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WalletConfig {
     pub wallet_guid_hash: [u8; 32],
     pub wallet_name_hash: [u8; 32],

@@ -20,7 +20,7 @@ pub type Approvers = SlotFlags<Signer, { Signers::FLAGS_STORAGE_SIZE }>;
 pub type AddressBook = Slots<AddressBookEntry, { ProgramConfig::MAX_ADDRESS_BOOK_ENTRIES }>;
 pub type AllowedDestinations = SlotFlags<AddressBookEntry, { AddressBook::FLAGS_STORAGE_SIZE }>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ProgramConfig {
     pub is_initialized: bool,
     pub signers: Signers,

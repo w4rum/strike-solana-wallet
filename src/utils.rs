@@ -19,7 +19,7 @@ impl<A> SlotId<A> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Slots<A, const SIZE: usize> {
     array: Box<[Option<A>; SIZE]>,
 }
@@ -37,6 +37,14 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
 
     pub fn new() -> Slots<A, SIZE> {
         Slots { array: Box::new([None; SIZE]) }
+    }
+
+    pub fn from_vec(vec: Vec<(SlotId<A>, A)>) -> Slots<A, SIZE> {
+        let mut slots = Slots::new();
+        for (slot_id, value) in vec {
+            slots.array[slot_id.value] = Some(value);
+        }
+        slots
     }
 
     pub fn insert(&mut self, id: SlotId<A>, item: A) {
@@ -137,7 +145,7 @@ impl<A: Pack + Copy + PartialEq + Ord, const SIZE: usize> Pack for Slots<A, SIZE
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotFlags<A, const STORAGE_SIZE: usize> {
     bit_arr: BitArray<[u8; STORAGE_SIZE]>,
     item_type: PhantomData<A>
@@ -150,6 +158,14 @@ impl<A, const STORAGE_SIZE: usize> SlotFlags<A, STORAGE_SIZE> {
 
     pub fn new(data: [u8; STORAGE_SIZE]) -> Self {
         Self { bit_arr: BitArray::new(data), item_type: PhantomData }
+    }
+
+    pub fn from_enabled_vec(vec: Vec<SlotId<A>>) -> Self {
+        let mut flags = Self::new([0; STORAGE_SIZE]);
+        for slot_id in vec {
+            flags.enable(&slot_id);
+        }
+        flags
     }
 
     pub fn zero() -> Self {

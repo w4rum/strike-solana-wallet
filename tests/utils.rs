@@ -35,6 +35,8 @@ use strike_wallet::model::signer::Signer;
 use itertools::Itertools;
 use std::collections::HashSet;
 use strike_wallet::utils::{SlotId};
+use strike_wallet::model::program_config::{Approvers, Signers, AddressBook};
+use solana_program::instruction::{Instruction, InstructionError};
 
 pub trait SignerKey {
     fn pubkey_as_signer(&self) -> Signer;
@@ -48,20 +50,6 @@ impl SignerKey for Keypair {
 pub trait ToSet<A> {
     fn to_set(&self) -> HashSet<A>;
 }
-
-// pub trait SlotsToSet<A> {
-//     fn to_set(&self) -> HashSet<(SlotId<A>, A)>;
-// }
-//
-// impl<A: core::hash::Hash + Eq + Clone, const SIZE: usize> SlotsToSet<A> for Slots<A, SIZE> {
-//     fn to_set(&self) -> HashSet<(SlotId<A>, A)> {
-//         let mut set = HashSet::new();
-//         for filled_slot in self.filled_slots() {
-//             set.insert(filled_slot.clone());
-//         }
-//         return set;
-//     }
-// }
 
 impl <A: core::hash::Hash + Eq + Clone> ToSet<A> for Option<Vec<A>> {
     fn to_set(&self) -> HashSet<A> {
@@ -135,7 +123,8 @@ pub struct ProgramConfigUpdateContext {
     pub approvers: Vec<Keypair>,
     pub recent_blockhash: Hash,
     pub expected_config_update: ProgramConfigUpdate,
-    pub params_hash: Hash
+    pub params_hash: Hash,
+    pub expected_config_after_update: ProgramConfig
 }
 
 pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
@@ -145,13 +134,17 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
         program_owner.pubkey(),
         processor!(Processor::process),
     );
-    pt.set_bpf_compute_max_units(25_000);
+    pt.set_bpf_compute_max_units(30_000);
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
     let program_config_account = Keypair::new();
     let multisig_op_account = Keypair::new();
     let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
+    let signers = vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer(), approvers[2].pubkey_as_signer()];
+
+    let address_book_entry = AddressBookEntry { address: Pubkey::new_unique(), name_hash: [0; 32] };
+    let new_address_book_entry = AddressBookEntry { address: Pubkey::new_unique(), name_hash: [0; 32] };
 
     // first initialize the program config
     init_program(
@@ -163,20 +156,22 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
         &assistant_account,
         Some(1),
         Some(vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer())
+            (SlotId::new(0), signers[0]),
+            (SlotId::new(1), signers[1])
         ]),
         Some(vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer())
+            (SlotId::new(0), signers[0]),
+            (SlotId::new(1), signers[1])
         ]),
         Some(Duration::from_secs(3600)),
         Some(vec![
-            (SlotId::new(0), AddressBookEntry { address: Pubkey::new_unique(), name_hash: [0; 32] })
+            (SlotId::new(0), address_book_entry)
         ])
     )
     .await
     .unwrap();
+
+    let program_config = get_program_config(&mut banks_client, &program_config_account.pubkey()).await;
 
     // now initialize a config update
     let rent = banks_client.get_rent().await.unwrap();
@@ -198,17 +193,23 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
                 2,
                 Duration::from_secs(7200),
                 vec![
-                    (SlotId::new(2), approvers[2].pubkey_as_signer())
-                ],
-                Vec::new(),
-                vec![
-                    (SlotId::new(2), approvers[2].pubkey_as_signer())
+                    (SlotId::new(2), signers[2])
                 ],
                 vec![
-                    (SlotId::new(0), approvers[0].pubkey_as_signer())
+                    (SlotId::new(0), signers[0])
                 ],
-                Vec::new(),
-                Vec::new()
+                vec![
+                    (SlotId::new(2), signers[2])
+                ],
+                vec![
+                    (SlotId::new(0), signers[0])
+                ],
+                vec![
+                    (SlotId::new(0), new_address_book_entry)
+                ],
+                vec![
+                    (SlotId::new(0), address_book_entry)
+                ],
             ),
         ],
         Some(&payer.pubkey()),
@@ -224,17 +225,23 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
         approvals_required_for_config: 2,
         approval_timeout_for_config: Duration::from_secs(7200),
         add_signers: vec![
-            (SlotId::new(2), approvers[2].pubkey_as_signer())
+            (SlotId::new(2), signers[2])
         ],
-        remove_signers: Vec::new(),
+        remove_signers: vec![
+            (SlotId::new(0), signers[0])
+        ],
         add_config_approvers: vec![
-            (SlotId::new(2), approvers[2].pubkey_as_signer())
+            (SlotId::new(2), signers[2])
         ],
         remove_config_approvers: vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer())
+            (SlotId::new(0), signers[0])
         ],
-        add_address_book_entries: Vec::new(),
-        remove_address_book_entries: Vec::new()
+        add_address_book_entries: vec![
+            (SlotId::new(0), new_address_book_entry)
+        ],
+        remove_address_book_entries: vec![
+            (SlotId::new(0), address_book_entry)
+        ]
     };
 
     let multisig_op = MultisigOp::unpack_from_slice(
@@ -257,7 +264,22 @@ pub async fn setup_program_config_update_test() -> ProgramConfigUpdateContext {
         approvers,
         recent_blockhash,
         expected_config_update,
-        params_hash: multisig_op.params_hash
+        params_hash: multisig_op.params_hash,
+        expected_config_after_update: ProgramConfig {
+            is_initialized: true,
+            signers: Signers::from_vec(vec![
+                (SlotId::new(1), signers[1]),
+                (SlotId::new(2), signers[2]),
+            ]),
+            assistant: program_config.assistant,
+            address_book: AddressBook::from_vec(vec![
+                (SlotId::new(0), new_address_book_entry)
+            ]),
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(7200),
+            config_approvers: Approvers::from_enabled_vec(vec![SlotId::new(1), SlotId::new(2)]),
+            wallets: program_config.wallets
+        }
     }
 }
 
@@ -382,16 +404,6 @@ pub fn hash_of(data: &[u8]) -> [u8; 32] {
     hasher.update(data);
     let hash_output = hasher.finalize();
     *array_ref![hash_output, 0, 32]
-}
-
-pub struct ProgramConfigTestContext {
-    pub payer: Keypair,
-    pub program_owner: Keypair,
-    pub banks_client: BanksClient,
-    pub program_config_account: Keypair,
-    pub assistant_account: Keypair,
-    pub approvers: Vec<Keypair>,
-    pub recent_blockhash: Hash
 }
 
 pub struct WalletTestContext {
@@ -692,53 +704,6 @@ pub async fn finalize_wallet(context: &mut WalletTestContext) {
         .unwrap();
 }
 
-pub async fn setup_program_config_tests(
-    bpf_compute_max_units: Option<u64>,
-) -> ProgramConfigTestContext {
-    let program_owner = Keypair::new();
-    let mut pt = ProgramTest::new(
-        "strike_wallet",
-        program_owner.pubkey(),
-        processor!(Processor::process),
-    );
-    pt.set_bpf_compute_max_units(bpf_compute_max_units.unwrap_or(25_000));
-    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
-    let program_config_account = Keypair::new();
-    let assistant_account = Keypair::new();
-
-    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
-
-    init_program(
-        &mut banks_client,
-        &payer,
-        recent_blockhash,
-        &program_owner,
-        &program_config_account,
-        &assistant_account,
-        Some(1),
-        Some(vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer())
-        ]),
-        Some(vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer())
-        ]),
-        Some(Duration::from_secs(3600)),
-        Some(vec![])
-    ).await.unwrap();
-
-    ProgramConfigTestContext {
-        payer,
-        program_owner,
-        banks_client,
-        program_config_account,
-        assistant_account,
-        approvers,
-        recent_blockhash
-    }
-}
-
 pub async fn setup_wallet_tests_and_finalize(
     bpf_compute_max_units: Option<u64>,
 ) -> (WalletTestContext, Pubkey) {
@@ -930,3 +895,39 @@ pub fn assert_multisig_op_timestamps(multisig_op: &MultisigOp, start: i64, appro
     assert!(multisig_op.started_at - start <= 2);
     assert!(multisig_op.expires_at - start - approval_timeout.as_secs() as i64 <= 2);
 }
+
+pub async fn verify_multisig_op_init_fails(
+    banks_client: &mut BanksClient,
+    recent_blockhash: Hash,
+    payer: &Keypair,
+    assistant_account: &Keypair,
+    multisig_op_account: &Keypair,
+    init_instruction: Instruction,
+    expected_error: InstructionError
+) {
+    let transaction = Transaction::new_signed_with_payer(
+        &[
+            system_instruction::create_account(
+                &payer.pubkey(),
+                &multisig_op_account.pubkey(),
+                banks_client.get_rent().await.unwrap().minimum_balance(MultisigOp::LEN),
+                MultisigOp::LEN as u64,
+                &init_instruction.program_id
+            ),
+            init_instruction
+        ],
+        Some(&payer.pubkey()),
+        &[&payer, multisig_op_account, &assistant_account],
+        recent_blockhash,
+    );
+
+    assert_eq!(
+        banks_client
+            .process_transaction(transaction)
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(1, expected_error),
+    );
+}
+
