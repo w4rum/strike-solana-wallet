@@ -1,21 +1,22 @@
-use std::time::Duration;
 use std::slice::Iter;
+use std::time::Duration;
 
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::hash::Hash;
-use solana_program::msg;
-use solana_program::program::invoke_signed;
+use solana_program::instruction::{AccountMeta, Instruction};
+use solana_program::program::{invoke, invoke_signed};
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{IsInitialized, Pack};
 use solana_program::pubkey::Pubkey;
 use solana_program::system_instruction;
 use solana_program::system_program;
-use solana_program::sysvar::{Sysvar, is_sysvar_id};
+use solana_program::sysvar::{is_sysvar_id, Sysvar};
+use solana_program::{msg, sysvar};
 use spl_associated_token_account::get_associated_token_address;
 use spl_token::id as SPL_TOKEN_ID;
 use spl_token::instruction as spl_instruction;
-use spl_token::state::Account as SPLAccount;
+use spl_token::state::{Account as SPLAccount, Account};
 
 use crate::error::WalletError;
 use crate::instruction::{ProgramConfigUpdate, ProgramInstruction, WalletConfigUpdate};
@@ -23,6 +24,7 @@ use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, MultisigOpParam
 use crate::model::program_config::ProgramConfig;
 use crate::model::wallet_config::WalletConfig;
 use solana_program::clock::Clock;
+use solana_program::rent::Rent;
 
 pub struct Processor;
 impl Processor {
@@ -89,22 +91,16 @@ impl Processor {
             ProgramInstruction::InitTransfer {
                 amount,
                 destination_name_hash,
-                token_mint,
-            } => Self::handle_init_transfer(
-                program_id,
-                &accounts,
-                amount,
-                &destination_name_hash,
-                token_mint,
-            ),
+            } => Self::handle_init_transfer(program_id, &accounts, amount, &destination_name_hash),
 
             ProgramInstruction::FinalizeTransfer { amount, token_mint } => {
                 Self::handle_finalize_transfer(program_id, &accounts, amount, token_mint)
             }
 
-            ProgramInstruction::SetApprovalDisposition { disposition, params_hash } => {
-                Self::handle_approval_disposition(program_id, &accounts, disposition, params_hash)
-            }
+            ProgramInstruction::SetApprovalDisposition {
+                disposition,
+                params_hash,
+            } => Self::handle_approval_disposition(program_id, &accounts, disposition, params_hash),
         }
     }
 
@@ -163,7 +159,7 @@ impl Processor {
             clock.unix_timestamp,
             Self::calculate_expires(
                 clock.unix_timestamp,
-                program_config.approval_timeout_for_config
+                program_config.approval_timeout_for_config,
             )?,
             MultisigOpParams::UpdateProgramConfig {
                 program_config_address: *program_config_account_info.key,
@@ -181,8 +177,7 @@ impl Processor {
         config_update: &ProgramConfigUpdate,
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
-        let multisig_op_account_info =
-            Self::next_program_account_info(accounts_iter, program_id)?;
+        let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let program_config_account_info =
             Self::next_program_account_info(accounts_iter, program_id)?;
         let account_to_return_rent_to = next_account_info(accounts_iter)?;
@@ -192,8 +187,7 @@ impl Processor {
             return Err(ProgramError::MissingRequiredSignature);
         }
 
-        let multisig_op =
-            MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
+        let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
         let expected_params = MultisigOpParams::UpdateProgramConfig {
             program_config_address: *program_config_account_info.key,
@@ -239,7 +233,10 @@ impl Processor {
             program_config.config_approvers,
             program_config.approvals_required_for_config,
             clock.unix_timestamp,
-            Self::calculate_expires(clock.unix_timestamp, program_config.approval_timeout_for_config)?,
+            Self::calculate_expires(
+                clock.unix_timestamp,
+                program_config.approval_timeout_for_config,
+            )?,
             MultisigOpParams::CreateWallet {
                 wallet_guid_hash,
                 program_config_address: *program_config_account_info.key,
@@ -330,7 +327,10 @@ impl Processor {
             program_config.config_approvers,
             program_config.approvals_required_for_config,
             clock.unix_timestamp,
-            Self::calculate_expires(clock.unix_timestamp, program_config.approval_timeout_for_config)?,
+            Self::calculate_expires(
+                clock.unix_timestamp,
+                program_config.approval_timeout_for_config,
+            )?,
             MultisigOpParams::UpdateWalletConfig {
                 wallet_guid_hash,
                 wallet_config_address: *wallet_config_account_info.key,
@@ -386,7 +386,6 @@ impl Processor {
         accounts: &[AccountInfo],
         amount: u64,
         destination_name_hash: &[u8; 32],
-        token_mint: Pubkey,
     ) -> ProgramResult {
         let accounts_iter = &mut accounts.iter();
         let multisig_op_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
@@ -397,6 +396,8 @@ impl Processor {
         let program_account_info = Self::next_program_account_info(accounts_iter, program_id)?;
         let initiator_account_info = next_account_info(accounts_iter)?;
         let clock = Self::get_clock_from_next_account(accounts_iter)?;
+        let token_mint = next_account_info(accounts_iter)?;
+        let destination_token_account = next_account_info(accounts_iter)?;
 
         let wallet_config = WalletConfig::unpack(&wallet_config_account_info.data.borrow())?;
 
@@ -410,6 +411,59 @@ impl Processor {
             return Err(WalletError::InvalidConfigAccount.into());
         }
 
+        if *token_mint.key != Pubkey::default()
+            && *destination_token_account.owner == Pubkey::default()
+        {
+            // we need to create the destination token account (if it had been created already
+            // it would be owned by the Token program).
+            // frst check if the source account has sufficient funds to create it
+            let rent = Rent::get()?;
+            if rent.is_exempt(source_account.lamports(), Account::LEN) {
+                let (source_account_pda, bump_seed) = Pubkey::find_program_address(
+                    &[&wallet_config_account_info.key.to_bytes()],
+                    program_id,
+                );
+                if &source_account_pda != source_account.key {
+                    return Err(WalletError::InvalidSourceAccount.into());
+                }
+                invoke_signed(
+                    &Instruction {
+                        program_id: spl_associated_token_account::id(),
+                        accounts: vec![
+                            AccountMeta::new(source_account_pda, true),
+                            AccountMeta::new(*destination_token_account.key, false),
+                            AccountMeta::new_readonly(*destination_account.key, false),
+                            AccountMeta::new_readonly(*token_mint.key, false),
+                            AccountMeta::new_readonly(solana_program::system_program::id(), false),
+                            AccountMeta::new_readonly(spl_token::id(), false),
+                            AccountMeta::new_readonly(sysvar::rent::id(), false),
+                        ],
+                        data: vec![],
+                    },
+                    accounts,
+                    &[&[&wallet_config_account_info.key.to_bytes()[..], &[bump_seed]]],
+                )?;
+            } else {
+                let fee_payer_account = next_account_info(accounts_iter)?;
+                invoke(
+                    &Instruction {
+                        program_id: spl_associated_token_account::id(),
+                        accounts: vec![
+                            AccountMeta::new(*fee_payer_account.key, true),
+                            AccountMeta::new(*destination_token_account.key, false),
+                            AccountMeta::new_readonly(*destination_account.key, false),
+                            AccountMeta::new_readonly(*token_mint.key, false),
+                            AccountMeta::new_readonly(solana_program::system_program::id(), false),
+                            AccountMeta::new_readonly(spl_token::id(), false),
+                            AccountMeta::new_readonly(sysvar::rent::id(), false),
+                        ],
+                        data: vec![],
+                    },
+                    accounts,
+                )?;
+            }
+        }
+
         let program_config = ProgramConfig::unpack(&program_account_info.data.borrow())?;
         wallet_config.validate_initiator(initiator_account_info, &program_config.assistant)?;
 
@@ -419,13 +473,16 @@ impl Processor {
             wallet_config.approvers,
             wallet_config.approvals_required_for_transfer,
             clock.unix_timestamp,
-            Self::calculate_expires(clock.unix_timestamp, wallet_config.approval_timeout_for_transfer)?,
+            Self::calculate_expires(
+                clock.unix_timestamp,
+                wallet_config.approval_timeout_for_transfer,
+            )?,
             MultisigOpParams::Transfer {
                 wallet_config_address: *wallet_config_account_info.key,
                 source: *source_account.key,
                 destination: *destination_account.key,
                 amount,
-                token_mint,
+                token_mint: *token_mint.key,
             },
         )?;
         MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
@@ -570,7 +627,11 @@ impl Processor {
             return Err(WalletError::InvalidSignature.into());
         }
 
-        multisig_op.validate_and_record_approval_disposition(&signer_account_info, disposition, &clock)?;
+        multisig_op.validate_and_record_approval_disposition(
+            &signer_account_info,
+            disposition,
+            &clock,
+        )?;
         MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
         Ok(())
@@ -600,9 +661,7 @@ impl Processor {
         Ok(account_info)
     }
 
-    fn get_clock_from_next_account(
-        iter: &mut Iter<AccountInfo>
-    ) -> Result<Clock, ProgramError> {
+    fn get_clock_from_next_account(iter: &mut Iter<AccountInfo>) -> Result<Clock, ProgramError> {
         let account_info = next_account_info(iter)?;
         if !is_sysvar_id(account_info.key) {
             msg!("Account is not a sysvar");

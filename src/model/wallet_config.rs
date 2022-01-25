@@ -41,9 +41,10 @@ impl WalletConfig {
     }
 
     pub fn validate_initial_settings(config_update: &WalletConfigUpdate) -> ProgramResult {
-        if config_update.approvals_required_for_transfer == 0 ||
-            config_update.approval_timeout_for_transfer.as_secs() == 0 ||
-            config_update.add_approvers.len() == 0 {
+        if config_update.approvals_required_for_transfer == 0
+            || config_update.approval_timeout_for_transfer.as_secs() == 0
+            || config_update.add_approvers.len() == 0
+        {
             return Err(ProgramError::InvalidArgument);
         }
         Ok(())
@@ -176,7 +177,8 @@ impl Pack for WalletConfig {
         name_hash_dst.copy_from_slice(&self.wallet_name_hash);
 
         approvals_required_for_transfer_dst[0] = self.approvals_required_for_transfer;
-        *approval_timeout_for_transfer_dst = self.approval_timeout_for_transfer.as_secs().to_le_bytes();
+        *approval_timeout_for_transfer_dst =
+            self.approval_timeout_for_transfer.as_secs().to_le_bytes();
 
         configured_approvers_count_dst[0] = self.approvers.len() as u8;
         approvers_dst.fill(0);
@@ -254,7 +256,9 @@ impl Pack for WalletConfig {
             wallet_guid_hash: *guid_hash,
             wallet_name_hash: *name_hash,
             approvals_required_for_transfer: approvals_required_for_transfer[0],
-            approval_timeout_for_transfer: Duration::from_secs(u64::from_le_bytes(*approval_timeout_for_transfer)),
+            approval_timeout_for_transfer: Duration::from_secs(u64::from_le_bytes(
+                *approval_timeout_for_transfer,
+            )),
             approvers,
             allowed_destinations,
         })
