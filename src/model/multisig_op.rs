@@ -223,7 +223,7 @@ impl IsInitialized for MultisigOp {
 
 impl Pack for MultisigOp {
     const LEN: usize =
-        1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS + 1 + 1 + 32 + 8 + 8 + 1;
+        1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS + 1 + 1 + 32 + 8 + 8 + 1;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
@@ -231,7 +231,7 @@ impl Pack for MultisigOp {
             is_initialized_dst,
             disposition_records_count_dst,
             disposition_records_dst,
-            dispositions_required_for_transfer_dst,
+            dispositions_required_dst,
             hash_dst,
             started_at_dst,
             expires_at_dst,
@@ -240,7 +240,7 @@ impl Pack for MultisigOp {
             dst,
             1,
             1,
-            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS,
+            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS,
             1,
             32,
             8,
@@ -251,18 +251,14 @@ impl Pack for MultisigOp {
         let MultisigOp {
             is_initialized,
             disposition_records,
-            dispositions_required: dispositions_required_for_transfer,
-            params_hash: hash,
+            dispositions_required,
+            params_hash,
             started_at,
             expires_at,
             operation_disposition,
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
-        dispositions_required_for_transfer_dst[0] = *dispositions_required_for_transfer;
-        *started_at_dst = started_at.to_le_bytes();
-        *expires_at_dst = expires_at.to_le_bytes();
-        operation_disposition_dst[0] = operation_disposition.to_u8();
 
         disposition_records_count_dst[0] = disposition_records.len() as u8;
         disposition_records_dst.fill(0);
@@ -271,7 +267,15 @@ impl Pack for MultisigOp {
             .take(disposition_records.len())
             .enumerate()
             .for_each(|(i, chunk)| disposition_records[i].pack_into_slice(chunk));
-        hash_dst.copy_from_slice(hash.to_bytes().as_ref())
+
+        dispositions_required_dst[0] = *dispositions_required;
+
+        hash_dst.copy_from_slice(params_hash.to_bytes().as_ref());
+
+        *started_at_dst = started_at.to_le_bytes();
+        *expires_at_dst = expires_at.to_le_bytes();
+
+        operation_disposition_dst[0] = operation_disposition.to_u8();
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -280,8 +284,8 @@ impl Pack for MultisigOp {
             is_initialized,
             disposition_records_count,
             disposition_record_bytes,
-            dispositions_required_for_transfer,
-            hash,
+            dispositions_required,
+            params_hash,
             started_at,
             expires_at,
             operation_disposition,
@@ -289,7 +293,7 @@ impl Pack for MultisigOp {
             src,
             1,
             1,
-            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_APPROVERS,
+            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS,
             1,
             32,
             8,
@@ -303,7 +307,7 @@ impl Pack for MultisigOp {
         };
 
         let disposition_records_count = usize::from(disposition_records_count[0]);
-        let mut disposition_records = Vec::with_capacity(ProgramConfig::MAX_APPROVERS);
+        let mut disposition_records = Vec::with_capacity(ProgramConfig::MAX_SIGNERS);
         disposition_record_bytes
             .chunks_exact(ApprovalDispositionRecord::LEN)
             .take(disposition_records_count)
@@ -315,8 +319,8 @@ impl Pack for MultisigOp {
         Ok(MultisigOp {
             is_initialized,
             disposition_records,
-            dispositions_required: dispositions_required_for_transfer[0],
-            params_hash: Hash::new_from_array(*hash),
+            dispositions_required: dispositions_required[0],
+            params_hash: Hash::new_from_array(*params_hash),
             started_at: i64::from_le_bytes(*started_at),
             expires_at: i64::from_le_bytes(*expires_at),
             operation_disposition: OperationDisposition::from_u8(operation_disposition[0]),
@@ -337,13 +341,13 @@ pub enum MultisigOpParams {
         config_update: WalletConfigUpdate,
     },
     UpdateWalletConfig {
-        wallet_config_address: Pubkey,
+        program_config_address: Pubkey,
         wallet_guid_hash: [u8; 32],
         config_update: WalletConfigUpdate,
     },
     Transfer {
-        wallet_config_address: Pubkey,
-        source: Pubkey,
+        program_config_address: Pubkey,
+        wallet_guid_hash: [u8; 32],
         destination: Pubkey,
         amount: u64,
         token_mint: Pubkey,
@@ -385,7 +389,7 @@ impl MultisigOpParams {
                 hash(&bytes)
             }
             MultisigOpParams::UpdateWalletConfig {
-                wallet_config_address,
+                program_config_address,
                 wallet_guid_hash,
                 config_update,
             } => {
@@ -395,14 +399,14 @@ impl MultisigOpParams {
                 let mut bytes: Vec<u8> = Vec::new();
                 bytes.resize(1 + PUBKEY_BYTES + 32 + config_update_bytes.len(), 0);
                 bytes[0] = 2; // type code
-                bytes[1..33].copy_from_slice(&wallet_config_address.to_bytes());
+                bytes[1..33].copy_from_slice(&program_config_address.to_bytes());
                 bytes[33..65].copy_from_slice(wallet_guid_hash);
                 bytes[65..65 + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
                 hash(&bytes)
             }
             MultisigOpParams::Transfer {
-                wallet_config_address,
-                source,
+                program_config_address,
+                wallet_guid_hash,
                 destination,
                 amount,
                 token_mint,
@@ -412,8 +416,8 @@ impl MultisigOpParams {
                 let bytes_ref = array_mut_ref![bytes, 0, LEN];
                 let (
                     type_code_ref,
-                    wallet_config_address_ref,
-                    source_ref,
+                    program_config_address_ref,
+                    wallet_guid_hash_ref,
                     destination_ref,
                     amount_ref,
                     token_mint_ref,
@@ -421,14 +425,14 @@ impl MultisigOpParams {
                     bytes_ref,
                     1,
                     PUBKEY_BYTES,
-                    PUBKEY_BYTES,
+                    32,
                     PUBKEY_BYTES,
                     8,
                     PUBKEY_BYTES
                 ];
                 type_code_ref[0] = 3;
-                wallet_config_address_ref.copy_from_slice(wallet_config_address.as_ref());
-                source_ref.copy_from_slice(source.as_ref());
+                program_config_address_ref.copy_from_slice(program_config_address.as_ref());
+                wallet_guid_hash_ref.copy_from_slice(wallet_guid_hash.as_ref());
                 destination_ref.copy_from_slice(destination.as_ref());
                 *amount_ref = amount.to_le_bytes();
                 token_mint_ref.copy_from_slice(token_mint.as_ref());
