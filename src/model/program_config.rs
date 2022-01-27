@@ -271,7 +271,7 @@ impl ProgramConfig {
 
     fn add_signers(&mut self, signers_to_add: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
         if !self.signers.can_be_inserted(signers_to_add) {
-            msg!("Failed to add signers: at least on the provided slots is already taken");
+            msg!("Failed to add signers: at least one of the provided slots is already taken");
             return Err(ProgramError::InvalidArgument);
         }
         self.signers.insert_many(signers_to_add);
@@ -307,7 +307,7 @@ impl ProgramConfig {
         entries_to_add: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     ) -> ProgramResult {
         if !self.address_book.can_be_inserted(entries_to_add) {
-            msg!("Failed to add address book entries: at least on the provided slots is already taken");
+            msg!("Failed to add address book entries: at least one of the provided slots is already taken");
             return Err(ProgramError::InvalidArgument);
         }
         self.address_book.insert_many(entries_to_add);
