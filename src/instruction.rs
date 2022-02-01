@@ -4,6 +4,7 @@ use std::mem::size_of;
 use std::slice::Iter;
 use std::time::Duration;
 
+use crate::model::address_book::{AddressBookEntry, AddressBookEntryNameHash};
 use solana_program::hash::Hash;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::Pack;
@@ -11,65 +12,65 @@ use solana_program::{
     instruction::AccountMeta, instruction::Instruction, pubkey::Pubkey, system_program, sysvar,
 };
 
+use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use crate::model::multisig_op::{ApprovalDisposition, WrapDirection};
 use crate::model::signer::Signer;
-use crate::model::wallet_config::AddressBookEntry;
 use crate::utils::SlotId;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
-    /// 0. `[writable]` The program config account
+    /// 0. `[writable]` The wallet account
     /// 1. `[signer]` The transaction assistant account
-    Init { config_update: ProgramConfigUpdate },
+    InitWallet { update: WalletUpdate },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The program config account
+    /// 1. `[]` The wallet account
     /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
     /// 3. `[]` The sysvar clock account
-    InitConfigUpdate { config_update: ProgramConfigUpdate },
+    InitWalletUpdate { update: WalletUpdate },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[writable]` The program config account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The rent collector account
-    FinalizeConfigUpdate { config_update: ProgramConfigUpdate },
+    FinalizeWalletUpdate { update: WalletUpdate },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The program config account
+    /// 1. `[]` The wallet account
     /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
     /// 3. `[]` The sysvar clock account
-    InitWalletCreation {
-        wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate,
+    InitBalanceAccountCreation {
+        account_guid_hash: BalanceAccountGuidHash,
+        update: BalanceAccountUpdate,
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[writable]` The program config account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The rent collector account
-    FinalizeWalletCreation {
-        wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate,
+    FinalizeBalanceAccountCreation {
+        account_guid_hash: BalanceAccountGuidHash,
+        update: BalanceAccountUpdate,
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The program config account
+    /// 1. `[]` The wallet account
     /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
     /// 3. `[]` The sysvar clock account
-    InitWalletConfigUpdate {
-        wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate,
+    InitBalanceAccountUpdate {
+        account_guid_hash: BalanceAccountGuidHash,
+        update: BalanceAccountUpdate,
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[writable]` The program config account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The rent collector account
     /// 3. `[]` The sysvar clock account
-    FinalizeWalletConfigUpdate {
-        wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate,
+    FinalizeBalanceAccountUpdate {
+        account_guid_hash: BalanceAccountGuidHash,
+        update: BalanceAccountUpdate,
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The program config account
+    /// 1. `[]` The wallet account
     /// 2. `[writable]` The source account
     /// 3. `[]` The destination account
     /// 4. `[signer]` The initiator account (either the transaction assistant or an approver)
@@ -84,9 +85,9 @@ pub enum ProgramInstruction {
     /// 11. `[]` The Rent sysvar program (only used for SPL transfers)
     /// 12. `[]` The SPL associated token program (only used for SPL transfers)
     InitTransfer {
-        wallet_guid_hash: [u8; 32],
+        account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
-        destination_name_hash: [u8; 32],
+        destination_name_hash: AddressBookEntryNameHash,
     },
 
     /// 0  `[writable]` The multisig operation account
@@ -98,7 +99,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The program config account
+    /// 1. `[]` The wallet account
     /// 2. `[writable]` The source account
     /// 3. `[writable]` The destination account
     /// 4. `[]` The system program
@@ -109,13 +110,13 @@ pub enum ProgramInstruction {
     /// 9. `[]` The SPL token program account, if this is an SPL transfer
     /// 10. `[]` The token mint authority, if this is an SPL transfer
     FinalizeTransfer {
-        wallet_guid_hash: [u8; 32],
+        account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
         token_mint: Pubkey,
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The program config account
+    /// 1. `[]` The wallet account
     /// 2. `[writable]` The balance account
     /// 3. `[writable]` The associated wrapped SOL account
     /// 4. `[]` The native mint account
@@ -126,13 +127,13 @@ pub enum ProgramInstruction {
     /// 9. `[]` The Rent sysvar program
     /// 10. `[]` The SPL associated token program
     InitWrapUnwrap {
-        wallet_guid_hash: [u8; 32],
+        account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
         direction: WrapDirection,
     },
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The program config account
+    /// 1. `[]` The wallet account
     /// 2. `[writable]` The balance account
     /// 3. `[]` The system program
     /// 4. `[signer]` The rent collector account
@@ -140,7 +141,7 @@ pub enum ProgramInstruction {
     /// 6. `[writable]` The wrapped SOL token account
     /// 7. `[]` The SPL token account
     FinalizeWrapUnwrap {
-        wallet_guid_hash: [u8; 32],
+        account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
         direction: WrapDirection,
     },
@@ -150,23 +151,23 @@ impl ProgramInstruction {
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &ProgramInstruction::Init { ref config_update } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+            &ProgramInstruction::InitWallet { ref update } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
                 buf.push(0);
-                buf.extend_from_slice(&config_update_bytes);
+                buf.extend_from_slice(&update_bytes);
             }
-            &ProgramInstruction::InitConfigUpdate { ref config_update } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+            &ProgramInstruction::InitWalletUpdate { ref update } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
                 buf.push(1);
-                buf.extend_from_slice(&config_update_bytes);
+                buf.extend_from_slice(&update_bytes);
             }
-            &ProgramInstruction::FinalizeConfigUpdate { ref config_update } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+            &ProgramInstruction::FinalizeWalletUpdate { ref update } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
                 buf.push(2);
-                buf.extend_from_slice(&config_update_bytes);
+                buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::SetApprovalDisposition {
                 ref disposition,
@@ -176,84 +177,84 @@ impl ProgramInstruction {
                 buf.push(disposition.to_u8());
                 buf.extend_from_slice(params_hash.as_ref());
             }
-            &ProgramInstruction::InitWalletCreation {
-                ref wallet_guid_hash,
-                ref config_update,
+            &ProgramInstruction::InitBalanceAccountCreation {
+                ref account_guid_hash,
+                ref update,
             } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
                 buf.push(3);
-                buf.extend_from_slice(wallet_guid_hash);
-                buf.extend_from_slice(&config_update_bytes);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
+                buf.extend_from_slice(&update_bytes);
             }
-            &ProgramInstruction::FinalizeWalletCreation {
-                ref wallet_guid_hash,
-                ref config_update,
+            &ProgramInstruction::FinalizeBalanceAccountCreation {
+                ref account_guid_hash,
+                ref update,
             } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
                 buf.push(4);
-                buf.extend_from_slice(wallet_guid_hash);
-                buf.extend_from_slice(&config_update_bytes);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
+                buf.extend_from_slice(&update_bytes);
             }
-            &ProgramInstruction::InitWalletConfigUpdate {
-                ref wallet_guid_hash,
-                ref config_update,
+            &ProgramInstruction::InitBalanceAccountUpdate {
+                ref account_guid_hash,
+                ref update,
             } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
                 buf.push(5);
-                buf.extend_from_slice(wallet_guid_hash);
-                buf.extend_from_slice(&config_update_bytes);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
+                buf.extend_from_slice(&update_bytes);
             }
-            &ProgramInstruction::FinalizeWalletConfigUpdate {
-                ref wallet_guid_hash,
-                ref config_update,
+            &ProgramInstruction::FinalizeBalanceAccountUpdate {
+                ref account_guid_hash,
+                ref update,
             } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
                 buf.push(6);
-                buf.extend_from_slice(wallet_guid_hash);
-                buf.extend_from_slice(&config_update_bytes);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
+                buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::InitTransfer {
-                ref wallet_guid_hash,
+                ref account_guid_hash,
                 ref amount,
                 ref destination_name_hash,
             } => {
                 buf.push(7);
-                buf.extend_from_slice(&wallet_guid_hash[..]);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
-                buf.extend_from_slice(destination_name_hash);
+                buf.extend_from_slice(destination_name_hash.to_bytes());
             }
             &ProgramInstruction::FinalizeTransfer {
-                ref wallet_guid_hash,
+                ref account_guid_hash,
                 ref amount,
                 ref token_mint,
             } => {
                 buf.push(8);
-                buf.extend_from_slice(&wallet_guid_hash[..]);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.extend_from_slice(&token_mint.to_bytes());
                 buf.push(0);
             }
             &ProgramInstruction::InitWrapUnwrap {
-                ref wallet_guid_hash,
+                ref account_guid_hash,
                 ref amount,
                 ref direction,
             } => {
                 buf.push(10);
-                buf.extend_from_slice(&wallet_guid_hash[..]);
+                buf.extend_from_slice(&account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.push(direction.to_u8());
             }
             &ProgramInstruction::FinalizeWrapUnwrap {
-                ref wallet_guid_hash,
+                ref account_guid_hash,
                 ref amount,
                 ref direction,
             } => {
                 buf.push(11);
-                buf.extend_from_slice(&wallet_guid_hash[..]);
+                buf.extend_from_slice(&account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.push(direction.to_u8());
             }
@@ -267,13 +268,13 @@ impl ProgramInstruction {
             .ok_or(ProgramError::InvalidInstructionData)?;
 
         Ok(match tag {
-            0 => Self::unpack_init_instruction(rest)?,
-            1 => Self::unpack_init_config_update_instruction(rest)?,
-            2 => Self::unpack_finalize_config_update_instruction(rest)?,
-            3 => Self::unpack_init_wallet_creation_instruction(rest)?,
-            4 => Self::unpack_finalize_wallet_creation_instruction(rest)?,
-            5 => Self::unpack_init_wallet_policy_update_instruction(rest)?,
-            6 => Self::unpack_finalize_wallet_policy_update_instruction(rest)?,
+            0 => Self::unpack_init_wallet_instruction(rest)?,
+            1 => Self::unpack_init_wallet_update_instruction(rest)?,
+            2 => Self::unpack_finalize_wallet_update_instruction(rest)?,
+            3 => Self::unpack_init_balance_account_creation_instruction(rest)?,
+            4 => Self::unpack_finalize_balance_account_creation_instruction(rest)?,
+            5 => Self::unpack_init_balance_account_update_instruction(rest)?,
+            6 => Self::unpack_finalize_balance_account_update_instruction(rest)?,
             7 => Self::unpack_init_transfer_for_approval_instruction(rest)?,
             8 => Self::unpack_finalize_transfer_instruction(rest)?,
             9 => Self::unpack_set_approval_disposition_instruction(rest)?,
@@ -283,34 +284,34 @@ impl ProgramInstruction {
         })
     }
 
-    fn unpack_init_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::Init {
-            config_update: ProgramConfigUpdate::unpack(bytes)?,
+    fn unpack_init_wallet_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
+        Ok(Self::InitWallet {
+            update: WalletUpdate::unpack(bytes)?,
         })
     }
 
-    fn unpack_init_config_update_instruction(
+    fn unpack_init_wallet_update_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::InitConfigUpdate {
-            config_update: ProgramConfigUpdate::unpack(bytes)?,
+        Ok(Self::InitWalletUpdate {
+            update: WalletUpdate::unpack(bytes)?,
         })
     }
 
-    fn unpack_finalize_config_update_instruction(
+    fn unpack_finalize_wallet_update_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::FinalizeConfigUpdate {
-            config_update: ProgramConfigUpdate::unpack(bytes)?,
+        Ok(Self::FinalizeWalletUpdate {
+            update: WalletUpdate::unpack(bytes)?,
         })
     }
 
-    fn unpack_init_wallet_creation_instruction(
+    fn unpack_init_balance_account_creation_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::InitWalletCreation {
-            wallet_guid_hash: unpack_wallet_guid_hash(bytes)?,
-            config_update: WalletConfigUpdate::unpack(
+        Ok(Self::InitBalanceAccountCreation {
+            account_guid_hash: unpack_account_guid_hash(bytes)?,
+            update: BalanceAccountUpdate::unpack(
                 bytes
                     .get(32..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -318,12 +319,12 @@ impl ProgramInstruction {
         })
     }
 
-    fn unpack_finalize_wallet_creation_instruction(
+    fn unpack_finalize_balance_account_creation_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::FinalizeWalletCreation {
-            wallet_guid_hash: unpack_wallet_guid_hash(bytes)?,
-            config_update: WalletConfigUpdate::unpack(
+        Ok(Self::FinalizeBalanceAccountCreation {
+            account_guid_hash: unpack_account_guid_hash(bytes)?,
+            update: BalanceAccountUpdate::unpack(
                 bytes
                     .get(32..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -331,12 +332,12 @@ impl ProgramInstruction {
         })
     }
 
-    fn unpack_init_wallet_policy_update_instruction(
+    fn unpack_init_balance_account_update_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::InitWalletConfigUpdate {
-            wallet_guid_hash: unpack_wallet_guid_hash(bytes)?,
-            config_update: WalletConfigUpdate::unpack(
+        Ok(Self::InitBalanceAccountUpdate {
+            account_guid_hash: unpack_account_guid_hash(bytes)?,
+            update: BalanceAccountUpdate::unpack(
                 bytes
                     .get(32..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -344,12 +345,12 @@ impl ProgramInstruction {
         })
     }
 
-    fn unpack_finalize_wallet_policy_update_instruction(
+    fn unpack_finalize_balance_account_update_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::FinalizeWalletConfigUpdate {
-            wallet_guid_hash: unpack_wallet_guid_hash(bytes)?,
-            config_update: WalletConfigUpdate::unpack(
+        Ok(Self::FinalizeBalanceAccountUpdate {
+            account_guid_hash: unpack_account_guid_hash(bytes)?,
+            update: BalanceAccountUpdate::unpack(
                 bytes
                     .get(32..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -360,7 +361,7 @@ impl ProgramInstruction {
     fn unpack_init_transfer_for_approval_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        let wallet_guid_hash = unpack_wallet_guid_hash(bytes)?;
+        let account_guid_hash = unpack_account_guid_hash(bytes)?;
 
         let amount = bytes
             .get(32..40)
@@ -370,11 +371,16 @@ impl ProgramInstruction {
 
         let destination_name_hash = bytes
             .get(40..72)
-            .and_then(|slice| slice.try_into().ok())
+            .and_then(|slice| {
+                slice
+                    .try_into()
+                    .ok()
+                    .map(|bytes| AddressBookEntryNameHash::new(bytes))
+            })
             .ok_or(ProgramError::InvalidInstructionData)?;
 
         Ok(Self::InitTransfer {
-            wallet_guid_hash,
+            account_guid_hash,
             amount,
             destination_name_hash,
         })
@@ -400,7 +406,7 @@ impl ProgramInstruction {
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
         Ok(Self::FinalizeTransfer {
-            wallet_guid_hash: unpack_wallet_guid_hash(bytes)?,
+            account_guid_hash: unpack_account_guid_hash(bytes)?,
             amount: bytes
                 .get(32..40)
                 .and_then(|slice| slice.try_into().ok())
@@ -418,18 +424,14 @@ impl ProgramInstruction {
     fn unpack_init_wrap_unwrap_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        let wallet_guid_hash = unpack_wallet_guid_hash(bytes)?;
-
-        let amount = bytes
-            .get(32..40)
-            .and_then(|slice| slice.try_into().ok())
-            .map(u64::from_le_bytes)
-            .ok_or(ProgramError::InvalidInstructionData)?;
-
         if let Some(direction) = bytes.get(40) {
             Ok(Self::InitWrapUnwrap {
-                wallet_guid_hash,
-                amount,
+                account_guid_hash: unpack_account_guid_hash(bytes)?,
+                amount: bytes
+                    .get(32..40)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
                 direction: WrapDirection::from_u8(*direction),
             })
         } else {
@@ -440,18 +442,14 @@ impl ProgramInstruction {
     fn unpack_finalize_wrap_unwrap_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        let wallet_guid_hash = unpack_wallet_guid_hash(bytes)?;
-
-        let amount = bytes
-            .get(32..40)
-            .and_then(|slice| slice.try_into().ok())
-            .map(u64::from_le_bytes)
-            .ok_or(ProgramError::InvalidInstructionData)?;
-
         if let Some(direction) = bytes.get(40) {
             Ok(Self::FinalizeWrapUnwrap {
-                wallet_guid_hash,
-                amount,
+                account_guid_hash: unpack_account_guid_hash(bytes)?,
+                amount: bytes
+                    .get(32..40)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
                 direction: WrapDirection::from_u8(*direction),
             })
         } else {
@@ -461,7 +459,7 @@ impl ProgramInstruction {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct ProgramConfigUpdate {
+pub struct WalletUpdate {
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
     pub add_signers: Vec<(SlotId<Signer>, Signer)>,
@@ -472,8 +470,8 @@ pub struct ProgramConfigUpdate {
     pub remove_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 }
 
-impl ProgramConfigUpdate {
-    fn unpack(bytes: &[u8]) -> Result<ProgramConfigUpdate, ProgramError> {
+impl WalletUpdate {
+    fn unpack(bytes: &[u8]) -> Result<WalletUpdate, ProgramError> {
         if bytes.len() < 7 {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -489,7 +487,7 @@ impl ProgramConfigUpdate {
         let add_address_book_entries = read_address_book_entries(&mut iter)?;
         let remove_address_book_entries = read_address_book_entries(&mut iter)?;
 
-        Ok(ProgramConfigUpdate {
+        Ok(WalletUpdate {
             approvals_required_for_config,
             approval_timeout_for_config,
             add_signers,
@@ -514,8 +512,8 @@ impl ProgramConfigUpdate {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct WalletConfigUpdate {
-    pub name_hash: [u8; 32],
+pub struct BalanceAccountUpdate {
+    pub name_hash: BalanceAccountNameHash,
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
     pub add_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
@@ -524,8 +522,8 @@ pub struct WalletConfigUpdate {
     pub remove_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 }
 
-impl WalletConfigUpdate {
-    fn unpack(bytes: &[u8]) -> Result<WalletConfigUpdate, ProgramError> {
+impl BalanceAccountUpdate {
+    fn unpack(bytes: &[u8]) -> Result<BalanceAccountUpdate, ProgramError> {
         if bytes.len() < 1 {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -541,8 +539,8 @@ impl WalletConfigUpdate {
         let add_allowed_destinations = read_address_book_entries(&mut iter)?;
         let remove_allowed_destinations = read_address_book_entries(&mut iter)?;
 
-        Ok(WalletConfigUpdate {
-            name_hash,
+        Ok(BalanceAccountUpdate {
+            name_hash: BalanceAccountNameHash::new(&name_hash),
             approvals_required_for_transfer,
             approval_timeout_for_transfer,
             add_transfer_approvers: add_approvers,
@@ -553,7 +551,7 @@ impl WalletConfigUpdate {
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
-        dst.extend_from_slice(&self.name_hash);
+        dst.extend_from_slice(&self.name_hash.to_bytes());
         dst.push(self.approvals_required_for_transfer);
         append_duration(&self.approval_timeout_for_transfer, dst);
         append_signers(&self.add_transfer_approvers, dst);
@@ -641,16 +639,21 @@ fn append_address_book_entries(
     }
 }
 
-fn unpack_wallet_guid_hash(bytes: &[u8]) -> Result<[u8; 32], ProgramError> {
+fn unpack_account_guid_hash(bytes: &[u8]) -> Result<BalanceAccountGuidHash, ProgramError> {
     bytes
         .get(..32)
-        .and_then(|slice| slice.try_into().ok())
+        .and_then(|slice| {
+            slice
+                .try_into()
+                .ok()
+                .map(|bytes| BalanceAccountGuidHash::new(bytes))
+        })
         .ok_or(ProgramError::InvalidInstructionData)
 }
 
-pub fn program_init(
+pub fn init_wallet(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     assistant_account: &Pubkey,
     signers: Vec<(SlotId<Signer>, Signer)>,
     config_approvers: Vec<(SlotId<Signer>, Signer)>,
@@ -658,8 +661,8 @@ pub fn program_init(
     approval_timeout_for_config: Duration,
     address_book: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 ) -> Instruction {
-    let data = ProgramInstruction::Init {
-        config_update: ProgramConfigUpdate {
+    let data = ProgramInstruction::InitWallet {
+        update: WalletUpdate {
             approvals_required_for_config,
             approval_timeout_for_config,
             add_signers: signers.clone(),
@@ -674,7 +677,7 @@ pub fn program_init(
     .pack();
 
     let accounts = vec![
-        AccountMeta::new(*program_config_account, false),
+        AccountMeta::new(*wallet_account, false),
         AccountMeta::new_readonly(*assistant_account, true),
     ];
 
@@ -687,13 +690,13 @@ pub fn program_init(
 
 fn init_multisig_op(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
     data: Vec<u8>,
 ) -> Instruction {
     let mut accounts = vec![AccountMeta::new(*multisig_op_account, false)];
-    accounts.push(AccountMeta::new_readonly(*program_config_account, false));
+    accounts.push(AccountMeta::new_readonly(*wallet_account, false));
     accounts.push(AccountMeta::new_readonly(*assistant_account, true));
     accounts.push(AccountMeta::new_readonly(sysvar::clock::id(), false));
 
@@ -704,9 +707,9 @@ fn init_multisig_op(
     }
 }
 
-pub fn program_init_config_update(
+pub fn init_wallet_update(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
     approvals_required_for_config: u8,
@@ -718,7 +721,7 @@ pub fn program_init_config_update(
     add_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     remove_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 ) -> Instruction {
-    let config_update = ProgramConfigUpdate {
+    let update = WalletUpdate {
         approvals_required_for_config,
         approval_timeout_for_config,
         add_signers: add_signers.clone(),
@@ -728,12 +731,12 @@ pub fn program_init_config_update(
         add_address_book_entries: add_address_book_entries.clone(),
         remove_address_book_entries: remove_address_book_entries.clone(),
     };
-    let data = ProgramInstruction::InitConfigUpdate { config_update }
+    let data = ProgramInstruction::InitWalletUpdate { update }
         .borrow()
         .pack();
     init_multisig_op(
         program_id,
-        program_config_account,
+        wallet_account,
         multisig_op_account,
         assistant_account,
         data,
@@ -767,19 +770,19 @@ pub fn set_approval_disposition(
     }
 }
 
-pub fn finalize_config_update(
+pub fn finalize_wallet_update(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     rent_collector_account: &Pubkey,
-    config_update: ProgramConfigUpdate,
+    update: WalletUpdate,
 ) -> Instruction {
-    let data = ProgramInstruction::FinalizeConfigUpdate { config_update }
+    let data = ProgramInstruction::FinalizeWalletUpdate { update }
         .borrow()
         .pack();
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*program_config_account, false),
+        AccountMeta::new(*wallet_account, false),
         AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
@@ -791,21 +794,21 @@ pub fn finalize_config_update(
     }
 }
 
-pub fn init_wallet_creation(
+pub fn init_balance_account_creation(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
-    name_hash: [u8; 32],
+    account_guid_hash: BalanceAccountGuidHash,
+    name_hash: BalanceAccountNameHash,
     approvals_required_for_transfer: u8,
     approval_timeout_for_transfer: Duration,
     approvers: Vec<(SlotId<Signer>, Signer)>,
     allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 ) -> Instruction {
-    let data = ProgramInstruction::InitWalletCreation {
-        wallet_guid_hash,
-        config_update: WalletConfigUpdate {
+    let data = ProgramInstruction::InitBalanceAccountCreation {
+        account_guid_hash,
+        update: BalanceAccountUpdate {
             name_hash,
             approvals_required_for_transfer,
             approval_timeout_for_transfer,
@@ -819,30 +822,30 @@ pub fn init_wallet_creation(
     .pack();
     init_multisig_op(
         program_id,
-        program_config_account,
+        wallet_account,
         multisig_op_account,
         assistant_account,
         data,
     )
 }
 
-pub fn finalize_wallet_creation(
+pub fn finalize_balance_account_creation(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     rent_collector_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
-    config_update: WalletConfigUpdate,
+    account_guid_hash: BalanceAccountGuidHash,
+    update: BalanceAccountUpdate,
 ) -> Instruction {
-    let data = ProgramInstruction::FinalizeWalletCreation {
-        wallet_guid_hash,
-        config_update,
+    let data = ProgramInstruction::FinalizeBalanceAccountCreation {
+        account_guid_hash,
+        update,
     }
     .borrow()
     .pack();
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*program_config_account, false),
+        AccountMeta::new(*wallet_account, false),
         AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
@@ -854,13 +857,13 @@ pub fn finalize_wallet_creation(
     }
 }
 
-pub fn init_wallet_config_update(
+pub fn init_balance_account_update(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
-    name_hash: [u8; 32],
+    account_guid_hash: BalanceAccountGuidHash,
+    account_name_hash: BalanceAccountNameHash,
     approvals_required_for_transfer: u8,
     approval_timeout_for_transfer: Duration,
     add_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
@@ -868,10 +871,10 @@ pub fn init_wallet_config_update(
     add_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     remove_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
 ) -> Instruction {
-    let data = ProgramInstruction::InitWalletConfigUpdate {
-        wallet_guid_hash,
-        config_update: WalletConfigUpdate {
-            name_hash,
+    let data = ProgramInstruction::InitBalanceAccountUpdate {
+        account_guid_hash,
+        update: BalanceAccountUpdate {
+            name_hash: account_name_hash,
             approvals_required_for_transfer,
             approval_timeout_for_transfer,
             add_transfer_approvers,
@@ -884,30 +887,30 @@ pub fn init_wallet_config_update(
     .pack();
     init_multisig_op(
         program_id,
-        program_config_account,
+        wallet_account,
         multisig_op_account,
         assistant_account,
         data,
     )
 }
 
-pub fn finalize_wallet_config_update(
+pub fn finalize_balance_account_update(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     rent_collector_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
-    config_update: WalletConfigUpdate,
+    account_guid_hash: BalanceAccountGuidHash,
+    update: BalanceAccountUpdate,
 ) -> Instruction {
-    let data = ProgramInstruction::FinalizeWalletConfigUpdate {
-        wallet_guid_hash,
-        config_update,
+    let data = ProgramInstruction::FinalizeBalanceAccountUpdate {
+        account_guid_hash,
+        update,
     }
     .borrow()
     .pack();
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*program_config_account, false),
+        AccountMeta::new(*wallet_account, false),
         AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
@@ -921,19 +924,19 @@ pub fn finalize_wallet_config_update(
 
 pub fn init_transfer(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
     source_account: &Pubkey,
     destination_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
+    account_guid_hash: BalanceAccountGuidHash,
     amount: u64,
-    destination_name_hash: [u8; 32],
+    destination_name_hash: AddressBookEntryNameHash,
     token_mint: &Pubkey,
     fee_payer: &Pubkey,
 ) -> Instruction {
     let data = ProgramInstruction::InitTransfer {
-        wallet_guid_hash,
+        account_guid_hash,
         amount,
         destination_name_hash,
     }
@@ -945,7 +948,7 @@ pub fn init_transfer(
 
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new(*source_account, false),
         AccountMeta::new_readonly(*destination_account, false),
         AccountMeta::new_readonly(*assistant_account, true),
@@ -969,17 +972,17 @@ pub fn init_transfer(
 pub fn finalize_transfer(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     source_account: &Pubkey,
     destination_account: &Pubkey,
     rent_collector_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
+    account_guid_hash: BalanceAccountGuidHash,
     amount: u64,
     token_mint: &Pubkey,
     token_authority: Option<&Pubkey>,
 ) -> Instruction {
     let data = ProgramInstruction::FinalizeTransfer {
-        wallet_guid_hash,
+        account_guid_hash,
         amount,
         token_mint: *token_mint,
     }
@@ -987,7 +990,7 @@ pub fn finalize_transfer(
     .pack();
     let mut accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new(*source_account, false),
         AccountMeta::new(*destination_account, false),
         AccountMeta::new_readonly(system_program::id(), false),
@@ -1024,16 +1027,16 @@ pub fn finalize_transfer(
 
 pub fn init_wrap_unwrap(
     program_id: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
     balance_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
+    account_guid_hash: &BalanceAccountGuidHash,
     amount: u64,
     direction: WrapDirection,
 ) -> Instruction {
     let data = ProgramInstruction::InitWrapUnwrap {
-        wallet_guid_hash,
+        account_guid_hash: *account_guid_hash,
         amount,
         direction,
     }
@@ -1047,7 +1050,7 @@ pub fn init_wrap_unwrap(
 
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new(*balance_account, false),
         AccountMeta::new(wrapped_sol_account, false),
         AccountMeta::new_readonly(spl_token::native_mint::id(), false),
@@ -1069,15 +1072,15 @@ pub fn init_wrap_unwrap(
 pub fn finalize_wrap_unwrap(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
-    program_config_account: &Pubkey,
+    wallet_account: &Pubkey,
     balance_account: &Pubkey,
     rent_collector_account: &Pubkey,
-    wallet_guid_hash: [u8; 32],
+    account_guid_hash: &BalanceAccountGuidHash,
     amount: u64,
     direction: WrapDirection,
 ) -> Instruction {
     let data = ProgramInstruction::FinalizeWrapUnwrap {
-        wallet_guid_hash,
+        account_guid_hash: *account_guid_hash,
         amount,
         direction,
     }
@@ -1091,7 +1094,7 @@ pub fn finalize_wrap_unwrap(
 
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*program_config_account, false),
+        AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new(*balance_account, false),
         AccountMeta::new_readonly(system_program::id(), false),
         AccountMeta::new_readonly(*rent_collector_account, true),

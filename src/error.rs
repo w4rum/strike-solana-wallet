@@ -19,8 +19,8 @@ pub enum WalletError {
     InsufficientBalance,
     #[error("Destination Not Allowed")]
     DestinationNotAllowed,
-    #[error("Wallet Not Found")]
-    WalletNotFound,
+    #[error("Balance Account Not Found")]
+    BalanceAccountNotFound,
     #[error("Invalid Source Token Account")]
     InvalidSourceTokenAccount,
     #[error("Invalid Destination Token Account")]

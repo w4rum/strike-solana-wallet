@@ -1,6 +1,7 @@
 use crate::error::WalletError;
-use crate::instruction::{ProgramConfigUpdate, WalletConfigUpdate};
-use crate::model::program_config::ProgramConfig;
+use crate::instruction::{BalanceAccountUpdate, WalletUpdate};
+use crate::model::balance_account::BalanceAccountGuidHash;
+use crate::model::wallet::Wallet;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::account_info::AccountInfo;
 use solana_program::clock::Clock;
@@ -245,7 +246,7 @@ impl IsInitialized for MultisigOp {
 
 impl Pack for MultisigOp {
     const LEN: usize =
-        1 + ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS + 1 + 1 + 32 + 8 + 8 + 1;
+        1 + ApprovalDispositionRecord::LEN * Wallet::MAX_SIGNERS + 1 + 1 + 32 + 8 + 8 + 1;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
@@ -262,7 +263,7 @@ impl Pack for MultisigOp {
             dst,
             1,
             1,
-            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS,
+            ApprovalDispositionRecord::LEN * Wallet::MAX_SIGNERS,
             1,
             32,
             8,
@@ -315,7 +316,7 @@ impl Pack for MultisigOp {
             src,
             1,
             1,
-            ApprovalDispositionRecord::LEN * ProgramConfig::MAX_SIGNERS,
+            ApprovalDispositionRecord::LEN * Wallet::MAX_SIGNERS,
             1,
             32,
             8,
@@ -329,7 +330,7 @@ impl Pack for MultisigOp {
         };
 
         let disposition_records_count = usize::from(disposition_records_count[0]);
-        let mut disposition_records = Vec::with_capacity(ProgramConfig::MAX_SIGNERS);
+        let mut disposition_records = Vec::with_capacity(Wallet::MAX_SIGNERS);
         disposition_record_bytes
             .chunks_exact(ApprovalDispositionRecord::LEN)
             .take(disposition_records_count)
@@ -353,30 +354,30 @@ impl Pack for MultisigOp {
 // represents multisig operation params that are hashed and signed by the client
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MultisigOpParams {
-    UpdateProgramConfig {
-        program_config_address: Pubkey,
-        config_update: ProgramConfigUpdate,
+    UpdateWallet {
+        wallet_address: Pubkey,
+        update: WalletUpdate,
     },
-    CreateWallet {
-        program_config_address: Pubkey,
-        wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate,
+    CreateBalanceAccount {
+        wallet_address: Pubkey,
+        account_guid_hash: BalanceAccountGuidHash,
+        update: BalanceAccountUpdate,
     },
-    UpdateWalletConfig {
-        program_config_address: Pubkey,
-        wallet_guid_hash: [u8; 32],
-        config_update: WalletConfigUpdate,
+    UpdateBalanceAccount {
+        wallet_address: Pubkey,
+        account_guid_hash: BalanceAccountGuidHash,
+        update: BalanceAccountUpdate,
     },
     Transfer {
-        program_config_address: Pubkey,
-        wallet_guid_hash: [u8; 32],
+        wallet_address: Pubkey,
+        account_guid_hash: BalanceAccountGuidHash,
         destination: Pubkey,
         amount: u64,
         token_mint: Pubkey,
     },
     Wrap {
-        program_config_address: Pubkey,
-        wallet_guid_hash: [u8; 32],
+        wallet_address: Pubkey,
+        account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
         direction: WrapDirection,
     },
@@ -385,56 +386,56 @@ pub enum MultisigOpParams {
 impl MultisigOpParams {
     pub fn hash(&self) -> Hash {
         match self {
-            MultisigOpParams::UpdateProgramConfig {
-                program_config_address,
-                config_update,
+            MultisigOpParams::UpdateWallet {
+                wallet_address,
+                update,
             } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
 
                 let mut bytes: Vec<u8> = Vec::new();
-                bytes.resize(1 + PUBKEY_BYTES + config_update_bytes.len(), 0);
+                bytes.resize(1 + PUBKEY_BYTES + update_bytes.len(), 0);
                 bytes[0] = 0; // type code
-                bytes[1..1 + PUBKEY_BYTES].copy_from_slice(&program_config_address.to_bytes());
-                bytes[1 + PUBKEY_BYTES..1 + PUBKEY_BYTES + config_update_bytes.len()]
-                    .copy_from_slice(&config_update_bytes);
+                bytes[1..1 + PUBKEY_BYTES].copy_from_slice(&wallet_address.to_bytes());
+                bytes[1 + PUBKEY_BYTES..1 + PUBKEY_BYTES + update_bytes.len()]
+                    .copy_from_slice(&update_bytes);
                 hash(&bytes)
             }
-            MultisigOpParams::CreateWallet {
-                program_config_address,
-                wallet_guid_hash,
-                config_update,
+            MultisigOpParams::CreateBalanceAccount {
+                wallet_address,
+                account_guid_hash,
+                update,
             } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
 
                 let mut bytes: Vec<u8> = Vec::new();
-                bytes.resize(1 + PUBKEY_BYTES + 32 + config_update_bytes.len(), 0);
+                bytes.resize(1 + PUBKEY_BYTES + 32 + update_bytes.len(), 0);
                 bytes[0] = 1; // type code
-                bytes[1..33].copy_from_slice(&program_config_address.to_bytes());
-                bytes[33..65].copy_from_slice(wallet_guid_hash);
-                bytes[65..65 + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
+                bytes[1..33].copy_from_slice(&wallet_address.to_bytes());
+                bytes[33..65].copy_from_slice(account_guid_hash.to_bytes());
+                bytes[65..65 + update_bytes.len()].copy_from_slice(&update_bytes);
                 hash(&bytes)
             }
-            MultisigOpParams::UpdateWalletConfig {
-                program_config_address,
-                wallet_guid_hash,
-                config_update,
+            MultisigOpParams::UpdateBalanceAccount {
+                wallet_address,
+                account_guid_hash,
+                update,
             } => {
-                let mut config_update_bytes: Vec<u8> = Vec::new();
-                config_update.pack(&mut config_update_bytes);
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
 
                 let mut bytes: Vec<u8> = Vec::new();
-                bytes.resize(1 + PUBKEY_BYTES + 32 + config_update_bytes.len(), 0);
+                bytes.resize(1 + PUBKEY_BYTES + 32 + update_bytes.len(), 0);
                 bytes[0] = 2; // type code
-                bytes[1..33].copy_from_slice(&program_config_address.to_bytes());
-                bytes[33..65].copy_from_slice(wallet_guid_hash);
-                bytes[65..65 + config_update_bytes.len()].copy_from_slice(&config_update_bytes);
+                bytes[1..33].copy_from_slice(&wallet_address.to_bytes());
+                bytes[33..65].copy_from_slice(account_guid_hash.to_bytes());
+                bytes[65..65 + update_bytes.len()].copy_from_slice(&update_bytes);
                 hash(&bytes)
             }
             MultisigOpParams::Transfer {
-                program_config_address,
-                wallet_guid_hash,
+                wallet_address,
+                account_guid_hash,
                 destination,
                 amount,
                 token_mint,
@@ -444,8 +445,8 @@ impl MultisigOpParams {
                 let bytes_ref = array_mut_ref![bytes, 0, LEN];
                 let (
                     type_code_ref,
-                    program_config_address_ref,
-                    wallet_guid_hash_ref,
+                    wallet_address_ref,
+                    account_guid_hash_ref,
                     destination_ref,
                     amount_ref,
                     token_mint_ref,
@@ -459,16 +460,16 @@ impl MultisigOpParams {
                     PUBKEY_BYTES
                 ];
                 type_code_ref[0] = 3;
-                program_config_address_ref.copy_from_slice(program_config_address.as_ref());
-                wallet_guid_hash_ref.copy_from_slice(wallet_guid_hash.as_ref());
+                wallet_address_ref.copy_from_slice(wallet_address.as_ref());
+                account_guid_hash_ref.copy_from_slice(account_guid_hash.to_bytes());
                 destination_ref.copy_from_slice(destination.as_ref());
                 *amount_ref = amount.to_le_bytes();
                 token_mint_ref.copy_from_slice(token_mint.as_ref());
                 hash(&bytes)
             }
             MultisigOpParams::Wrap {
-                program_config_address,
-                wallet_guid_hash,
+                wallet_address,
+                account_guid_hash,
                 amount,
                 direction,
             } => {
@@ -477,14 +478,14 @@ impl MultisigOpParams {
                 let bytes_ref = array_mut_ref![bytes, 0, LEN];
                 let (
                     type_code_ref,
-                    program_config_address_ref,
-                    wallet_guid_hash_ref,
+                    wallet_address_ref,
+                    account_guid_hash_ref,
                     amount_ref,
                     direction_ref,
                 ) = mut_array_refs![bytes_ref, 1, PUBKEY_BYTES, 32, 8, 1];
                 type_code_ref[0] = 4;
-                program_config_address_ref.copy_from_slice(program_config_address.as_ref());
-                wallet_guid_hash_ref.copy_from_slice(wallet_guid_hash.as_ref());
+                wallet_address_ref.copy_from_slice(wallet_address.as_ref());
+                account_guid_hash_ref.copy_from_slice(account_guid_hash.to_bytes());
                 *amount_ref = amount.to_le_bytes();
                 *direction_ref = direction.to_u8().to_le_bytes();
                 hash(&bytes)

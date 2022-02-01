@@ -1,4 +1,5 @@
+pub mod address_book;
+pub mod balance_account;
 pub mod multisig_op;
-pub mod program_config;
 pub mod signer;
-pub mod wallet_config;
+pub mod wallet;
