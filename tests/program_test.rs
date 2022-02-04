@@ -1,6 +1,9 @@
 #![cfg(feature = "test-bpf")]
+mod common;
+pub use common::utils::*;
+
 use std::borrow::BorrowMut;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use solana_program::hash::Hash;
 use solana_program::instruction::InstructionError::{
@@ -9,10 +12,7 @@ use solana_program::instruction::InstructionError::{
 use solana_program::system_program;
 use solana_sdk::transaction::TransactionError;
 
-use crate::utils::{
-    assert_multisig_op_timestamps, get_wallet, hash_of, verify_multisig_op_init_fails, SignerKey,
-    ToSet,
-};
+use crate::common::utils;
 use itertools::Itertools;
 use solana_program::instruction::InstructionError;
 use std::collections::HashSet;
@@ -46,8 +46,6 @@ use {
     },
 };
 
-mod utils;
-
 #[tokio::test]
 async fn init_wallet() {
     let approvals_required_for_config = 2;
@@ -66,12 +64,8 @@ async fn init_wallet() {
         },
     )];
 
-    let program_owner = Keypair::new();
-    let mut pt = ProgramTest::new(
-        "strike_wallet",
-        program_owner.pubkey(),
-        processor!(Processor::process),
-    );
+    let program_id = Keypair::new().pubkey();
+    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
     pt.set_bpf_compute_max_units(25_000);
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
     let wallet_account = Keypair::new();
@@ -81,7 +75,7 @@ async fn init_wallet() {
         &mut banks_client,
         &payer,
         recent_blockhash,
-        &program_owner,
+        &program_id,
         &wallet_account,
         &assistant_account,
         Some(approvals_required_for_config),
@@ -108,18 +102,16 @@ async fn init_wallet() {
                     .map(|(slot_id, _)| slot_id)
                     .collect_vec()
             ),
-            balance_accounts: Vec::new()
+            balance_accounts: Vec::new(),
+            config_policy_update_locked: false
         }
     );
 }
 
 #[tokio::test]
 async fn update_wallet() {
-    let start = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let mut context = utils::setup_wallet_update_test().await;
+    let started_at = SystemTime::now();
+    let mut context = setup_wallet_update_test().await;
 
     // verify the multisig op account data
     let multisig_op = MultisigOp::unpack_from_slice(
@@ -151,7 +143,7 @@ async fn update_wallet() {
         multisig_op.operation_disposition,
         OperationDisposition::NONE
     );
-    assert_multisig_op_timestamps(&multisig_op, start, Duration::from_secs(3600));
+    assert_multisig_op_timestamps(&multisig_op, started_at, Duration::from_secs(3600));
 
     assert_eq!(
         multisig_op.params_hash,
@@ -162,9 +154,9 @@ async fn update_wallet() {
         .hash()
     );
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -193,7 +185,7 @@ async fn update_wallet() {
     // finalize the multisig op
     let finalize_transaction = Transaction::new_signed_with_payer(
         &[finalize_wallet_update(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &context.multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -246,12 +238,8 @@ async fn update_wallet() {
 
 #[tokio::test]
 async fn invalid_wallet_updates() {
-    let program_owner = Keypair::new();
-    let mut pt = ProgramTest::new(
-        "strike_wallet",
-        program_owner.pubkey(),
-        processor!(Processor::process),
-    );
+    let program_id = Keypair::new().pubkey();
+    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
     pt.set_bpf_compute_max_units(30_000);
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
     let wallet_account = Keypair::new();
@@ -278,7 +266,7 @@ async fn invalid_wallet_updates() {
         &mut banks_client,
         &payer,
         recent_blockhash,
-        &program_owner,
+        &program_id,
         &wallet_account,
         &assistant_account,
         Some(1),
@@ -306,7 +294,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -333,7 +321,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -360,7 +348,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -387,7 +375,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -414,7 +402,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -441,7 +429,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -468,7 +456,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -495,7 +483,7 @@ async fn invalid_wallet_updates() {
             &assistant_account,
             &multisig_op_account,
             init_wallet_update(
-                &program_owner.pubkey(),
+                &program_id,
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
@@ -516,18 +504,15 @@ async fn invalid_wallet_updates() {
 
 #[tokio::test]
 async fn wallet_update_is_denied() {
-    let start = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-    let mut context = utils::setup_wallet_update_test().await;
+    let started_at = SystemTime::now();
+    let mut context = setup_wallet_update_test().await;
 
     let initial_wallet_state =
         get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -552,12 +537,12 @@ async fn wallet_update_is_denied() {
         multisig_op.operation_disposition,
         OperationDisposition::DENIED
     );
-    assert_multisig_op_timestamps(&multisig_op, start, Duration::from_secs(3600));
+    assert_multisig_op_timestamps(&multisig_op, started_at, Duration::from_secs(3600));
 
     // finalize the multisig op
     let finalize_transaction = Transaction::new_signed_with_payer(
         &[finalize_wallet_update(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &context.multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -610,12 +595,12 @@ async fn wallet_update_is_denied() {
 
 #[tokio::test]
 async fn finalize_wallet_update_fails() {
-    let mut context = utils::setup_wallet_update_test().await;
+    let mut context = setup_wallet_update_test().await;
 
     // attempt to finalize the multisig op
     let finalize_transaction = Transaction::new_signed_with_payer(
         &[finalize_wallet_update(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &context.multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -641,12 +626,12 @@ async fn finalize_wallet_update_fails() {
 
 #[tokio::test]
 async fn wallet_update_invalid_approval() {
-    let mut context = utils::setup_wallet_update_test().await;
+    let mut context = setup_wallet_update_test().await;
 
     // attempt to approve the update with an invalid approver
     let approve_transaction = Transaction::new_signed_with_payer(
         &[set_approval_disposition(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.multisig_op_account.pubkey(),
             &context.approvers[2].pubkey(),
             ApprovalDisposition::APPROVE,
@@ -669,11 +654,11 @@ async fn wallet_update_invalid_approval() {
 
 #[tokio::test]
 async fn wallet_update_not_signed_by_rent_collector() {
-    let mut context = utils::setup_wallet_update_test().await;
+    let mut context = setup_wallet_update_test().await;
 
     let rent_collector = Keypair::new();
     let mut instruction = finalize_wallet_update(
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.wallet_account.pubkey(),
         &context.multisig_op_account.pubkey(),
         &rent_collector.pubkey(),
@@ -700,7 +685,7 @@ async fn wallet_update_not_signed_by_rent_collector() {
 
 #[tokio::test]
 async fn test_add_and_remove_signer() {
-    let mut context = utils::setup_wallet_update_test().await;
+    let mut context = setup_wallet_update_test().await;
 
     let expected_signers_after_add = Signers::from_vec(vec![
         (SlotId::new(0), context.approvers[0].pubkey_as_signer()),
@@ -710,7 +695,7 @@ async fn test_add_and_remove_signer() {
 
     let signer_to_add_and_remove = context.approvers[2].pubkey_as_signer();
 
-    utils::update_signer(
+    update_signer(
         context.borrow_mut(),
         SlotUpdateType::SetIfEmpty,
         2,
@@ -725,7 +710,7 @@ async fn test_add_and_remove_signer() {
         (SlotId::new(1), context.approvers[1].pubkey_as_signer()),
     ]);
 
-    utils::update_signer(
+    update_signer(
         context.borrow_mut(),
         SlotUpdateType::Clear,
         2,
@@ -738,12 +723,12 @@ async fn test_add_and_remove_signer() {
 
 #[tokio::test]
 async fn test_add_and_remove_signer_init_failures() {
-    let mut context = utils::setup_wallet_update_test().await;
+    let mut context = setup_wallet_update_test().await;
 
     let signer_to_add_and_remove = context.approvers[2].pubkey_as_signer();
 
     // put a signer in a slot already filled
-    utils::update_signer(
+    update_signer(
         context.borrow_mut(),
         SlotUpdateType::SetIfEmpty,
         1,
@@ -754,7 +739,7 @@ async fn test_add_and_remove_signer_init_failures() {
     .await;
 
     // try to remove the signer from an occupied slot but give a wrong key
-    utils::update_signer(
+    update_signer(
         context.borrow_mut(),
         SlotUpdateType::Clear,
         1,
@@ -766,7 +751,7 @@ async fn test_add_and_remove_signer_init_failures() {
 
     // try to remove the signer that is a config approver
     let signer_to_add_and_remove = context.approvers[1].pubkey_as_signer();
-    utils::update_signer(
+    update_signer(
         context.borrow_mut(),
         SlotUpdateType::Clear,
         1,
@@ -779,11 +764,11 @@ async fn test_add_and_remove_signer_init_failures() {
 
 #[tokio::test]
 async fn test_remove_signer_fails_for_a_transfer_approver() {
-    let mut context = utils::setup_balance_account_tests(None, true).await;
+    let mut context = setup_balance_account_tests(None, true).await;
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -803,7 +788,7 @@ async fn test_remove_signer_fails_for_a_transfer_approver() {
         &context.assistant_account,
         &multisig_op_account,
         init_update_signer(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &multisig_op_account.pubkey(),
             &context.assistant_account.pubkey(),
@@ -818,11 +803,11 @@ async fn test_remove_signer_fails_for_a_transfer_approver() {
 
 #[tokio::test]
 async fn test_balance_account_creation() {
-    let mut context = utils::setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false).await;
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -890,7 +875,7 @@ async fn test_balance_account_creation() {
 #[tokio::test]
 async fn test_balance_account_creation_fails_if_time_out_not_set() {
     assert_eq!(
-        utils::setup_create_balance_account_failure_tests(
+        setup_create_balance_account_failure_tests(
             None,
             2,
             Duration::from_secs(0),
@@ -904,13 +889,8 @@ async fn test_balance_account_creation_fails_if_time_out_not_set() {
 #[tokio::test]
 async fn test_balance_account_creation_fails_if_no_approvers() {
     assert_eq!(
-        utils::setup_create_balance_account_failure_tests(
-            None,
-            1,
-            Duration::from_secs(18000),
-            vec![]
-        )
-        .await,
+        setup_create_balance_account_failure_tests(None, 1, Duration::from_secs(18000), vec![])
+            .await,
         TransactionError::InstructionError(1, InvalidArgument)
     )
 }
@@ -918,7 +898,7 @@ async fn test_balance_account_creation_fails_if_no_approvers() {
 #[tokio::test]
 async fn test_balance_account_creation_fails_if_num_approvals_required_not_set() {
     assert_eq!(
-        utils::setup_create_balance_account_failure_tests(
+        setup_create_balance_account_failure_tests(
             None,
             0,
             Duration::from_secs(18000),
@@ -931,11 +911,11 @@ async fn test_balance_account_creation_fails_if_num_approvals_required_not_set()
 
 #[tokio::test]
 async fn test_balance_account_creation_not_signed_by_rent_collector() {
-    let mut context = utils::setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false).await;
 
     let rent_collector = Keypair::new();
     let mut instruction = finalize_balance_account_creation(
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.wallet_account.pubkey(),
         &context.multisig_op_account.pubkey(),
         &rent_collector.pubkey(),
@@ -963,13 +943,13 @@ async fn test_balance_account_creation_not_signed_by_rent_collector() {
 
 #[tokio::test]
 async fn test_balance_account_creation_incorrect_hash() {
-    let mut context = utils::setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false).await;
 
     let wrong_guid_hash = BalanceAccountGuidHash::zero();
 
     let finalize_transaction_wrong_wallet_guid_hash = Transaction::new_signed_with_payer(
         &[finalize_balance_account_creation(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &context.multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -995,7 +975,7 @@ async fn test_balance_account_creation_incorrect_hash() {
 
     let finalize_transaction_wrong_update = Transaction::new_signed_with_payer(
         &[finalize_balance_account_creation(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &context.multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -1020,11 +1000,11 @@ async fn test_balance_account_creation_incorrect_hash() {
 
 #[tokio::test]
 async fn test_balance_account_update() {
-    let mut context = utils::setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false).await;
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -1042,10 +1022,8 @@ async fn test_balance_account_update() {
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
 
-    let balance_account_name_hash =
-        BalanceAccountNameHash::new(&utils::hash_of(b"New Wallet Name"));
-    let destination_name_hash =
-        AddressBookEntryNameHash::new(&utils::hash_of(b"Destination 2 Name"));
+    let balance_account_name_hash = BalanceAccountNameHash::new(&hash_of(b"New Wallet Name"));
+    let destination_name_hash = AddressBookEntryNameHash::new(&hash_of(b"Destination 2 Name"));
     let new_allowed_destination = wallet
         .address_book
         .filled_slots()
@@ -1060,10 +1038,10 @@ async fn test_balance_account_update() {
                 &multisig_op_account.pubkey(),
                 multisig_op_rent,
                 MultisigOp::LEN as u64,
-                &context.program_owner.pubkey(),
+                &context.program_id,
             ),
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1091,9 +1069,9 @@ async fn test_balance_account_update() {
         .await
         .unwrap();
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -1126,7 +1104,7 @@ async fn test_balance_account_update() {
         .unwrap();
     let finalize_update = Transaction::new_signed_with_payer(
         &[finalize_balance_account_update(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -1194,11 +1172,11 @@ async fn test_balance_account_update() {
 
 #[tokio::test]
 async fn test_balance_account_update_is_denied() {
-    let mut context = utils::setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false).await;
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &context.multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -1219,10 +1197,8 @@ async fn test_balance_account_update_is_denied() {
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
 
-    let balance_account_name_hash =
-        BalanceAccountNameHash::new(&utils::hash_of(b"New Wallet Name"));
-    let destination_name_hash =
-        AddressBookEntryNameHash::new(&utils::hash_of(b"Destination 2 Name"));
+    let balance_account_name_hash = BalanceAccountNameHash::new(&hash_of(b"New Wallet Name"));
+    let destination_name_hash = AddressBookEntryNameHash::new(&hash_of(b"Destination 2 Name"));
     let new_allowed_destination = wallet
         .address_book
         .filled_slots()
@@ -1237,10 +1213,10 @@ async fn test_balance_account_update_is_denied() {
                 &multisig_op_account.pubkey(),
                 multisig_op_rent,
                 MultisigOp::LEN as u64,
-                &context.program_owner.pubkey(),
+                &context.program_id,
             ),
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1268,9 +1244,9 @@ async fn test_balance_account_update_is_denied() {
         .await
         .unwrap();
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -1303,7 +1279,7 @@ async fn test_balance_account_update_is_denied() {
         .unwrap();
     let finalize_update = Transaction::new_signed_with_payer(
         &[finalize_balance_account_update(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -1377,7 +1353,7 @@ async fn test_balance_account_update_is_denied() {
 
 #[tokio::test]
 async fn invalid_balance_account_updates() {
-    let (mut context, _) = utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(None).await;
     let wallet = get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
 
     // verify error when updating non existing balance account
@@ -1391,7 +1367,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1418,7 +1394,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1445,7 +1421,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1472,7 +1448,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1499,7 +1475,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1526,7 +1502,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1559,7 +1535,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1589,7 +1565,7 @@ async fn invalid_balance_account_updates() {
             &context.assistant_account,
             &multisig_op_account,
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1613,15 +1589,14 @@ async fn invalid_balance_account_updates() {
 
 #[tokio::test]
 async fn test_transfer_sol() {
-    let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let (multisig_op_account, result) =
-        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+        setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
-    utils::approve_or_deny_n_of_n_multisig_op(
+    approve_or_deny_n_of_n_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
         &context.payer,
@@ -1668,7 +1643,7 @@ async fn test_transfer_sol() {
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &multisig_op_account.pubkey(),
                 &context.wallet_account.pubkey(),
                 &balance_account,
@@ -1706,15 +1681,14 @@ async fn test_transfer_sol() {
 
 #[tokio::test]
 async fn test_transfer_sol_denied() {
-    let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let (multisig_op_account, result) =
-        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+        setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
-    utils::approve_or_deny_n_of_n_multisig_op(
+    approve_or_deny_n_of_n_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
         &context.payer,
@@ -1761,7 +1735,7 @@ async fn test_transfer_sol_denied() {
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &multisig_op_account.pubkey(),
                 &context.wallet_account.pubkey(),
                 &balance_account,
@@ -1800,13 +1774,11 @@ async fn test_transfer_sol_denied() {
 
 #[tokio::test]
 async fn test_transfer_wrong_destination_name_hash() {
-    let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
 
     context.destination_name_hash = AddressBookEntryNameHash::zero();
 
-    let (_, result) =
-        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+    let (_, result) = setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -1815,15 +1787,14 @@ async fn test_transfer_wrong_destination_name_hash() {
 
 #[tokio::test]
 async fn test_transfer_requires_multisig() {
-    let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let (multisig_op_account, result) =
-        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+        setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -1838,7 +1809,7 @@ async fn test_transfer_requires_multisig() {
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
-                    &context.program_owner.pubkey(),
+                    &context.program_id,
                     &multisig_op_account.pubkey(),
                     &context.wallet_account.pubkey(),
                     &balance_account,
@@ -1865,10 +1836,9 @@ async fn test_transfer_requires_multisig() {
 
 #[tokio::test]
 async fn test_approval_fails_if_incorrect_params_hash() {
-    let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let (multisig_op_account, result) =
-        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+        setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
     assert_eq!(
@@ -1876,7 +1846,7 @@ async fn test_approval_fails_if_incorrect_params_hash() {
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[set_approval_disposition(
-                    &context.program_owner.pubkey(),
+                    &context.program_id,
                     &multisig_op_account.pubkey(),
                     &context.approvers[1].pubkey(),
                     ApprovalDisposition::APPROVE,
@@ -1895,15 +1865,14 @@ async fn test_approval_fails_if_incorrect_params_hash() {
 
 #[tokio::test]
 async fn test_transfer_insufficient_balance() {
-    let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let (multisig_op_account, result) =
-        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+        setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     result.unwrap();
 
-    utils::approve_or_deny_n_of_n_multisig_op(
+    approve_or_deny_n_of_n_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
         &context.payer,
@@ -1918,7 +1887,7 @@ async fn test_transfer_insufficient_balance() {
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
-                    &context.program_owner.pubkey(),
+                    &context.program_id,
                     &multisig_op_account.pubkey(),
                     &context.wallet_account.pubkey(),
                     &balance_account,
@@ -1942,8 +1911,7 @@ async fn test_transfer_insufficient_balance() {
 
 #[tokio::test]
 async fn test_transfer_unwhitelisted_address() {
-    let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
 
     // remove the whitelisted destination
     let rent = context.banks_client.get_rent().await.unwrap();
@@ -1957,10 +1925,10 @@ async fn test_transfer_unwhitelisted_address() {
                 &multisig_op_account.pubkey(),
                 multisig_op_rent,
                 MultisigOp::LEN as u64,
-                &context.program_owner.pubkey(),
+                &context.program_id,
             ),
             init_balance_account_update(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.assistant_account.pubkey(),
@@ -1988,9 +1956,9 @@ async fn test_transfer_unwhitelisted_address() {
         .await
         .unwrap();
 
-    utils::approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_1_of_2_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         &context.approvers[0],
         &context.payer,
@@ -2013,7 +1981,7 @@ async fn test_transfer_unwhitelisted_address() {
     // finalize the config update
     let finalize_update = Transaction::new_signed_with_payer(
         &[finalize_balance_account_update(
-            &context.program_owner.pubkey(),
+            &context.program_id,
             &context.wallet_account.pubkey(),
             &multisig_op_account.pubkey(),
             &context.payer.pubkey(),
@@ -2030,8 +1998,7 @@ async fn test_transfer_unwhitelisted_address() {
         .await
         .unwrap();
 
-    let (_, result) =
-        utils::setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+    let (_, result) = setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -2041,7 +2008,7 @@ async fn test_transfer_unwhitelisted_address() {
 #[tokio::test]
 async fn test_wrap_unwrap() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(60_000)).await;
+        setup_balance_account_tests_and_finalize(Some(60_000)).await;
     let rent = context.banks_client.get_rent().await.unwrap();
     let token_account_rent = rent.minimum_balance(spl_token::state::Account::LEN);
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
@@ -2053,7 +2020,7 @@ async fn test_wrap_unwrap() {
     let amount = 123;
 
     assert_eq!(
-        utils::process_wrap(
+        process_wrap(
             &mut context,
             multisig_account_rent,
             balance_account,
@@ -2084,7 +2051,7 @@ async fn test_wrap_unwrap() {
         .unwrap();
 
     assert_eq!(
-        utils::process_wrap(
+        process_wrap(
             &mut context,
             multisig_account_rent,
             balance_account,
@@ -2133,7 +2100,7 @@ async fn test_wrap_unwrap() {
         amount
     );
 
-    utils::process_wrap(
+    process_wrap(
         &mut context,
         multisig_account_rent,
         balance_account,
@@ -2162,7 +2129,7 @@ async fn test_wrap_unwrap() {
         0
     );
 
-    let result = utils::process_unwrapping(
+    let result = process_unwrapping(
         &mut context,
         multisig_account_rent,
         balance_account,
@@ -2175,7 +2142,7 @@ async fn test_wrap_unwrap() {
     );
 
     let unwrap_amount = 64;
-    utils::process_unwrapping(
+    process_unwrapping(
         &mut context,
         multisig_account_rent,
         balance_account,
@@ -2194,7 +2161,7 @@ async fn test_wrap_unwrap() {
     );
 
     assert_eq!(
-        utils::get_token_balance(&mut context, &wrapped_sol_account).await,
+        get_token_balance(&mut context, &wrapped_sol_account).await,
         amount - unwrap_amount
     );
 
@@ -2228,9 +2195,9 @@ async fn test_transfer_spl(
     fund_source_account_to_pay_for_token: bool,
 ) {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(60_000)).await;
+        setup_balance_account_tests_and_finalize(Some(60_000)).await;
 
-    let spl_context = utils::setup_spl_transfer_test(
+    let spl_context = setup_spl_transfer_test(
         &mut context,
         &balance_account,
         fund_source_account_to_pay_for_token,
@@ -2256,7 +2223,7 @@ async fn test_transfer_spl(
             .unwrap();
     }
 
-    let (multisig_op_account, result) = utils::setup_transfer_test(
+    let (multisig_op_account, result) = setup_transfer_test(
         context.borrow_mut(),
         &balance_account,
         Some(&spl_context.mint.pubkey()),
@@ -2265,9 +2232,9 @@ async fn test_transfer_spl(
     .await;
     result.unwrap();
 
-    utils::approve_or_deny_n_of_n_multisig_op(
+    approve_or_deny_n_of_n_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
         &context.payer,
@@ -2278,11 +2245,11 @@ async fn test_transfer_spl(
     .await;
 
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.source_token_address).await,
+        get_token_balance(&mut context, &spl_context.source_token_address).await,
         1000
     );
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.destination_token_address).await,
+        get_token_balance(&mut context, &spl_context.destination_token_address).await,
         0
     );
 
@@ -2290,7 +2257,7 @@ async fn test_transfer_spl(
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
-                &context.program_owner.pubkey(),
+                &context.program_id,
                 &multisig_op_account.pubkey(),
                 &context.wallet_account.pubkey(),
                 &balance_account,
@@ -2309,11 +2276,11 @@ async fn test_transfer_spl(
         .unwrap();
 
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.source_token_address).await,
+        get_token_balance(&mut context, &spl_context.source_token_address).await,
         1000 - 123
     );
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.destination_token_address).await,
+        get_token_balance(&mut context, &spl_context.destination_token_address).await,
         123
     );
 }
@@ -2321,10 +2288,10 @@ async fn test_transfer_spl(
 #[tokio::test]
 async fn test_transfer_spl_insufficient_balance() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(60_000)).await;
-    let spl_context = utils::setup_spl_transfer_test(&mut context, &balance_account, true).await;
+        setup_balance_account_tests_and_finalize(Some(60_000)).await;
+    let spl_context = setup_spl_transfer_test(&mut context, &balance_account, true).await;
 
-    let (multisig_op_account, result) = utils::setup_transfer_test(
+    let (multisig_op_account, result) = setup_transfer_test(
         context.borrow_mut(),
         &balance_account,
         Some(&spl_context.mint.pubkey()),
@@ -2333,9 +2300,9 @@ async fn test_transfer_spl_insufficient_balance() {
     .await;
     result.unwrap();
 
-    utils::approve_or_deny_n_of_n_multisig_op(
+    approve_or_deny_n_of_n_multisig_op(
         context.banks_client.borrow_mut(),
-        &context.program_owner.pubkey(),
+        &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
         &context.payer,
@@ -2346,11 +2313,11 @@ async fn test_transfer_spl_insufficient_balance() {
     .await;
 
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.source_token_address).await,
+        get_token_balance(&mut context, &spl_context.source_token_address).await,
         1000
     );
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.destination_token_address).await,
+        get_token_balance(&mut context, &spl_context.destination_token_address).await,
         0
     );
 
@@ -2359,7 +2326,7 @@ async fn test_transfer_spl_insufficient_balance() {
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
-                    &context.program_owner.pubkey(),
+                    &context.program_id,
                     &multisig_op_account.pubkey(),
                     &context.wallet_account.pubkey(),
                     &balance_account,
@@ -2381,11 +2348,11 @@ async fn test_transfer_spl_insufficient_balance() {
     );
 
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.source_token_address).await,
+        get_token_balance(&mut context, &spl_context.source_token_address).await,
         1000
     );
     assert_eq!(
-        utils::get_token_balance(&mut context, &spl_context.destination_token_address).await,
+        get_token_balance(&mut context, &spl_context.destination_token_address).await,
         0
     );
 }

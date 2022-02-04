@@ -27,6 +27,8 @@ pub enum WalletError {
     InvalidDestinationTokenAccount,
     #[error("Invalid Token Mint Account")]
     InvalidTokenMintAccount,
+    #[error("Concurrent Operations Not Allowed")]
+    ConcurrentOperationsNotAllowed,
 }
 
 impl From<WalletError> for ProgramError {

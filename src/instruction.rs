@@ -163,6 +163,17 @@ pub enum ProgramInstruction {
         slot_id: SlotId<Signer>,
         signer: Signer,
     },
+
+    /// 0  `[writable]` The multisig operation account
+    /// 1. `[writable]` The wallet account
+    /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
+    /// 3. `[]` The sysvar clock account
+    InitWalletConfigPolicyUpdate { update: WalletConfigPolicyUpdate },
+
+    /// 0  `[writable]` The multisig operation account
+    /// 1. `[writable]` The wallet account
+    /// 2. `[signer]` The rent collector account
+    FinalizeWalletConfigPolicyUpdate { update: WalletConfigPolicyUpdate },
 }
 
 impl ProgramInstruction {
@@ -296,6 +307,18 @@ impl ProgramInstruction {
                 buf.push(slot_id.value as u8);
                 buf.extend_from_slice(signer.key.as_ref());
             }
+            &ProgramInstruction::InitWalletConfigPolicyUpdate { ref update } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
+                buf.push(14);
+                buf.extend_from_slice(&update_bytes);
+            }
+            &ProgramInstruction::FinalizeWalletConfigPolicyUpdate { ref update } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
+                buf.push(15);
+                buf.extend_from_slice(&update_bytes);
+            }
         }
         buf
     }
@@ -318,8 +341,10 @@ impl ProgramInstruction {
             9 => Self::unpack_set_approval_disposition_instruction(rest)?,
             10 => Self::unpack_init_wrap_unwrap_instruction(rest)?,
             11 => Self::unpack_finalize_wrap_unwrap_instruction(rest)?,
-            12 => Self::unpack_init_update_signer(rest)?,
-            13 => Self::unpack_finalize_update_signer(rest)?,
+            12 => Self::unpack_init_update_signer_instruction(rest)?,
+            13 => Self::unpack_finalize_update_signer_instruction(rest)?,
+            14 => Self::unpack_init_wallet_config_policy_update_instruction(rest)?,
+            15 => Self::unpack_finalize_wallet_config_policy_update_instruction(rest)?,
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }
@@ -497,7 +522,9 @@ impl ProgramInstruction {
         }
     }
 
-    fn unpack_init_update_signer(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
+    fn unpack_init_update_signer_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
         let (slot_update_type, rest) = bytes
             .split_first()
             .ok_or(ProgramError::InvalidInstructionData)?;
@@ -511,7 +538,9 @@ impl ProgramInstruction {
         })
     }
 
-    fn unpack_finalize_update_signer(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
+    fn unpack_finalize_update_signer_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
         let (slot_update_type, rest) = bytes
             .split_first()
             .ok_or(ProgramError::InvalidInstructionData)?;
@@ -522,6 +551,22 @@ impl ProgramInstruction {
             slot_update_type: SlotUpdateType::from_u8(*slot_update_type),
             slot_id: SlotId::new(*slot_id as usize),
             signer: Signer::unpack_from_slice(rest)?,
+        })
+    }
+
+    fn unpack_init_wallet_config_policy_update_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        Ok(Self::InitWalletConfigPolicyUpdate {
+            update: WalletConfigPolicyUpdate::unpack(bytes)?,
+        })
+    }
+
+    fn unpack_finalize_wallet_config_policy_update_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        Ok(Self::FinalizeWalletConfigPolicyUpdate {
+            update: WalletConfigPolicyUpdate::unpack(bytes)?,
         })
     }
 }
@@ -576,6 +621,40 @@ impl WalletUpdate {
         append_signers(&self.remove_config_approvers, dst);
         append_address_book_entries(&self.add_address_book_entries, dst);
         append_address_book_entries(&self.remove_address_book_entries, dst);
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct WalletConfigPolicyUpdate {
+    pub approvals_required_for_config: u8,
+    pub approval_timeout_for_config: Duration,
+    pub add_config_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub remove_config_approvers: Vec<(SlotId<Signer>, Signer)>,
+}
+
+impl WalletConfigPolicyUpdate {
+    fn unpack(bytes: &[u8]) -> Result<WalletConfigPolicyUpdate, ProgramError> {
+        let mut iter = bytes.iter();
+        let approvals_required_for_config =
+            *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
+        let approval_timeout_for_config =
+            read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let add_config_approvers = read_signers(&mut iter)?;
+        let remove_config_approvers = read_signers(&mut iter)?;
+
+        Ok(WalletConfigPolicyUpdate {
+            approvals_required_for_config,
+            approval_timeout_for_config,
+            add_config_approvers,
+            remove_config_approvers,
+        })
+    }
+
+    pub fn pack(&self, dst: &mut Vec<u8>) {
+        dst.push(self.approvals_required_for_config);
+        append_duration(&self.approval_timeout_for_config, dst);
+        append_signers(&self.add_config_approvers, dst);
+        append_signers(&self.remove_config_approvers, dst);
     }
 }
 
@@ -1231,5 +1310,51 @@ pub fn finalize_update_signer(
         program_id: *program_id,
         accounts,
         data,
+    }
+}
+
+pub fn init_wallet_config_policy_update(
+    program_id: Pubkey,
+    wallet_account: Pubkey,
+    multisig_op_account: Pubkey,
+    assistant_account: Pubkey,
+    update: &WalletConfigPolicyUpdate,
+) -> Instruction {
+    Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(multisig_op_account, false),
+            AccountMeta::new(wallet_account, false),
+            AccountMeta::new_readonly(assistant_account, true),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+        ],
+        data: ProgramInstruction::InitWalletConfigPolicyUpdate {
+            update: update.clone(),
+        }
+        .borrow()
+        .pack(),
+    }
+}
+
+pub fn finalize_wallet_config_policy_update(
+    program_id: Pubkey,
+    wallet_account: Pubkey,
+    multisig_op_account: Pubkey,
+    rent_collector_account: Pubkey,
+    update: &WalletConfigPolicyUpdate,
+) -> Instruction {
+    Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(multisig_op_account, false),
+            AccountMeta::new(wallet_account, false),
+            AccountMeta::new_readonly(rent_collector_account, true),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+        ],
+        data: ProgramInstruction::FinalizeWalletConfigPolicyUpdate {
+            update: update.clone(),
+        }
+        .borrow()
+        .pack(),
     }
 }

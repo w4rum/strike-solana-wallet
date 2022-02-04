@@ -1,5 +1,5 @@
 use crate::error::WalletError;
-use crate::instruction::{BalanceAccountUpdate, WalletUpdate};
+use crate::instruction::{BalanceAccountUpdate, WalletConfigPolicyUpdate, WalletUpdate};
 use crate::model::address_book::{AddressBook, AddressBookEntry, AddressBookEntryNameHash};
 use crate::model::balance_account::{
     AllowedDestinations, BalanceAccount, BalanceAccountGuidHash, BalanceAccountNameHash,
@@ -30,6 +30,7 @@ pub struct Wallet {
     pub approval_timeout_for_config: Duration,
     pub config_approvers: Approvers,
     pub balance_accounts: Vec<BalanceAccount>,
+    pub config_policy_update_locked: bool,
 }
 
 impl Sealed for Wallet {}
@@ -196,6 +197,59 @@ impl Wallet {
 
         if self.config_approvers.count_enabled() == 0 {
             msg!("At least one config approver has to be configured");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        Ok(())
+    }
+
+    pub fn validate_config_policy_update(
+        &self,
+        update: &WalletConfigPolicyUpdate,
+    ) -> ProgramResult {
+        let mut self_clone = self.clone();
+        self_clone.update_config_policy(update)
+    }
+
+    pub fn lock_config_policy_updates(&mut self) -> ProgramResult {
+        if self.config_policy_update_locked {
+            msg!("Only one pending config policy update is allowed at a time");
+            return Err(WalletError::ConcurrentOperationsNotAllowed.into());
+        }
+        self.config_policy_update_locked = true;
+        Ok(())
+    }
+
+    pub fn unlock_config_policy_updates(&mut self) {
+        self.config_policy_update_locked = false;
+    }
+
+    pub fn update_config_policy(&mut self, update: &WalletConfigPolicyUpdate) -> ProgramResult {
+        self.approvals_required_for_config = update.approvals_required_for_config;
+        if update.approval_timeout_for_config.as_secs() > 0 {
+            self.approval_timeout_for_config = update.approval_timeout_for_config;
+        }
+
+        self.disable_config_approvers(&update.remove_config_approvers)?;
+        self.enable_config_approvers(&update.add_config_approvers)?;
+
+        if self.approvals_required_for_config == 0 {
+            msg!("Approvals required for config can't be 0");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        if self.approval_timeout_for_config.as_secs() == 0 {
+            msg!("Approvals timeout for config can't be 0");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        let approvers_count = self.config_approvers.count_enabled();
+        if usize::from(update.approvals_required_for_config) > approvers_count {
+            msg!(
+                "Approvals required for config {} can't exceed configured approvers count {}",
+                update.approvals_required_for_config,
+                approvers_count
+            );
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -454,7 +508,8 @@ impl Pack for Wallet {
         1 + // approvals_required_for_config
         8 + // approval_timeout_for_config
         Approvers::STORAGE_SIZE + // config approvers
-        1 + BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS; // balance accounts with size
+        1 + BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS + // balance accounts with size
+        1; // config_policy_update_locked
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, Wallet::LEN];
@@ -468,6 +523,7 @@ impl Pack for Wallet {
             config_approvers_dst,
             balance_accounts_count_dst,
             balance_accounts_dst,
+            config_policy_update_locked_dst,
         ) = mut_array_refs![
             dst,
             1,
@@ -478,7 +534,8 @@ impl Pack for Wallet {
             8,
             Approvers::STORAGE_SIZE,
             1,
-            BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS
+            BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS,
+            1
         ];
 
         is_initialized_dst[0] = self.is_initialized as u8;
@@ -499,6 +556,8 @@ impl Pack for Wallet {
             .take(self.balance_accounts.len())
             .enumerate()
             .for_each(|(i, chunk)| self.balance_accounts[i].pack_into_slice(chunk));
+
+        config_policy_update_locked_dst[0] = self.config_policy_update_locked as u8;
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -513,6 +572,7 @@ impl Pack for Wallet {
             config_approvers_src,
             balance_accounts_count,
             balance_accounts_src,
+            config_policy_update_locked_src,
         ) = array_refs![
             src,
             1,
@@ -523,14 +583,9 @@ impl Pack for Wallet {
             8,
             Approvers::STORAGE_SIZE,
             1,
-            BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS
+            BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS,
+            1
         ];
-
-        let is_initialized = match is_initialized {
-            [0] => false,
-            [1] => true,
-            _ => return Err(ProgramError::InvalidAccountData),
-        };
 
         let mut balance_accounts = Vec::with_capacity(Wallet::MAX_BALANCE_ACCOUNTS);
         balance_accounts_src
@@ -541,7 +596,11 @@ impl Pack for Wallet {
             });
 
         Ok(Wallet {
-            is_initialized,
+            is_initialized: match is_initialized {
+                [0] => false,
+                [1] => true,
+                _ => return Err(ProgramError::InvalidAccountData),
+            },
             signers: Signers::unpack_from_slice(signers_src)?,
             assistant: Signer::unpack_from_slice(assistant)?,
             address_book: AddressBook::unpack_from_slice(address_book_src)?,
@@ -551,6 +610,11 @@ impl Pack for Wallet {
             )),
             config_approvers: Approvers::new(*config_approvers_src),
             balance_accounts,
+            config_policy_update_locked: match config_policy_update_locked_src {
+                [0] => false,
+                [1] => true,
+                _ => return Err(ProgramError::InvalidAccountData),
+            },
         })
     }
 }

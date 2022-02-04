@@ -5,3 +5,4 @@ pub mod processor;
 pub mod utils;
 
 mod entrypoint;
+mod handlers;

@@ -1,5 +1,5 @@
 use crate::error::WalletError;
-use crate::instruction::{BalanceAccountUpdate, WalletUpdate};
+use crate::instruction::{BalanceAccountUpdate, WalletConfigPolicyUpdate, WalletUpdate};
 use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::signer::Signer;
 use crate::model::wallet::Wallet;
@@ -411,6 +411,10 @@ pub enum MultisigOpParams {
         slot_id: SlotId<Signer>,
         signer: Signer,
     },
+    UpdateWalletConfigPolicy {
+        wallet_address: Pubkey,
+        update: WalletConfigPolicyUpdate,
+    },
 }
 
 impl MultisigOpParams {
@@ -533,6 +537,21 @@ impl MultisigOpParams {
                 bytes[33] = slot_update_type.to_u8();
                 bytes[34] = slot_id.value as u8;
                 bytes[35..67].copy_from_slice(signer.key.as_ref());
+                hash(&bytes)
+            }
+            MultisigOpParams::UpdateWalletConfigPolicy {
+                wallet_address,
+                update,
+            } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
+
+                let mut bytes: Vec<u8> = Vec::new();
+                bytes.resize(1 + PUBKEY_BYTES + update_bytes.len(), 0);
+                bytes[0] = 6; // type code
+                bytes[1..1 + PUBKEY_BYTES].copy_from_slice(&wallet_address.to_bytes());
+                bytes[1 + PUBKEY_BYTES..1 + PUBKEY_BYTES + update_bytes.len()]
+                    .copy_from_slice(&update_bytes);
                 hash(&bytes)
             }
         }
