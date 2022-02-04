@@ -873,17 +873,27 @@ async fn test_balance_account_creation() {
 }
 
 #[tokio::test]
-async fn test_balance_account_creation_fails_if_time_out_not_set() {
-    assert_eq!(
-        setup_create_balance_account_failure_tests(
-            None,
-            2,
-            Duration::from_secs(0),
-            vec![Pubkey::new_unique()]
+async fn test_balance_account_creation_fails_if_timeout_invalid() {
+    let invalid_timeout_secs = vec![
+        Wallet::MIN_APPROVAL_TIMEOUT.as_secs() - 1,
+        Wallet::MAX_APPROVAL_TIMEOUT.as_secs() + 1,
+    ];
+    for secs in invalid_timeout_secs.iter() {
+        let invalid_timeout = Duration::from_secs(*secs);
+        assert_eq!(
+            utils::setup_create_balance_account_failure_tests(
+                None,
+                1,
+                invalid_timeout,
+                vec![Pubkey::new_unique()]
+            )
+            .await,
+            TransactionError::InstructionError(
+                1,
+                Custom(WalletError::InvalidApprovalTimeout as u32)
+            ),
         )
-        .await,
-        TransactionError::InstructionError(1, InvalidArgument)
-    )
+    }
 }
 
 #[tokio::test]

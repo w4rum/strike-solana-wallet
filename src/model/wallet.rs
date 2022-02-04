@@ -45,6 +45,8 @@ impl Wallet {
     pub const MAX_BALANCE_ACCOUNTS: usize = 10;
     pub const MAX_SIGNERS: usize = 24;
     pub const MAX_ADDRESS_BOOK_ENTRIES: usize = 128;
+    pub const MIN_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
+    pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 
     pub fn get_config_approvers_keys(&self) -> Vec<Pubkey> {
         self.get_approvers_keys(&self.config_approvers)
@@ -101,6 +103,28 @@ impl Wallet {
         return self.validate_initiator(initiator, || {
             self.get_transfer_approvers_keys(balance_account)
         });
+    }
+
+    /// Validates the state of a wallet.
+    pub fn validate_approval_timeout(timeout: &Duration) -> ProgramResult {
+        // approval timeout seconds must fall within program-defined range.
+        if *timeout < Wallet::MIN_APPROVAL_TIMEOUT {
+            msg!(
+                "Approval timeout for config can't be less than {}",
+                Wallet::MIN_APPROVAL_TIMEOUT.as_secs(),
+            );
+            return Err(WalletError::InvalidApprovalTimeout.into());
+        }
+
+        if *timeout > Wallet::MAX_APPROVAL_TIMEOUT {
+            msg!(
+                "Approval timeout for config can't be more than {} seconds",
+                Wallet::MAX_APPROVAL_TIMEOUT.as_secs(),
+            );
+            return Err(WalletError::InvalidApprovalTimeout.into());
+        }
+
+        Ok(())
     }
 
     fn validate_initiator<F: FnOnce() -> Vec<Pubkey>>(
@@ -164,6 +188,9 @@ impl Wallet {
 
     pub fn update(&mut self, update: &WalletUpdate) -> ProgramResult {
         self.approvals_required_for_config = update.approvals_required_for_config;
+
+        // NOTE: A timeout of 0 means that the existing value should not be updated.
+        // Other timeout values are validated below.
         if update.approval_timeout_for_config.as_secs() > 0 {
             self.approval_timeout_for_config = update.approval_timeout_for_config;
         }
@@ -185,13 +212,10 @@ impl Wallet {
             return Err(ProgramError::InvalidArgument);
         }
 
+        Wallet::validate_approval_timeout(&self.approval_timeout_for_config)?;
+
         if self.approvals_required_for_config == 0 {
             msg!("Approvals required for config can't be 0");
-            return Err(ProgramError::InvalidArgument);
-        }
-
-        if self.approval_timeout_for_config.as_secs() == 0 {
-            msg!("Approvals timeout for config can't be 0");
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -297,6 +321,11 @@ impl Wallet {
         update: &BalanceAccountUpdate,
     ) -> ProgramResult {
         let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
+        let perform_timeout_update = update.approval_timeout_for_transfer.as_secs() > 0;
+
+        if perform_timeout_update {
+            Wallet::validate_approval_timeout(&update.approval_timeout_for_transfer)?;
+        }
 
         self.disable_transfer_approvers(balance_account_idx, &update.remove_transfer_approvers)?;
         self.enable_transfer_approvers(balance_account_idx, &update.add_transfer_approvers)?;
@@ -309,7 +338,8 @@ impl Wallet {
         let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
         balance_account.name_hash = update.name_hash;
         balance_account.approvals_required_for_transfer = update.approvals_required_for_transfer;
-        if update.approval_timeout_for_transfer.as_secs() > 0 {
+
+        if perform_timeout_update {
             balance_account.approval_timeout_for_transfer = update.approval_timeout_for_transfer;
         }
 
@@ -325,11 +355,6 @@ impl Wallet {
 
         if balance_account.approvals_required_for_transfer == 0 {
             msg!("Approvals required for transfer can't be 0");
-            return Err(ProgramError::InvalidArgument);
-        }
-
-        if balance_account.approval_timeout_for_transfer.as_secs() == 0 {
-            msg!("Approvals timeout for transfer can't be 0");
             return Err(ProgramError::InvalidArgument);
         }
 
