@@ -13,15 +13,16 @@ use solana_program::system_program;
 use solana_sdk::transaction::TransactionError;
 
 use crate::common::utils;
+use common::instructions::{
+    finalize_balance_account_creation, finalize_balance_account_update, finalize_transfer,
+    finalize_wallet_update, init_balance_account_update, init_update_signer, init_wallet_update,
+    set_approval_disposition,
+};
 use itertools::Itertools;
 use solana_program::instruction::InstructionError;
 use std::collections::HashSet;
 use strike_wallet::error::WalletError;
-use strike_wallet::instruction::{
-    finalize_balance_account_creation, finalize_balance_account_update, finalize_transfer,
-    finalize_wallet_update, init_balance_account_update, init_update_signer, init_wallet_update,
-    set_approval_disposition, BalanceAccountUpdate,
-};
+use strike_wallet::instruction::BalanceAccountUpdate;
 use strike_wallet::model::address_book::{AddressBook, AddressBookEntry, AddressBookEntryNameHash};
 use strike_wallet::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use strike_wallet::model::multisig_op::{

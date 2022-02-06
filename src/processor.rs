@@ -16,9 +16,10 @@ use spl_token::instruction as spl_instruction;
 use spl_token::state::{Account as SPLAccount, Account};
 
 use crate::error::WalletError;
+use crate::handlers::dapp_transaction_handler;
 use crate::handlers::utils::{
     calculate_expires, collect_remaining_balance, get_clock_from_next_account,
-    next_program_account_info,
+    next_program_account_info, validate_balance_account_and_get_seed,
 };
 use crate::handlers::wallet_config_policy_update_handler;
 use crate::instruction::{BalanceAccountUpdate, ProgramInstruction, WalletUpdate};
@@ -177,6 +178,26 @@ impl Processor {
                 slot_update_type,
                 slot_id,
                 signer,
+            ),
+
+            ProgramInstruction::InitDAppTransaction {
+                ref account_guid_hash,
+                instructions,
+            } => dapp_transaction_handler::init(
+                program_id,
+                accounts,
+                account_guid_hash,
+                instructions,
+            ),
+
+            ProgramInstruction::FinalizeDAppTransaction {
+                ref account_guid_hash,
+                ref instructions,
+            } => dapp_transaction_handler::finalize(
+                program_id,
+                accounts,
+                account_guid_hash,
+                instructions,
             ),
         }
     }
@@ -550,7 +571,7 @@ impl Processor {
         };
 
         if multisig_op.approved(&expected_params, &clock)? {
-            let bump_seed = Self::validate_balance_account_and_get_seed(
+            let bump_seed = validate_balance_account_and_get_seed(
                 source_account,
                 account_guid_hash,
                 program_id,
@@ -659,7 +680,7 @@ impl Processor {
             // it would be owned by the Token program). Since this is an attempt to wrap
             // SOL, it stands to reason they have some SOL in their account, so we assume
             // they have enough to create this account (if they don't, it will just fail)
-            let bump_seed = Self::validate_balance_account_and_get_seed(
+            let bump_seed = validate_balance_account_and_get_seed(
                 balance_account_info,
                 account_guid_hash,
                 program_id,
@@ -738,7 +759,7 @@ impl Processor {
         };
 
         if multisig_op.approved(&expected_params, &clock)? {
-            let bump_seed = Self::validate_balance_account_and_get_seed(
+            let bump_seed = validate_balance_account_and_get_seed(
                 balance_account_info,
                 account_guid_hash,
                 program_id,
@@ -919,6 +940,19 @@ impl Processor {
         }
 
         collect_remaining_balance(&multisig_op_account_info, &account_to_return_rent_to)?;
+        Self::collect_remaining_balance(&multisig_op_account_info, &account_to_return_rent_to)?;
+
+        Ok(())
+    }
+
+    fn collect_remaining_balance(from: &AccountInfo, to: &AccountInfo) -> ProgramResult {
+        // this moves the lamports back to the fee payer.
+        **to.lamports.borrow_mut() = to
+            .lamports()
+            .checked_add(from.lamports())
+            .ok_or(WalletError::AmountOverflow)?;
+        **from.lamports.borrow_mut() = 0;
+        *from.data.borrow_mut() = &mut [];
 
         Ok(())
     }
@@ -945,19 +979,5 @@ impl Processor {
             &[balance_account, to, system_program_account],
             &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
         )
-    }
-
-    fn validate_balance_account_and_get_seed(
-        balance_account: &AccountInfo,
-        account_guid_hash: &BalanceAccountGuidHash,
-        program_id: &Pubkey,
-    ) -> Result<u8, ProgramError> {
-        let (account_pda, bump_seed) =
-            Pubkey::find_program_address(&[&account_guid_hash.to_bytes()], program_id);
-        if &account_pda != balance_account.key {
-            Err(WalletError::InvalidSourceAccount.into())
-        } else {
-            Ok(bump_seed)
-        }
     }
 }
