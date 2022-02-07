@@ -1,9 +1,9 @@
 #![cfg(feature = "test-bpf")]
-
 mod common;
-
 pub use common::utils::*;
+pub use common::instructions::*;
 
+pub use common::utils;
 use solana_program::instruction::InstructionError;
 use solana_program::instruction::InstructionError::Custom;
 use solana_program_test::tokio;
@@ -33,7 +33,7 @@ async fn wallet_config_policy_update() {
         approvers[2].pubkey_as_signer(),
     ];
 
-    init_wallet(
+    utils::init_wallet(
         &mut context.banks_client,
         &context.payer,
         context.recent_blockhash,
@@ -66,7 +66,7 @@ async fn wallet_config_policy_update() {
         remove_config_approvers: vec![(SlotId::new(0), signers[0])],
     };
 
-    let multisig_op_account = init_wallet_config_policy_update(
+    let multisig_op_account = utils::init_wallet_config_policy_update(
         &mut context,
         wallet_account.pubkey(),
         &assistant_account,
@@ -110,7 +110,7 @@ async fn wallet_config_policy_update() {
     )
     .await;
 
-    finalize_wallet_config_policy_update(
+    utils::finalize_wallet_config_policy_update(
         &mut context,
         wallet_account.pubkey(),
         multisig_op_account,
@@ -148,7 +148,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
         approvers[2].pubkey_as_signer(),
     ];
 
-    init_wallet(
+    utils::init_wallet(
         &mut context.banks_client,
         &context.payer,
         context.recent_blockhash,
@@ -185,7 +185,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
         remove_config_approvers: vec![],
     };
 
-    let multisig_op_account = init_wallet_config_policy_update(
+    let multisig_op_account = utils::init_wallet_config_policy_update(
         &mut context,
         wallet_account.pubkey(),
         &assistant_account,
@@ -196,7 +196,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
 
     // not allowed because first update is pending
     assert_instruction_error(
-        init_wallet_config_policy_update(
+        utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,
@@ -214,7 +214,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
         vec![&approvers[0], &approvers[1]],
     )
     .await;
-    finalize_wallet_config_policy_update(
+    utils::finalize_wallet_config_policy_update(
         &mut context,
         wallet_account.pubkey(),
         multisig_op_account,
@@ -223,7 +223,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
     .await;
 
     // allowed because first update is canceled
-    let multisig_op_account = init_wallet_config_policy_update(
+    let multisig_op_account = utils::init_wallet_config_policy_update(
         &mut context,
         wallet_account.pubkey(),
         &assistant_account,
@@ -234,7 +234,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
 
     // not allowed because there is a new pending update
     assert_instruction_error(
-        init_wallet_config_policy_update(
+        utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,
@@ -252,7 +252,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
         vec![&approvers[0], &approvers[1]],
     )
     .await;
-    finalize_wallet_config_policy_update(
+    utils::finalize_wallet_config_policy_update(
         &mut context,
         wallet_account.pubkey(),
         multisig_op_account,
@@ -261,7 +261,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
     .await;
 
     // allowed because there is no pending update anymore
-    init_wallet_config_policy_update(
+    utils::init_wallet_config_policy_update(
         &mut context,
         wallet_account.pubkey(),
         &assistant_account,
@@ -285,7 +285,7 @@ async fn invalid_wallet_config_policy_updates() {
         approvers[2].pubkey_as_signer(),
     ];
 
-    init_wallet(
+    utils::init_wallet(
         &mut context.banks_client,
         &context.payer,
         context.recent_blockhash,
@@ -309,7 +309,7 @@ async fn invalid_wallet_config_policy_updates() {
 
     // verify approvals required for config can't exceed configured approvers count
     assert_instruction_error(
-        init_wallet_config_policy_update(
+        utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,
@@ -327,7 +327,7 @@ async fn invalid_wallet_config_policy_updates() {
 
     // verify it's not allowed to add a config approver that is not configured as signer
     assert_instruction_error(
-        init_wallet_config_policy_update(
+        utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,
@@ -345,7 +345,7 @@ async fn invalid_wallet_config_policy_updates() {
 
     // verify it's not allowed to add a config approver when provided slot value does not match the stored one
     assert_instruction_error(
-        init_wallet_config_policy_update(
+        utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,
@@ -363,7 +363,7 @@ async fn invalid_wallet_config_policy_updates() {
 
     // verify it's not allowed to remove a config approver when provided slot value does not match the stored one
     assert_instruction_error(
-        init_wallet_config_policy_update(
+        utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,

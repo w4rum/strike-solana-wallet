@@ -529,7 +529,7 @@ pub fn finalize_update_signer(
     }
 }
 
-pub fn init_wallet_config_policy_update(
+pub fn init_wallet_config_policy_update_instruction(
     program_id: Pubkey,
     wallet_account: Pubkey,
     multisig_op_account: Pubkey,
@@ -552,7 +552,7 @@ pub fn init_wallet_config_policy_update(
     }
 }
 
-pub fn finalize_wallet_config_policy_update(
+pub fn finalize_wallet_config_policy_update_instruction(
     program_id: Pubkey,
     wallet_account: Pubkey,
     multisig_op_account: Pubkey,

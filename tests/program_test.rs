@@ -1,6 +1,7 @@
 #![cfg(feature = "test-bpf")]
 mod common;
 pub use common::utils::*;
+pub use common::instructions::*;
 
 use std::borrow::BorrowMut;
 use std::time::{Duration, SystemTime};

@@ -1,8 +1,8 @@
 #![cfg(feature = "test-bpf")]
-
 mod common;
+pub use common::instructions::*;
+pub use common::utils::*;
 
-use sha2::digest::crypto_common::Key;
 use std::borrow::BorrowMut;
 
 use crate::common::utils;
@@ -27,7 +27,6 @@ use strike_wallet::model::multisig_op::{ApprovalDisposition, MultisigOp};
 struct DAppTest {
     context: BalanceAccountTestContext,
     balance_account: Pubkey,
-    multisig_account_rent: u64,
     multisig_op_account: Keypair,
     inner_instructions: Vec<Instruction>,
     inner_multisig_op_account: Keypair,
@@ -100,7 +99,6 @@ async fn setup_dapp_test() -> DAppTest {
     DAppTest {
         context,
         balance_account,
-        multisig_account_rent,
         multisig_op_account,
         inner_instructions,
         inner_multisig_op_account,
@@ -111,7 +109,7 @@ async fn setup_dapp_test() -> DAppTest {
 async fn test_dapp_transaction_simulation() {
     let mut dapp_test = setup_dapp_test().await;
 
-    let mut context = dapp_test.context.borrow_mut();
+    let context = dapp_test.context.borrow_mut();
 
     // attempting to finalize before approval should result in a transaction simulation
     assert_eq!(
@@ -144,7 +142,7 @@ async fn test_dapp_transaction_simulation() {
 
 #[tokio::test]
 async fn test_dapp_transaction_bad_signature() {
-    let mut dapp_test = setup_dapp_test().await;
+    let dapp_test = setup_dapp_test().await;
 
     let mut context = dapp_test.context;
 
@@ -179,7 +177,7 @@ async fn test_dapp_transaction_bad_signature() {
 
 #[tokio::test]
 async fn test_dapp_transaction() {
-    let mut dapp_test = setup_dapp_test().await;
+    let dapp_test = setup_dapp_test().await;
 
     let mut context = dapp_test.context;
 
@@ -245,7 +243,7 @@ async fn test_dapp_transaction() {
 
 #[tokio::test]
 async fn test_dapp_transaction_denied() {
-    let mut dapp_test = setup_dapp_test().await;
+    let dapp_test = setup_dapp_test().await;
 
     let mut context = dapp_test.context;
 

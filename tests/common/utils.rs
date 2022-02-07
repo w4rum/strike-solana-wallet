@@ -17,7 +17,6 @@ use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use strike_wallet::instruction;
 use strike_wallet::instruction::{BalanceAccountUpdate, WalletConfigPolicyUpdate, WalletUpdate};
 use strike_wallet::model::address_book::{AddressBook, AddressBookEntry, AddressBookEntryNameHash};
 use strike_wallet::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
@@ -41,6 +40,7 @@ use {
     },
     strike_wallet::{model::wallet::Wallet, processor::Processor},
 };
+use crate::{finalize_wallet_config_policy_update_instruction, init_wallet_config_policy_update_instruction};
 
 pub trait SignerKey {
     fn pubkey_as_signer(&self) -> Signer;
@@ -210,7 +210,7 @@ pub async fn init_wallet_config_policy_update(
     let multisig_op_keypair = Keypair::new();
     let multisig_op_pubkey = multisig_op_keypair.pubkey();
 
-    let instruction = instructions::init_wallet_config_policy_update(
+    let instruction = init_wallet_config_policy_update_instruction(
         test_context.program_id,
         wallet_account,
         multisig_op_pubkey,
@@ -232,7 +232,7 @@ pub async fn finalize_wallet_config_policy_update(
     finalize_multisig_op(
         test_context,
         multisig_op_account,
-        instructions::finalize_wallet_config_policy_update(
+        finalize_wallet_config_policy_update_instruction(
             test_context.program_id,
             wallet_account,
             multisig_op_account,
