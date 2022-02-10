@@ -188,12 +188,11 @@ pub async fn finalize_multisig_op(
 }
 
 pub async fn get_multisig_op_data(
-    test_context: &mut TestContext,
+    banks_client: &mut BanksClient,
     account_address: Pubkey,
 ) -> MultisigOp {
     return MultisigOp::unpack_from_slice(
-        test_context
-            .banks_client
+        banks_client
             .get_account(account_address)
             .await
             .unwrap()
@@ -410,7 +409,11 @@ pub async fn setup_wallet_update_test() -> WalletUpdateContext {
         remove_address_book_entries: vec![(SlotId::new(0), address_book_entry)],
     };
 
-    let multisig_op = get_multisig_op_data(&mut test_context, multisig_op_account.pubkey()).await;
+    let multisig_op = get_multisig_op_data(
+        &mut test_context.banks_client,
+        multisig_op_account.pubkey()
+    ).await;
+
     assert!(multisig_op.is_initialized);
 
     WalletUpdateContext {
@@ -1045,6 +1048,7 @@ pub async fn setup_balance_account_tests(
     let balance_account_guid_hash =
         BalanceAccountGuidHash::new(&hash_of(Uuid::new_v4().as_bytes()));
     let balance_account_name_hash = BalanceAccountNameHash::new(&hash_of(b"Account Name"));
+    let approval_timeout_for_transfer = Duration::from_secs(120);
 
     let mut transfer_approvers = vec![
         (SlotId::new(0), approvers[0].pubkey_as_signer()),
@@ -1053,6 +1057,7 @@ pub async fn setup_balance_account_tests(
     if add_extra_transfer_approver {
         transfer_approvers.append(&mut vec![(SlotId::new(2), approvers[2].pubkey_as_signer())])
     }
+
 
     let init_transaction = Transaction::new_signed_with_payer(
         &[
@@ -1071,7 +1076,7 @@ pub async fn setup_balance_account_tests(
                 balance_account_guid_hash,
                 balance_account_name_hash,
                 2,
-                Duration::from_secs(1800),
+                approval_timeout_for_transfer,
                 transfer_approvers.clone(),
                 vec![],
             ),
@@ -1114,7 +1119,7 @@ pub async fn setup_balance_account_tests(
     let expected_update = BalanceAccountUpdate {
         name_hash: balance_account_name_hash,
         approvals_required_for_transfer: 2,
-        approval_timeout_for_transfer: Duration::from_secs(1800),
+        approval_timeout_for_transfer: approval_timeout_for_transfer,
         add_transfer_approvers: transfer_approvers.clone(),
         remove_transfer_approvers: vec![],
         add_allowed_destinations: vec![],
@@ -1303,6 +1308,7 @@ pub async fn setup_transfer_test(
     let rent = context.banks_client.get_rent().await.unwrap();
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
+    let initialized_at = SystemTime::now();
 
     let result = context
         .banks_client
@@ -1338,6 +1344,12 @@ pub async fn setup_transfer_test(
             context.recent_blockhash,
         ))
         .await;
+
+    assert_multisig_op_timestamps(
+        &get_multisig_op_data(&mut context.banks_client, multisig_op_account.pubkey()).await,
+        initialized_at,
+        Duration::from_secs(120)
+    );
 
     (multisig_op_account, result)
 }
