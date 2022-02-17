@@ -33,8 +33,10 @@ pub enum WalletError {
     ConcurrentOperationsNotAllowed,
     #[error("Simulation Finished Successfully")]
     SimulationFinished,
-    #[error("Whitelisting Status is Off")]
-    WhitelistingStatusOff,
+    #[error("Whitelist Is Disabled")]
+    WhitelistDisabled,
+    #[error("DApp Transactions Are Disabled")]
+    DAppsDisabled,
 }
 
 impl From<WalletError> for ProgramError {
