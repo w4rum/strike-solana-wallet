@@ -1,7 +1,9 @@
 use crate::error::WalletError;
-use crate::instruction::{BalanceAccountUpdate, WalletConfigPolicyUpdate, WalletUpdate};
+use crate::instruction::{
+    BalanceAccountUpdate, DAppBookUpdate, WalletConfigPolicyUpdate, WalletUpdate,
+};
 use crate::model::address_book::{
-    AddressBook, AddressBookEntry, AddressBookEntryNameHash, DAppBook,
+    AddressBook, AddressBookEntry, AddressBookEntryNameHash, DAppBook, DAppBookEntry,
 };
 use crate::model::balance_account::{
     AllowedDestinations, BalanceAccount, BalanceAccountGuidHash, BalanceAccountNameHash,
@@ -280,6 +282,22 @@ impl Wallet {
         Ok(())
     }
 
+    pub fn validate_dapp_book_update(&self, update: &DAppBookUpdate) -> ProgramResult {
+        let mut self_clone = self.clone();
+        self_clone.update_dapp_book(update)
+    }
+
+    pub fn update_dapp_book(&mut self, update: &DAppBookUpdate) -> ProgramResult {
+        self.add_dapp_book_entries(&update.add_dapps)?;
+        self.remove_dapp_book_entries(&update.remove_dapps)?;
+
+        Ok(())
+    }
+
+    pub fn dapp_allowed(&self, dapp: DAppBookEntry) -> bool {
+        self.dapp_book.find_id(&dapp).is_some()
+    }
+
     pub fn validate_add_balance_account(
         &self,
         account_guid_hash: &BalanceAccountGuidHash,
@@ -477,7 +495,7 @@ impl Wallet {
 
     fn add_dapp_book_entries(
         &mut self,
-        entries_to_add: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+        entries_to_add: &Vec<(SlotId<DAppBookEntry>, DAppBookEntry)>,
     ) -> ProgramResult {
         if !self.dapp_book.can_be_inserted(entries_to_add) {
             msg!("Failed to add dapp book entries: at least one of the provided slots is already taken");
@@ -489,7 +507,7 @@ impl Wallet {
 
     fn remove_dapp_book_entries(
         &mut self,
-        entries_to_remove: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+        entries_to_remove: &Vec<(SlotId<DAppBookEntry>, DAppBookEntry)>,
     ) -> ProgramResult {
         if !self.dapp_book.can_be_removed(entries_to_remove) {
             msg!("Failed to remove dapp book entries: at least one of the provided entries is not present in the config");
