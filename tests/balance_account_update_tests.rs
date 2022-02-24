@@ -638,3 +638,28 @@ async fn invalid_balance_account_updates() {
         .await;
     }
 }
+
+#[tokio::test]
+async fn test_update_balance_account_name_happy_path() {
+    let mut context = setup_balance_account_tests_and_finalize(None).await.0;
+    let name_hash = BalanceAccountNameHash::new(&[1; 32]);
+
+    update_balance_account_name_hash(&mut context, name_hash, None).await;
+    verify_balance_account_name_hash(&mut context, &name_hash).await;
+}
+
+#[tokio::test]
+async fn test_update_balance_account_name_fails_when_guid_invalid() {
+    let mut context = setup_balance_account_tests_and_finalize(None).await.0;
+    let name_hash = BalanceAccountNameHash::new(&[1; 32]);
+
+    // set invalid GUID hash
+    context.balance_account_guid_hash = BalanceAccountGuidHash::new(&[0; 32]);
+
+    update_balance_account_name_hash(
+        &mut context,
+        name_hash,
+        Some(Custom(WalletError::BalanceAccountNotFound as u32)),
+    )
+    .await;
+}

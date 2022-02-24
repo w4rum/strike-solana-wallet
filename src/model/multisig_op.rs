@@ -4,7 +4,7 @@ use crate::instruction::{
     WalletConfigPolicyUpdate, WalletUpdate,
 };
 use crate::model::address_book::DAppBookEntry;
-use crate::model::balance_account::BalanceAccountGuidHash;
+use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use crate::model::signer::Signer;
 use crate::model::wallet::Wallet;
 use crate::utils::{pack_option, SlotId};
@@ -452,6 +452,11 @@ pub enum MultisigOpParams {
         account_guid_hash: BalanceAccountGuidHash,
         update: BalanceAccountUpdate,
     },
+    UpdateBalanceAccountName {
+        wallet_address: Pubkey,
+        account_guid_hash: BalanceAccountGuidHash,
+        account_name_hash: BalanceAccountNameHash,
+    },
     Transfer {
         wallet_address: Pubkey,
         account_guid_hash: BalanceAccountGuidHash,
@@ -628,13 +633,12 @@ impl MultisigOpParams {
                 slot_id,
                 signer,
             } => {
-                let mut bytes: Vec<u8> = Vec::new();
-                bytes.resize(1 + 2 + PUBKEY_BYTES * 2, 0);
-                bytes[0] = 5; // type code
-                bytes[1..33].copy_from_slice(&wallet_address.to_bytes());
-                bytes[33] = slot_update_type.to_u8();
-                bytes[34] = slot_id.value as u8;
-                bytes[35..67].copy_from_slice(signer.key.as_ref());
+                let mut bytes: Vec<u8> = Vec::with_capacity(1 + 2 + PUBKEY_BYTES * 2);
+                bytes.push(5); // type code
+                bytes.extend_from_slice(&wallet_address.to_bytes());
+                bytes.push(slot_update_type.to_u8());
+                bytes.push(slot_id.value as u8);
+                bytes.extend_from_slice(signer.key.as_ref());
                 hash(&bytes)
             }
             MultisigOpParams::DAppTransaction {
@@ -694,6 +698,18 @@ impl MultisigOpParams {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
                 Self::hash_wallet_update_op(10, wallet_address, update_bytes)
+            }
+            MultisigOpParams::UpdateBalanceAccountName {
+                wallet_address,
+                account_guid_hash,
+                account_name_hash,
+            } => {
+                let mut bytes: Vec<u8> = Vec::with_capacity(1 + PUBKEY_BYTES + 32 + 32);
+                bytes.push(11); // type code
+                bytes.extend_from_slice(&wallet_address.to_bytes());
+                bytes.extend_from_slice(account_guid_hash.to_bytes());
+                bytes.extend_from_slice(account_name_hash.to_bytes());
+                hash(&bytes)
             }
         }
     }
