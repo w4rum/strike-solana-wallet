@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://strikeprotocols.com">
-    <img alt="Strike" src="https://strikeprotocols.com/wp-content/uploads/2021/11/strike-4C-whitetype@4x.png" width="250" />
+    <img alt="Strike" src="https://strikeprotocols.com/wp-content/uploads/2022/02/strike-tag.png" width="250" />
   </a>
 </p>
 
