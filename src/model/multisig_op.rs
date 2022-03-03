@@ -1,7 +1,7 @@
 use crate::error::WalletError;
 use crate::instruction::{
     append_instruction, AddressBookUpdate, BalanceAccountUpdate, DAppBookUpdate,
-    WalletConfigPolicyUpdate, WalletUpdate,
+    WalletConfigPolicyUpdate,
 };
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
@@ -438,10 +438,6 @@ impl Pack for MultisigOp {
 // represents multisig operation params that are hashed and signed by the client
 #[derive(Debug, PartialEq, Clone)]
 pub enum MultisigOpParams {
-    UpdateWallet {
-        wallet_address: Pubkey,
-        update: WalletUpdate,
-    },
     CreateBalanceAccount {
         wallet_address: Pubkey,
         account_guid_hash: BalanceAccountGuidHash,
@@ -534,14 +530,6 @@ impl MultisigOpParams {
 
     pub fn hash(&self) -> Hash {
         match self {
-            MultisigOpParams::UpdateWallet {
-                wallet_address,
-                update,
-            } => {
-                let mut update_bytes: Vec<u8> = Vec::new();
-                update.pack(&mut update_bytes);
-                Self::hash_wallet_update_op(0, wallet_address, update_bytes)
-            }
             MultisigOpParams::CreateBalanceAccount {
                 wallet_address,
                 account_guid_hash,

@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use solana_program::instruction::InstructionError::Custom;
 
-use crate::common::utils;
 use common::instructions::{finalize_balance_account_update, init_balance_account_update};
 use std::collections::HashSet;
 use strike_wallet::error::WalletError;
@@ -32,21 +31,7 @@ use {
 
 #[tokio::test]
 async fn test_balance_account_update() {
-    let mut context = setup_balance_account_tests(Some(200000), false).await;
-
-    approve_or_deny_1_of_2_multisig_op(
-        context.banks_client.borrow_mut(),
-        &context.program_id,
-        &context.multisig_op_account.pubkey(),
-        &context.approvers[0],
-        &context.payer,
-        &context.approvers[1].pubkey(),
-        context.recent_blockhash,
-        ApprovalDisposition::APPROVE,
-    )
-    .await;
-
-    utils::finalize_balance_account_creation(context.borrow_mut()).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
 
     account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
     let destination_to_add = context.allowed_destination;
@@ -214,21 +199,7 @@ async fn test_balance_account_update() {
 
 #[tokio::test]
 async fn test_balance_account_update_is_denied() {
-    let mut context = setup_balance_account_tests(None, false).await;
-
-    approve_or_deny_1_of_2_multisig_op(
-        context.banks_client.borrow_mut(),
-        &context.program_id,
-        &context.multisig_op_account.pubkey(),
-        &context.approvers[0],
-        &context.payer,
-        &context.approvers[1].pubkey(),
-        context.recent_blockhash,
-        ApprovalDisposition::APPROVE,
-    )
-    .await;
-
-    utils::finalize_balance_account_creation(context.borrow_mut()).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
 
     account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
     let destination_to_add = context.allowed_destination;

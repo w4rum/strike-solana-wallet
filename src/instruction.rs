@@ -23,18 +23,7 @@ use crate::utils::{pack_option, SlotId};
 pub enum ProgramInstruction {
     /// 0. `[writable]` The wallet account
     /// 1. `[signer]` The transaction assistant account
-    InitWallet { update: WalletUpdate },
-
-    /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
-    /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
-    /// 3. `[]` The sysvar clock account
-    InitWalletUpdate { update: WalletUpdate },
-
-    /// 0. `[writable]` The multisig operation account
-    /// 1. `[writable]` The wallet account
-    /// 2. `[signer]` The rent collector account
-    FinalizeWalletUpdate { update: WalletUpdate },
+    InitWallet { initial_config: InitialWalletConfig },
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[]` The wallet account
@@ -264,22 +253,12 @@ impl ProgramInstruction {
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &ProgramInstruction::InitWallet { ref update } => {
+            &ProgramInstruction::InitWallet {
+                initial_config: ref update,
+            } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
                 buf.push(0);
-                buf.extend_from_slice(&update_bytes);
-            }
-            &ProgramInstruction::InitWalletUpdate { ref update } => {
-                let mut update_bytes: Vec<u8> = Vec::new();
-                update.pack(&mut update_bytes);
-                buf.push(1);
-                buf.extend_from_slice(&update_bytes);
-            }
-            &ProgramInstruction::FinalizeWalletUpdate { ref update } => {
-                let mut update_bytes: Vec<u8> = Vec::new();
-                update.pack(&mut update_bytes);
-                buf.push(2);
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::SetApprovalDisposition {
@@ -503,8 +482,6 @@ impl ProgramInstruction {
             .ok_or(ProgramError::InvalidInstructionData)?;
         Ok(match tag {
             0 => Self::unpack_init_wallet_instruction(rest)?,
-            1 => Self::unpack_init_wallet_update_instruction(rest)?,
-            2 => Self::unpack_finalize_wallet_update_instruction(rest)?,
             3 => Self::unpack_init_balance_account_creation_instruction(rest)?,
             4 => Self::unpack_finalize_balance_account_creation_instruction(rest)?,
             5 => Self::unpack_init_balance_account_update_instruction(rest)?,
@@ -534,23 +511,7 @@ impl ProgramInstruction {
 
     fn unpack_init_wallet_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
         Ok(Self::InitWallet {
-            update: WalletUpdate::unpack(bytes)?,
-        })
-    }
-
-    fn unpack_init_wallet_update_instruction(
-        bytes: &[u8],
-    ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::InitWalletUpdate {
-            update: WalletUpdate::unpack(bytes)?,
-        })
-    }
-
-    fn unpack_finalize_wallet_update_instruction(
-        bytes: &[u8],
-    ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::FinalizeWalletUpdate {
-            update: WalletUpdate::unpack(bytes)?,
+            initial_config: InitialWalletConfig::unpack(bytes)?,
         })
     }
 
@@ -875,19 +836,15 @@ impl ProgramInstruction {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct WalletUpdate {
+pub struct InitialWalletConfig {
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
-    pub add_signers: Vec<(SlotId<Signer>, Signer)>,
-    pub remove_signers: Vec<(SlotId<Signer>, Signer)>,
-    pub add_config_approvers: Vec<(SlotId<Signer>, Signer)>,
-    pub remove_config_approvers: Vec<(SlotId<Signer>, Signer)>,
-    pub add_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    pub remove_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    pub signers: Vec<(SlotId<Signer>, Signer)>,
+    pub config_approvers: Vec<(SlotId<Signer>, Signer)>,
 }
 
-impl WalletUpdate {
-    fn unpack(bytes: &[u8]) -> Result<WalletUpdate, ProgramError> {
+impl InitialWalletConfig {
+    fn unpack(bytes: &[u8]) -> Result<InitialWalletConfig, ProgramError> {
         if bytes.len() < 7 {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -896,34 +853,22 @@ impl WalletUpdate {
             *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
         let approval_timeout_for_config =
             read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
-        let add_signers = read_signers(&mut iter)?;
-        let remove_signers = read_signers(&mut iter)?;
-        let add_config_approvers = read_signers(&mut iter)?;
-        let remove_config_approvers = read_signers(&mut iter)?;
-        let add_address_book_entries = read_address_book_entries(&mut iter)?;
-        let remove_address_book_entries = read_address_book_entries(&mut iter)?;
+        let signers = read_signers(&mut iter)?;
+        let config_approvers = read_signers(&mut iter)?;
 
-        Ok(WalletUpdate {
+        Ok(InitialWalletConfig {
             approvals_required_for_config,
             approval_timeout_for_config,
-            add_signers,
-            remove_signers,
-            add_config_approvers,
-            remove_config_approvers,
-            add_address_book_entries,
-            remove_address_book_entries,
+            signers,
+            config_approvers,
         })
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
         dst.push(self.approvals_required_for_config);
         append_duration(&self.approval_timeout_for_config, dst);
-        append_signers(&self.add_signers, dst);
-        append_signers(&self.remove_signers, dst);
-        append_signers(&self.add_config_approvers, dst);
-        append_signers(&self.remove_config_approvers, dst);
-        append_address_book_entries(&self.add_address_book_entries, dst);
-        append_address_book_entries(&self.remove_address_book_entries, dst);
+        append_signers(&self.signers, dst);
+        append_signers(&self.config_approvers, dst);
     }
 }
 

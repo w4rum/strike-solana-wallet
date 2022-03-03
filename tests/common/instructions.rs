@@ -8,7 +8,7 @@ use std::time::Duration;
 use strike_wallet::{
     instruction::{
         AddressBookUpdate, BalanceAccountUpdate, BalanceAccountWhitelistUpdate, DAppBookUpdate,
-        ProgramInstruction, WalletConfigPolicyUpdate, WalletUpdate,
+        InitialWalletConfig, ProgramInstruction, WalletConfigPolicyUpdate,
     },
     model::{
         address_book::{AddressBookEntry, AddressBookEntryNameHash, DAppBookEntry},
@@ -23,27 +23,8 @@ pub fn init_wallet(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
     assistant_account: &Pubkey,
-    signers: Vec<(SlotId<Signer>, Signer)>,
-    config_approvers: Vec<(SlotId<Signer>, Signer)>,
-    approvals_required_for_config: u8,
-    approval_timeout_for_config: Duration,
-    address_book: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    initial_config: InitialWalletConfig,
 ) -> Instruction {
-    let data = ProgramInstruction::InitWallet {
-        update: WalletUpdate {
-            approvals_required_for_config,
-            approval_timeout_for_config,
-            add_signers: signers.clone(),
-            remove_signers: Vec::new(),
-            add_config_approvers: config_approvers.clone(),
-            remove_config_approvers: Vec::new(),
-            add_address_book_entries: address_book,
-            remove_address_book_entries: Vec::new(),
-        },
-    }
-    .borrow()
-    .pack();
-
     let accounts = vec![
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new_readonly(*assistant_account, true),
@@ -52,7 +33,9 @@ pub fn init_wallet(
     Instruction {
         program_id: *program_id,
         accounts,
-        data,
+        data: ProgramInstruction::InitWallet { initial_config }
+            .borrow()
+            .pack(),
     }
 }
 
@@ -75,39 +58,6 @@ fn init_multisig_op(
     }
 }
 
-pub fn init_wallet_update(
-    program_id: &Pubkey,
-    wallet_account: &Pubkey,
-    multisig_op_account: &Pubkey,
-    assistant_account: &Pubkey,
-    approvals_required_for_config: u8,
-    approval_timeout_for_config: Duration,
-    add_signers: Vec<(SlotId<Signer>, Signer)>,
-    remove_signers: Vec<(SlotId<Signer>, Signer)>,
-    add_config_approvers: Vec<(SlotId<Signer>, Signer)>,
-    remove_config_approvers: Vec<(SlotId<Signer>, Signer)>,
-    add_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    remove_address_book_entries: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-) -> Instruction {
-    let update = WalletUpdate {
-        approvals_required_for_config,
-        approval_timeout_for_config,
-        add_signers: add_signers.clone(),
-        remove_signers: remove_signers.clone(),
-        add_config_approvers: add_config_approvers.clone(),
-        remove_config_approvers: remove_config_approvers.clone(),
-        add_address_book_entries: add_address_book_entries.clone(),
-        remove_address_book_entries: remove_address_book_entries.clone(),
-    };
-    init_multisig_op(
-        program_id,
-        wallet_account,
-        multisig_op_account,
-        assistant_account,
-        ProgramInstruction::InitWalletUpdate { update },
-    )
-}
-
 pub fn set_approval_disposition(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
@@ -125,30 +75,6 @@ pub fn set_approval_disposition(
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*approver, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
-    ];
-
-    Instruction {
-        program_id: *program_id,
-        accounts,
-        data,
-    }
-}
-
-pub fn finalize_wallet_update(
-    program_id: &Pubkey,
-    wallet_account: &Pubkey,
-    multisig_op_account: &Pubkey,
-    rent_collector_account: &Pubkey,
-    update: WalletUpdate,
-) -> Instruction {
-    let data = ProgramInstruction::FinalizeWalletUpdate { update }
-        .borrow()
-        .pack();
-    let accounts = vec![
-        AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*wallet_account, false),
-        AccountMeta::new_readonly(*rent_collector_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 

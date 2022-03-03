@@ -3,8 +3,7 @@ use crate::common::instructions::{
     finalize_account_settings_update, finalize_balance_account_name_update, finalize_update_signer,
     finalize_wallet_config_policy_update_instruction, init_account_settings_update,
     init_balance_account_creation, init_balance_account_name_update, init_transfer,
-    init_update_signer, init_wallet_config_policy_update_instruction, init_wallet_update,
-    set_approval_disposition,
+    init_update_signer, init_wallet_config_policy_update_instruction, set_approval_disposition,
 };
 use crate::{finalize_address_book_update, init_address_book_update};
 use arrayref::array_ref;
@@ -23,11 +22,10 @@ use std::fmt::Debug;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use strike_wallet::instruction::{
     AddressBookUpdate, BalanceAccountUpdate, BalanceAccountWhitelistUpdate, DAppBookUpdate,
-    WalletConfigPolicyUpdate, WalletUpdate,
+    InitialWalletConfig, WalletConfigPolicyUpdate,
 };
 use strike_wallet::model::address_book::{
-    AddressBook, AddressBookEntry, AddressBookEntryNameHash, DAppBook, DAppBookEntry,
-    DAppBookEntryNameHash,
+    AddressBookEntry, AddressBookEntryNameHash, DAppBookEntry, DAppBookEntryNameHash,
 };
 use strike_wallet::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use strike_wallet::model::multisig_op::{
@@ -35,7 +33,7 @@ use strike_wallet::model::multisig_op::{
     OperationDisposition, SlotUpdateType, WrapDirection,
 };
 use strike_wallet::model::signer::Signer;
-use strike_wallet::model::wallet::{Approvers, Signers};
+use strike_wallet::model::wallet::Signers;
 use strike_wallet::utils::SlotId;
 use uuid::Uuid;
 use {
@@ -269,11 +267,7 @@ pub async fn init_wallet(
     program_id: &Pubkey,
     wallet_account: &Keypair,
     assistant_account: &Keypair,
-    approvals_required_for_config: Option<u8>,
-    signers: Option<Vec<(SlotId<Signer>, Signer)>>,
-    config_approvers: Option<Vec<(SlotId<Signer>, Signer)>>,
-    approval_timeout_for_config: Option<Duration>,
-    address_book: Option<Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>>,
+    initial_config: InitialWalletConfig,
 ) -> Result<(), TransportError> {
     let rent = banks_client.get_rent().await.unwrap();
     let program_rent = rent.minimum_balance(Wallet::LEN);
@@ -291,11 +285,7 @@ pub async fn init_wallet(
                 &program_id,
                 &wallet_account.pubkey(),
                 &assistant_account.pubkey(),
-                signers.unwrap_or(Vec::new()),
-                config_approvers.unwrap_or(Vec::new()),
-                approvals_required_for_config.unwrap_or(0),
-                approval_timeout_for_config.unwrap_or(Duration::from_secs(0)),
-                address_book.unwrap_or(Vec::new()),
+                initial_config,
             ),
         ],
         Some(&payer.pubkey()),
@@ -306,152 +296,61 @@ pub async fn init_wallet(
     Ok(())
 }
 
-pub struct WalletUpdateContext {
+pub struct WalletTestContext {
     pub payer: Keypair,
     pub program_id: Pubkey,
     pub banks_client: BanksClient,
+    pub rent: Rent,
     pub wallet_account: Keypair,
-    pub multisig_op_account: Keypair,
-    pub approvers: Vec<Keypair>,
-    pub recent_blockhash: Hash,
-    pub expected_update: WalletUpdate,
-    pub params_hash: Hash,
-    pub expected_state_after_update: Wallet,
     pub assistant_account: Keypair,
+    pub recent_blockhash: Hash,
+    pub approvers: Vec<Keypair>,
 }
 
-pub async fn setup_wallet_update_test() -> WalletUpdateContext {
-    let mut test_context = setup_test(30_000).await;
+pub async fn setup_wallet_test(
+    max_compute_units: u64,
+    approvers: Vec<Keypair>,
+    initial_config: InitialWalletConfig,
+) -> WalletTestContext {
+    let program_id = Keypair::new().pubkey();
+    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
+    pt.set_bpf_compute_max_units(max_compute_units);
+    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
+    let rent = banks_client.get_rent().await.unwrap();
 
-    let wallet_account = Keypair::new();
-    let multisig_op_account = Keypair::new();
-    let assistant_account = Keypair::new();
-
-    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
-    let signers = vec![
-        approvers[0].pubkey_as_signer(),
-        approvers[1].pubkey_as_signer(),
-        approvers[2].pubkey_as_signer(),
-    ];
-
-    let address_book_entry = AddressBookEntry {
-        address: Pubkey::new_unique(),
-        name_hash: AddressBookEntryNameHash::zero(),
+    let mut context = WalletTestContext {
+        program_id,
+        banks_client,
+        rent,
+        payer,
+        recent_blockhash,
+        wallet_account: Keypair::new(),
+        assistant_account: Keypair::new(),
+        approvers,
     };
-    let new_address_book_entry = AddressBookEntry {
-        address: Pubkey::new_unique(),
-        name_hash: AddressBookEntryNameHash::zero(),
-    };
 
-    // first initialize the wallet
     init_wallet(
-        &mut test_context.banks_client,
-        &test_context.payer,
-        test_context.recent_blockhash,
-        &test_context.program_id,
-        &wallet_account,
-        &assistant_account,
-        Some(1),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-        ]),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-        ]),
-        Some(Duration::from_secs(3600)),
-        Some(vec![(SlotId::new(0), address_book_entry)]),
+        &mut context.banks_client,
+        &context.payer,
+        context.recent_blockhash,
+        &context.program_id,
+        &context.wallet_account,
+        &context.assistant_account,
+        InitialWalletConfig {
+            approvals_required_for_config: initial_config.approvals_required_for_config,
+            approval_timeout_for_config: initial_config.approval_timeout_for_config,
+            signers: initial_config.signers,
+            config_approvers: initial_config.config_approvers,
+        },
     )
     .await
     .unwrap();
 
-    let wallet = get_wallet(&mut test_context.banks_client, &wallet_account.pubkey()).await;
-
-    // now initialize an update
-    let init_transaction = Transaction::new_signed_with_payer(
-        &[
-            create_program_owned_account_instruction(
-                &mut test_context,
-                &multisig_op_account.pubkey(),
-                MultisigOp::LEN,
-            ),
-            init_wallet_update(
-                &test_context.program_id,
-                &wallet_account.pubkey(),
-                &multisig_op_account.pubkey(),
-                &assistant_account.pubkey(),
-                2,
-                Duration::from_secs(7200),
-                vec![(SlotId::new(2), signers[2])],
-                vec![(SlotId::new(0), signers[0])],
-                vec![(SlotId::new(2), signers[2])],
-                vec![(SlotId::new(0), signers[0])],
-                vec![(SlotId::new(0), new_address_book_entry)],
-                vec![(SlotId::new(0), address_book_entry)],
-            ),
-        ],
-        Some(&test_context.payer.pubkey()),
-        &[
-            &test_context.payer,
-            &multisig_op_account,
-            &assistant_account,
-        ],
-        test_context.recent_blockhash,
-    );
-    test_context
-        .banks_client
-        .process_transaction(init_transaction)
-        .await
-        .unwrap();
-
-    let expected_update = WalletUpdate {
-        approvals_required_for_config: 2,
-        approval_timeout_for_config: Duration::from_secs(7200),
-        add_signers: vec![(SlotId::new(2), signers[2])],
-        remove_signers: vec![(SlotId::new(0), signers[0])],
-        add_config_approvers: vec![(SlotId::new(2), signers[2])],
-        remove_config_approvers: vec![(SlotId::new(0), signers[0])],
-        add_address_book_entries: vec![(SlotId::new(0), new_address_book_entry)],
-        remove_address_book_entries: vec![(SlotId::new(0), address_book_entry)],
-    };
-
-    let multisig_op =
-        get_multisig_op_data(&mut test_context.banks_client, multisig_op_account.pubkey()).await;
-
-    assert!(multisig_op.is_initialized);
-
-    WalletUpdateContext {
-        payer: test_context.payer,
-        program_id: test_context.program_id,
-        banks_client: test_context.banks_client,
-        wallet_account,
-        multisig_op_account,
-        approvers,
-        recent_blockhash: test_context.recent_blockhash,
-        expected_update,
-        params_hash: multisig_op.params_hash,
-        expected_state_after_update: Wallet {
-            is_initialized: true,
-            signers: Signers::from_vec(vec![
-                (SlotId::new(1), signers[1]),
-                (SlotId::new(2), signers[2]),
-            ]),
-            assistant: wallet.assistant,
-            address_book: AddressBook::from_vec(vec![(SlotId::new(0), new_address_book_entry)]),
-            approvals_required_for_config: 2,
-            approval_timeout_for_config: Duration::from_secs(7200),
-            config_approvers: Approvers::from_enabled_vec(vec![SlotId::new(1), SlotId::new(2)]),
-            balance_accounts: wallet.balance_accounts,
-            config_policy_update_locked: false,
-            dapp_book: DAppBook::from_vec(vec![]),
-        },
-        assistant_account,
-    }
+    return context;
 }
 
 pub async fn update_signer(
-    context: &mut WalletUpdateContext,
+    context: &mut WalletTestContext,
     slot_update_type: SlotUpdateType,
     slot_id: usize,
     signer: Signer,
@@ -1101,10 +1000,6 @@ pub async fn setup_balance_account_tests(
         address: destination.pubkey(),
         name_hash: AddressBookEntryNameHash::new(&hash_of(b"Destination 1 Name")),
     };
-    let addr_book_entry2 = AddressBookEntry {
-        address: Keypair::new().pubkey(),
-        name_hash: AddressBookEntryNameHash::new(&hash_of(b"Destination 2 Name")),
-    };
     let allowed_dapp = DAppBookEntry {
         address: Keypair::new().pubkey(),
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
@@ -1118,21 +1013,19 @@ pub async fn setup_balance_account_tests(
         &program_id,
         &wallet_account,
         &assistant_account,
-        Some(1),
-        Some(vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
-            (SlotId::new(2), approvers[2].pubkey_as_signer()),
-        ]),
-        Some(vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
-        ]),
-        Some(Duration::from_secs(3600)),
-        Some(vec![
-            (SlotId::new(0), addr_book_entry),
-            (SlotId::new(1), addr_book_entry2),
-        ]),
+        InitialWalletConfig {
+            approvals_required_for_config: 1,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), approvers[0].pubkey_as_signer()),
+                (SlotId::new(1), approvers[1].pubkey_as_signer()),
+                (SlotId::new(2), approvers[2].pubkey_as_signer()),
+            ],
+            config_approvers: vec![
+                (SlotId::new(0), approvers[0].pubkey_as_signer()),
+                (SlotId::new(1), approvers[1].pubkey_as_signer()),
+            ],
+        },
     )
     .await
     .unwrap();
@@ -1304,11 +1197,12 @@ pub async fn setup_create_balance_account_failure_tests(
         &program_id,
         &wallet_account,
         &assistant_account,
-        Some(1),
-        Some(signers),
-        Some(config_approvers),
-        Some(Duration::from_secs(3600)),
-        Some(vec![]),
+        InitialWalletConfig {
+            approvals_required_for_config: 1,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers,
+            config_approvers,
+        },
     )
     .await
     .unwrap();
@@ -1400,6 +1294,26 @@ pub async fn setup_balance_account_tests_and_finalize(
         &[&context.balance_account_guid_hash.to_bytes()],
         &context.program_id,
     );
+
+    let allowed_destination = context.allowed_destination.clone();
+    modify_address_book_and_whitelist(
+        &mut context,
+        vec![
+            (SlotId::new(0), allowed_destination),
+            (
+                SlotId::new(1),
+                AddressBookEntry {
+                    address: Keypair::new().pubkey(),
+                    name_hash: AddressBookEntryNameHash::new(&hash_of(b"Destination 2 Name")),
+                },
+            ),
+        ],
+        vec![],
+        vec![],
+        vec![],
+        None,
+    )
+    .await;
 
     // add allowed dapp
     let mut test_context = context.to_test_context();

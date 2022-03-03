@@ -1,6 +1,7 @@
 use crate::error::WalletError;
 use crate::instruction::{
-    AddressBookUpdate, BalanceAccountUpdate, DAppBookUpdate, WalletConfigPolicyUpdate, WalletUpdate,
+    AddressBookUpdate, BalanceAccountUpdate, DAppBookUpdate, InitialWalletConfig,
+    WalletConfigPolicyUpdate,
 };
 use crate::model::address_book::{
     AddressBook, AddressBookEntry, AddressBookEntryNameHash, DAppBook, DAppBookEntry,
@@ -166,11 +167,6 @@ impl Wallet {
             })
     }
 
-    pub fn validate_update(&self, update: &WalletUpdate) -> ProgramResult {
-        let mut self_clone = self.clone();
-        self_clone.update(update)
-    }
-
     pub fn validate_remove_signer(
         &self,
         signer_to_remove: (SlotId<Signer>, Signer),
@@ -192,27 +188,24 @@ impl Wallet {
         self.add_signers(&vec![signer_to_add])
     }
 
-    pub fn update(&mut self, update: &WalletUpdate) -> ProgramResult {
-        self.approvals_required_for_config = update.approvals_required_for_config;
+    pub fn initialize(&mut self, initial_config: &InitialWalletConfig) -> ProgramResult {
+        self.approvals_required_for_config = initial_config.approvals_required_for_config;
 
         // NOTE: A timeout of 0 means that the existing value should not be updated.
         // Other timeout values are validated below.
-        if update.approval_timeout_for_config.as_secs() > 0 {
-            self.approval_timeout_for_config = update.approval_timeout_for_config;
+        if initial_config.approval_timeout_for_config.as_secs() > 0 {
+            self.approval_timeout_for_config = initial_config.approval_timeout_for_config;
         }
 
-        self.disable_config_approvers(&update.remove_config_approvers)?;
-        self.remove_signers(&update.remove_signers)?;
-        self.add_signers(&update.add_signers)?;
-        self.enable_config_approvers(&update.add_config_approvers)?;
-        self.remove_address_book_entries(&update.remove_address_book_entries)?;
-        self.add_address_book_entries(&update.add_address_book_entries)?;
+        self.add_signers(&initial_config.signers)?;
+        self.enable_config_approvers(&initial_config.config_approvers)?;
 
         let approvers_count_after_update = self.config_approvers.count_enabled();
-        if usize::from(update.approvals_required_for_config) > approvers_count_after_update {
+        if usize::from(initial_config.approvals_required_for_config) > approvers_count_after_update
+        {
             msg!(
                 "Approvals required for config {} can't exceed configured approvers count {}",
-                update.approvals_required_for_config,
+                initial_config.approvals_required_for_config,
                 approvers_count_after_update
             );
             return Err(WalletError::InvalidApproverCount.into());

@@ -8,7 +8,7 @@ use solana_program_test::tokio;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer as SdkSigner;
 use std::time::{Duration, SystemTime};
-use strike_wallet::instruction::DAppBookUpdate;
+use strike_wallet::instruction::{DAppBookUpdate, InitialWalletConfig};
 use strike_wallet::model::address_book::{DAppBookEntry, DAppBookEntryNameHash};
 use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, MultisigOpParams, OperationDisposition,
@@ -33,11 +33,12 @@ async fn test_dapp_book_update() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
-        Some(1),
-        Some(vec![(SlotId::new(0), signers[0])]),
-        Some(vec![(SlotId::new(0), signers[0])]),
-        Some(Duration::from_secs(3600)),
-        None,
+        InitialWalletConfig {
+            approvals_required_for_config: 1,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![(SlotId::new(0), signers[0])],
+            config_approvers: vec![(SlotId::new(0), signers[0])],
+        },
     )
     .await
     .unwrap();

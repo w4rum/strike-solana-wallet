@@ -34,7 +34,7 @@ test-balance-account-update-whitelist-status:
 	RUST_BACKTRACE=1 cargo test-bpf --test=balance_account_update_whitelist_status_tests
 
 test-wallet-update:
-	RUST_BACKTRACE=1 cargo test-bpf --test=wallet_update_tests
+	RUST_BACKTRACE=1 cargo test-bpf --test=init_wallet_tests
 
 test-wallet-update-signers:
 	RUST_BACKTRACE=1 cargo test-bpf --test=wallet_update_signers_tests

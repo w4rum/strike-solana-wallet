@@ -3,7 +3,7 @@ use crate::handlers::{
     balance_account_name_update_handler, balance_account_settings_update_handler,
     balance_account_update_handler, dapp_book_update_handler, dapp_transaction_handler,
     init_wallet_handler, transfer_handler, update_signer_handler,
-    wallet_config_policy_update_handler, wallet_update_handler, wrap_unwrap_handler,
+    wallet_config_policy_update_handler, wrap_unwrap_handler,
 };
 use crate::instruction::ProgramInstruction;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, pubkey::Pubkey};
@@ -19,17 +19,9 @@ impl Processor {
         let instruction = ProgramInstruction::unpack(instruction_data)?;
 
         match instruction {
-            ProgramInstruction::InitWallet { update } => {
-                init_wallet_handler::handle(program_id, accounts, &update)
-            }
-
-            ProgramInstruction::InitWalletUpdate { update } => {
-                wallet_update_handler::init(program_id, accounts, &update)
-            }
-
-            ProgramInstruction::FinalizeWalletUpdate { update } => {
-                wallet_update_handler::finalize(program_id, accounts, &update)
-            }
+            ProgramInstruction::InitWallet {
+                initial_config: update,
+            } => init_wallet_handler::handle(program_id, accounts, &update),
 
             ProgramInstruction::InitWalletConfigPolicyUpdate { update } => {
                 wallet_config_policy_update_handler::init(program_id, accounts, &update)

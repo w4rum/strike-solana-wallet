@@ -11,5 +11,4 @@ pub mod transfer_handler;
 pub mod update_signer_handler;
 pub mod utils;
 pub mod wallet_config_policy_update_handler;
-pub mod wallet_update_handler;
 pub mod wrap_unwrap_handler;

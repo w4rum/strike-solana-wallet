@@ -12,7 +12,7 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer as SdkSigner;
 use std::time::{Duration, SystemTime};
 use strike_wallet::error::WalletError;
-use strike_wallet::instruction::WalletConfigPolicyUpdate;
+use strike_wallet::instruction::{InitialWalletConfig, WalletConfigPolicyUpdate};
 use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, MultisigOpParams, OperationDisposition,
 };
@@ -41,18 +41,16 @@ async fn wallet_config_policy_update() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
-        Some(2),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-            (SlotId::new(2), signers[2]),
-        ]),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-        ]),
-        Some(Duration::from_secs(3600)),
-        None,
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), signers[0]),
+                (SlotId::new(1), signers[1]),
+                (SlotId::new(2), signers[2]),
+            ],
+            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+        },
     )
     .await
     .unwrap();
@@ -157,18 +155,16 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
-        Some(2),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-            (SlotId::new(2), signers[2]),
-        ]),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-        ]),
-        Some(Duration::from_secs(3600)),
-        None,
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), signers[0]),
+                (SlotId::new(1), signers[1]),
+                (SlotId::new(2), signers[2]),
+            ],
+            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+        },
     )
     .await
     .unwrap();
@@ -294,17 +290,12 @@ async fn invalid_wallet_config_policy_updates() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
-        Some(2),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-        ]),
-        Some(vec![
-            (SlotId::new(0), signers[0]),
-            (SlotId::new(1), signers[1]),
-        ]),
-        Some(Duration::from_secs(3600)),
-        None,
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+        },
     )
     .await
     .unwrap();
