@@ -5,7 +5,10 @@ use crate::common::instructions::{
     init_balance_account_creation, init_balance_account_name_update, init_transfer,
     init_update_signer, init_wallet_config_policy_update_instruction, set_approval_disposition,
 };
-use crate::{finalize_address_book_update, init_address_book_update};
+use crate::{
+    finalize_address_book_update, finalize_balance_account_policy_update_instruction,
+    init_address_book_update, init_balance_account_policy_update_instruction,
+};
 use arrayref::array_ref;
 use itertools::Itertools;
 use sha2::{Digest, Sha256};
@@ -21,8 +24,8 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use strike_wallet::instruction::{
-    AddressBookUpdate, BalanceAccountUpdate, BalanceAccountWhitelistUpdate, DAppBookUpdate,
-    InitialWalletConfig, WalletConfigPolicyUpdate,
+    AddressBookUpdate, BalanceAccountPolicyUpdate, BalanceAccountUpdate,
+    BalanceAccountWhitelistUpdate, DAppBookUpdate, InitialWalletConfig, WalletConfigPolicyUpdate,
 };
 use strike_wallet::model::address_book::{
     AddressBookEntry, AddressBookEntryNameHash, DAppBookEntry, DAppBookEntryNameHash,
@@ -620,7 +623,7 @@ pub async fn account_settings_update(
 
     assert_eq!(
         multisig_op.params_hash,
-        MultisigOpParams::UpdateAccountSettings {
+        MultisigOpParams::UpdateBalanceAccountSettings {
             wallet_address: context.wallet_account.pubkey(),
             account_guid_hash: context.balance_account_guid_hash,
             whitelist_enabled: whitelist_status,
@@ -1606,6 +1609,96 @@ pub async fn update_balance_account_name_hash(
             &context.payer.pubkey(),
             context.balance_account_guid_hash,
             account_name_hash,
+        )],
+        Some(&context.payer.pubkey()),
+        &[&context.payer],
+        context.recent_blockhash,
+    );
+    context
+        .banks_client
+        .process_transaction(finalize_update_tx)
+        .await
+        .unwrap();
+
+    Some(multisig_op_account)
+}
+
+pub async fn update_balance_account_policy(
+    context: &mut BalanceAccountTestContext,
+    update: BalanceAccountPolicyUpdate,
+    expected_error: Option<InstructionError>,
+) -> Option<Keypair> {
+    let rent = context.banks_client.get_rent().await.unwrap();
+    let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
+    let multisig_op_account = Keypair::new();
+
+    let init_update_tx = Transaction::new_signed_with_payer(
+        &[
+            system_instruction::create_account(
+                &context.payer.pubkey(),
+                &multisig_op_account.pubkey(),
+                multisig_op_rent,
+                MultisigOp::LEN as u64,
+                &context.program_id,
+            ),
+            init_balance_account_policy_update_instruction(
+                &context.program_id,
+                &context.wallet_account.pubkey(),
+                &multisig_op_account.pubkey(),
+                &context.assistant_account.pubkey(),
+                context.balance_account_guid_hash,
+                update.clone(),
+            ),
+        ],
+        Some(&context.payer.pubkey()),
+        &[
+            &context.payer,
+            &multisig_op_account,
+            &context.assistant_account,
+        ],
+        context.recent_blockhash,
+    );
+
+    match expected_error {
+        None => context
+            .banks_client
+            .process_transaction(init_update_tx)
+            .await
+            .unwrap(),
+        Some(error) => {
+            assert_eq!(
+                context
+                    .banks_client
+                    .process_transaction(init_update_tx)
+                    .await
+                    .unwrap_err()
+                    .unwrap(),
+                TransactionError::InstructionError(1, error),
+            );
+            return None;
+        }
+    }
+
+    approve_or_deny_n_of_n_multisig_op(
+        context.banks_client.borrow_mut(),
+        &context.program_id,
+        &multisig_op_account.pubkey(),
+        vec![&context.approvers[0], &context.approvers[1]],
+        &context.payer,
+        context.recent_blockhash,
+        ApprovalDisposition::APPROVE,
+        OperationDisposition::APPROVED,
+    )
+    .await;
+
+    let finalize_update_tx = Transaction::new_signed_with_payer(
+        &[finalize_balance_account_policy_update_instruction(
+            &context.program_id,
+            &context.wallet_account.pubkey(),
+            &multisig_op_account.pubkey(),
+            &context.payer.pubkey(),
+            context.balance_account_guid_hash,
+            update.clone(),
         )],
         Some(&context.payer.pubkey()),
         &[&context.payer],

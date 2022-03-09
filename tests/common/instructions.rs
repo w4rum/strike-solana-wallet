@@ -1,10 +1,12 @@
 use solana_program::hash::Hash;
+
 use solana_program::instruction::{AccountMeta, Instruction};
 use solana_program::pubkey::Pubkey;
 use solana_program::{system_program, sysvar};
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::time::Duration;
+use strike_wallet::instruction::BalanceAccountPolicyUpdate;
 use strike_wallet::{
     instruction::{
         AddressBookUpdate, BalanceAccountUpdate, BalanceAccountWhitelistUpdate, DAppBookUpdate,
@@ -185,54 +187,39 @@ pub fn finalize_dapp_book_update(
     }
 }
 
-pub fn init_balance_account_update(
+pub fn init_balance_account_policy_update_instruction(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
     account_guid_hash: BalanceAccountGuidHash,
-    account_name_hash: BalanceAccountNameHash,
-    approvals_required_for_transfer: u8,
-    approval_timeout_for_transfer: Duration,
-    add_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
-    remove_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
-    add_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    remove_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    update: BalanceAccountPolicyUpdate,
 ) -> Instruction {
-    init_multisig_op(
-        program_id,
-        wallet_account,
-        multisig_op_account,
-        assistant_account,
-        ProgramInstruction::InitBalanceAccountUpdate {
+    Instruction {
+        program_id: *program_id,
+        accounts: vec![
+            AccountMeta::new(*multisig_op_account, false),
+            AccountMeta::new(*wallet_account, false),
+            AccountMeta::new_readonly(*assistant_account, true),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+        ],
+        data: ProgramInstruction::InitBalanceAccountPolicyUpdate {
             account_guid_hash,
-            update: BalanceAccountUpdate {
-                name_hash: account_name_hash,
-                approvals_required_for_transfer,
-                approval_timeout_for_transfer,
-                add_transfer_approvers,
-                remove_transfer_approvers,
-                add_allowed_destinations,
-                remove_allowed_destinations,
-            },
-        },
-    )
+            update: update.clone(),
+        }
+        .borrow()
+        .pack(),
+    }
 }
 
-pub fn finalize_balance_account_update(
+pub fn finalize_balance_account_policy_update_instruction(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     rent_collector_account: &Pubkey,
     account_guid_hash: BalanceAccountGuidHash,
-    update: BalanceAccountUpdate,
+    update: BalanceAccountPolicyUpdate,
 ) -> Instruction {
-    let data = ProgramInstruction::FinalizeBalanceAccountUpdate {
-        account_guid_hash,
-        update,
-    }
-    .borrow()
-    .pack();
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
@@ -243,7 +230,12 @@ pub fn finalize_balance_account_update(
     Instruction {
         program_id: *program_id,
         accounts,
-        data,
+        data: ProgramInstruction::FinalizeBalanceAccountPolicyUpdate {
+            account_guid_hash,
+            update,
+        }
+        .borrow()
+        .pack(),
     }
 }
 

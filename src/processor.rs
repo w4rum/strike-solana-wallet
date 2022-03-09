@@ -1,7 +1,7 @@
 use crate::handlers::{
     address_book_update_handler, approval_disposition_handler, balance_account_creation_handler,
-    balance_account_name_update_handler, balance_account_settings_update_handler,
-    balance_account_update_handler, dapp_book_update_handler, dapp_transaction_handler,
+    balance_account_name_update_handler, balance_account_policy_update_handler,
+    balance_account_settings_update_handler, dapp_book_update_handler, dapp_transaction_handler,
     init_wallet_handler, transfer_handler, update_signer_handler,
     wallet_config_policy_update_handler, wrap_unwrap_handler,
 };
@@ -51,26 +51,6 @@ impl Processor {
                 &update,
             ),
 
-            ProgramInstruction::InitBalanceAccountUpdate {
-                account_guid_hash,
-                update,
-            } => balance_account_update_handler::init(
-                program_id,
-                accounts,
-                &account_guid_hash,
-                &update,
-            ),
-
-            ProgramInstruction::FinalizeBalanceAccountUpdate {
-                account_guid_hash,
-                update,
-            } => balance_account_update_handler::finalize(
-                program_id,
-                accounts,
-                &account_guid_hash,
-                &update,
-            ),
-
             ProgramInstruction::InitBalanceAccountNameUpdate {
                 account_guid_hash,
                 account_name_hash,
@@ -89,6 +69,26 @@ impl Processor {
                 accounts,
                 &account_guid_hash,
                 &account_name_hash,
+            ),
+
+            ProgramInstruction::InitBalanceAccountPolicyUpdate {
+                account_guid_hash,
+                update,
+            } => balance_account_policy_update_handler::init(
+                program_id,
+                accounts,
+                &account_guid_hash,
+                &update,
+            ),
+
+            ProgramInstruction::FinalizeBalanceAccountPolicyUpdate {
+                account_guid_hash,
+                update,
+            } => balance_account_policy_update_handler::finalize(
+                program_id,
+                accounts,
+                &account_guid_hash,
+                &update,
             ),
 
             ProgramInstruction::InitTransfer {

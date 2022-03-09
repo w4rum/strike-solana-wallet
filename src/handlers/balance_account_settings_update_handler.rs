@@ -33,7 +33,7 @@ pub fn init(
         &multisig_op_account_info,
         &wallet,
         clock,
-        MultisigOpParams::UpdateAccountSettings {
+        MultisigOpParams::UpdateBalanceAccountSettings {
             wallet_address: *wallet_account_info.key,
             account_guid_hash: *account_guid_hash,
             whitelist_enabled,
@@ -59,7 +59,7 @@ pub fn finalize(
         &multisig_op_account_info,
         &account_to_return_rent_to,
         clock,
-        MultisigOpParams::UpdateAccountSettings {
+        MultisigOpParams::UpdateBalanceAccountSettings {
             wallet_address: *wallet_account_info.key,
             account_guid_hash: *account_guid_hash,
             whitelist_enabled,

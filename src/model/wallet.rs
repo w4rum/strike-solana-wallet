@@ -1,7 +1,7 @@
 use crate::error::WalletError;
 use crate::instruction::{
-    AddressBookUpdate, BalanceAccountUpdate, DAppBookUpdate, InitialWalletConfig,
-    WalletConfigPolicyUpdate,
+    AddressBookUpdate, BalanceAccountPolicyUpdate, BalanceAccountUpdate, DAppBookUpdate,
+    InitialWalletConfig, WalletConfigPolicyUpdate,
 };
 use crate::model::address_book::{
     AddressBook, AddressBookEntry, AddressBookEntryNameHash, DAppBook, DAppBookEntry,
@@ -337,18 +337,19 @@ impl Wallet {
             allowed_destinations: AllowedDestinations::zero(),
             whitelist_enabled: BooleanSetting::Off,
             dapps_enabled: BooleanSetting::Off,
+            policy_update_locked: false,
         };
         self.balance_accounts.push(balance_account);
         self.update_balance_account(account_guid_hash, update)
     }
 
-    pub fn validate_balance_account_update(
+    pub fn validate_balance_account_policy_update(
         &self,
         account_guid_hash: &BalanceAccountGuidHash,
-        update: &BalanceAccountUpdate,
+        update: &BalanceAccountPolicyUpdate,
     ) -> ProgramResult {
         let mut self_clone = self.clone();
-        self_clone.update_balance_account(account_guid_hash, update)
+        self_clone.update_balance_account_policy(account_guid_hash, update)
     }
 
     pub fn validate_whitelist_enabled_update(
@@ -400,7 +401,7 @@ impl Wallet {
         Ok(())
     }
 
-    pub fn update_balance_account(
+    fn update_balance_account(
         &mut self,
         account_guid_hash: &BalanceAccountGuidHash,
         update: &BalanceAccountUpdate,
@@ -438,6 +439,75 @@ impl Wallet {
             msg!(
                 "Approvals required for transfer {} can't exceed configured approvers count {}",
                 update.approvals_required_for_transfer,
+                approvers_count_after_update
+            );
+            return Err(WalletError::InvalidApproverCount.into());
+        }
+
+        if balance_account.approvals_required_for_transfer == 0 {
+            msg!("Approvals required for transfer can't be 0");
+            return Err(WalletError::InvalidApproverCount.into());
+        }
+
+        if balance_account.transfer_approvers.count_enabled() == 0 {
+            msg!("At least one transfer approver has to be configured");
+            return Err(WalletError::NoApproversEnabled.into());
+        }
+
+        Ok(())
+    }
+
+    pub fn lock_balance_account_policy_updates(
+        &mut self,
+        account_guid_hash: &BalanceAccountGuidHash,
+    ) -> ProgramResult {
+        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
+        let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
+
+        if balance_account.policy_update_locked {
+            msg!("Only one pending policy update is allowed at a time per balance account");
+            return Err(WalletError::ConcurrentOperationsNotAllowed.into());
+        }
+        balance_account.policy_update_locked = true;
+        Ok(())
+    }
+
+    pub fn unlock_balance_account_policy_updates(
+        &mut self,
+        account_guid_hash: &BalanceAccountGuidHash,
+    ) -> ProgramResult {
+        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
+        let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
+        balance_account.policy_update_locked = false;
+        Ok(())
+    }
+
+    pub fn update_balance_account_policy(
+        &mut self,
+        account_guid_hash: &BalanceAccountGuidHash,
+        update: &BalanceAccountPolicyUpdate,
+    ) -> ProgramResult {
+        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
+
+        self.disable_transfer_approvers(balance_account_idx, &update.remove_transfer_approvers)?;
+        self.enable_transfer_approvers(balance_account_idx, &update.add_transfer_approvers)?;
+
+        let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
+        if let Some(approval_timeout_for_transfer) = update.approval_timeout_for_transfer {
+            Wallet::validate_approval_timeout(&approval_timeout_for_transfer)?;
+            balance_account.approval_timeout_for_transfer = approval_timeout_for_transfer;
+        }
+        if let Some(approvals_required_for_transfer) = update.approvals_required_for_transfer {
+            balance_account.approvals_required_for_transfer = approvals_required_for_transfer;
+        }
+
+        let approvers_count_after_update = balance_account.transfer_approvers.count_enabled();
+        if usize::from(balance_account.approvals_required_for_transfer)
+            > approvers_count_after_update
+        {
+            msg!(
+                "Approvals required for transfer {} can't exceed configured approvers count {}",
+                balance_account.approvals_required_for_transfer,
                 approvers_count_after_update
             );
             return Err(WalletError::InvalidApproverCount.into());
