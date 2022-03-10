@@ -35,7 +35,7 @@ pub enum ProgramInstruction {
     /// 3. `[]` The sysvar clock account
     InitBalanceAccountCreation {
         account_guid_hash: BalanceAccountGuidHash,
-        update: BalanceAccountUpdate,
+        creation_params: BalanceAccountCreation,
     },
 
     /// 0. `[writable]` The multisig operation account
@@ -43,7 +43,7 @@ pub enum ProgramInstruction {
     /// 2. `[signer]` The rent collector account
     FinalizeBalanceAccountCreation {
         account_guid_hash: BalanceAccountGuidHash,
-        update: BalanceAccountUpdate,
+        creation_params: BalanceAccountCreation,
     },
 
     /// 0. `[writable]` The multisig operation account
@@ -275,20 +275,20 @@ impl ProgramInstruction {
             }
             &ProgramInstruction::InitBalanceAccountCreation {
                 ref account_guid_hash,
-                ref update,
+                ref creation_params,
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
-                update.pack(&mut update_bytes);
+                creation_params.pack(&mut update_bytes);
                 buf.push(3);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::FinalizeBalanceAccountCreation {
                 ref account_guid_hash,
-                ref update,
+                ref creation_params,
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
-                update.pack(&mut update_bytes);
+                creation_params.pack(&mut update_bytes);
                 buf.push(4);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
@@ -524,7 +524,7 @@ impl ProgramInstruction {
     ) -> Result<ProgramInstruction, ProgramError> {
         Ok(Self::InitBalanceAccountCreation {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
-            update: BalanceAccountUpdate::unpack(
+            creation_params: BalanceAccountCreation::unpack(
                 bytes
                     .get(32..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -537,7 +537,7 @@ impl ProgramInstruction {
     ) -> Result<ProgramInstruction, ProgramError> {
         Ok(Self::FinalizeBalanceAccountCreation {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
-            update: BalanceAccountUpdate::unpack(
+            creation_params: BalanceAccountCreation::unpack(
                 bytes
                     .get(32..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -964,19 +964,19 @@ impl WalletConfigPolicyUpdate {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct BalanceAccountUpdate {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BalanceAccountCreation {
     pub name_hash: BalanceAccountNameHash,
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
-    pub add_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
-    pub remove_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
-    pub add_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    pub remove_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    pub transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub whitelist_enabled: BooleanSetting,
+    pub dapps_enabled: BooleanSetting,
+    pub address_book_slot_id: SlotId<AddressBookEntry>,
 }
 
-impl BalanceAccountUpdate {
-    fn unpack(bytes: &[u8]) -> Result<BalanceAccountUpdate, ProgramError> {
+impl BalanceAccountCreation {
+    fn unpack(bytes: &[u8]) -> Result<BalanceAccountCreation, ProgramError> {
         if bytes.len() < 1 {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -987,30 +987,30 @@ impl BalanceAccountUpdate {
             *read_u8(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let approval_timeout_for_transfer =
             read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
-        let add_approvers = read_signers(&mut iter)?;
-        let remove_approvers = read_signers(&mut iter)?;
-        let add_allowed_destinations = read_address_book_entries(&mut iter)?;
-        let remove_allowed_destinations = read_address_book_entries(&mut iter)?;
+        let transfer_approvers = read_signers(&mut iter)?;
+        let whitelist_enabled = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
+        let dapps_enabled = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
+        let address_book_slot_id = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
 
-        Ok(BalanceAccountUpdate {
+        Ok(BalanceAccountCreation {
             name_hash: BalanceAccountNameHash::new(&name_hash),
             approvals_required_for_transfer,
             approval_timeout_for_transfer,
-            add_transfer_approvers: add_approvers,
-            remove_transfer_approvers: remove_approvers,
-            add_allowed_destinations,
-            remove_allowed_destinations,
+            transfer_approvers,
+            whitelist_enabled: BooleanSetting::from_u8(whitelist_enabled),
+            dapps_enabled: BooleanSetting::from_u8(dapps_enabled),
+            address_book_slot_id: SlotId::new(address_book_slot_id as usize),
         })
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
-        dst.extend_from_slice(&self.name_hash.to_bytes());
+        dst.extend_from_slice(self.name_hash.to_bytes());
         dst.push(self.approvals_required_for_transfer);
         append_duration(&self.approval_timeout_for_transfer, dst);
-        append_signers(&self.add_transfer_approvers, dst);
-        append_signers(&self.remove_transfer_approvers, dst);
-        append_address_book_entries(&self.add_allowed_destinations, dst);
-        append_address_book_entries(&self.remove_allowed_destinations, dst);
+        append_signers(&self.transfer_approvers, dst);
+        dst.push(self.whitelist_enabled.to_u8());
+        dst.push(self.dapps_enabled.to_u8());
+        dst.push(self.address_book_slot_id.value as u8);
     }
 }
 
