@@ -932,8 +932,8 @@ impl AddressBookUpdate {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct WalletConfigPolicyUpdate {
-    pub approvals_required_for_config: u8,
-    pub approval_timeout_for_config: Duration,
+    pub approvals_required_for_config: Option<u8>,
+    pub approval_timeout_for_config: Option<Duration>,
     pub add_config_approvers: Vec<(SlotId<Signer>, Signer)>,
     pub remove_config_approvers: Vec<(SlotId<Signer>, Signer)>,
 }
@@ -941,10 +941,8 @@ pub struct WalletConfigPolicyUpdate {
 impl WalletConfigPolicyUpdate {
     fn unpack(bytes: &[u8]) -> Result<WalletConfigPolicyUpdate, ProgramError> {
         let mut iter = bytes.iter();
-        let approvals_required_for_config =
-            *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
-        let approval_timeout_for_config =
-            read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let approvals_required_for_config = read_optional_u8(&mut iter)?;
+        let approval_timeout_for_config = read_optional_duration(&mut iter)?;
         let add_config_approvers = read_signers(&mut iter)?;
         let remove_config_approvers = read_signers(&mut iter)?;
 
@@ -957,8 +955,8 @@ impl WalletConfigPolicyUpdate {
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
-        dst.push(self.approvals_required_for_config);
-        append_duration(&self.approval_timeout_for_config, dst);
+        append_optional_u8(&self.approvals_required_for_config, dst);
+        append_optional_duration(&self.approval_timeout_for_config, dst);
         append_signers(&self.add_config_approvers, dst);
         append_signers(&self.remove_config_approvers, dst);
     }

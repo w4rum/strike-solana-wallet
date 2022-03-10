@@ -16,7 +16,7 @@ use strike_wallet::instruction::{InitialWalletConfig, WalletConfigPolicyUpdate};
 use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, MultisigOpParams, OperationDisposition,
 };
-use strike_wallet::model::wallet::{Approvers, Wallet};
+use strike_wallet::model::wallet::Approvers;
 use strike_wallet::utils::SlotId;
 
 #[tokio::test]
@@ -59,8 +59,8 @@ async fn wallet_config_policy_update() {
     assert!(!wallet.config_policy_update_locked);
 
     let update = WalletConfigPolicyUpdate {
-        approvals_required_for_config: 1,
-        approval_timeout_for_config: Duration::from_secs(7200),
+        approvals_required_for_config: Some(1),
+        approval_timeout_for_config: Some(Duration::from_secs(7200)),
         add_config_approvers: vec![(SlotId::new(2), signers[2])],
         remove_config_approvers: vec![(SlotId::new(0), signers[0])],
     };
@@ -117,19 +117,57 @@ async fn wallet_config_policy_update() {
     )
     .await;
 
+    let mut expected_wallet = wallet.clone();
+    expected_wallet.approvals_required_for_config = 1;
+    expected_wallet.approval_timeout_for_config = Duration::from_secs(7200);
+    expected_wallet.config_approvers =
+        Approvers::from_enabled_vec(vec![SlotId::new(1), SlotId::new(2)]);
+
     assert_eq!(
-        Wallet {
-            is_initialized: wallet.is_initialized,
-            signers: wallet.signers,
-            assistant: wallet.assistant,
-            address_book: wallet.address_book,
-            approvals_required_for_config: 1,
-            approval_timeout_for_config: Duration::from_secs(7200),
-            config_approvers: Approvers::from_enabled_vec(vec![SlotId::new(1), SlotId::new(2)]),
-            balance_accounts: wallet.balance_accounts,
-            config_policy_update_locked: false,
-            dapp_book: wallet.dapp_book,
+        expected_wallet,
+        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
+    );
+
+    // verify optional updates
+    expected_wallet.approvals_required_for_config = 2;
+
+    utils::update_wallet_config_policy(
+        &mut context,
+        wallet_account.pubkey(),
+        &assistant_account,
+        &WalletConfigPolicyUpdate {
+            approvals_required_for_config: Some(2),
+            approval_timeout_for_config: None,
+            add_config_approvers: vec![],
+            remove_config_approvers: vec![],
         },
+        vec![&approvers[1], &approvers[2]],
+    )
+    .await;
+
+    assert_eq!(
+        expected_wallet,
+        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
+    );
+
+    expected_wallet.approval_timeout_for_config = Duration::from_secs(3600);
+
+    utils::update_wallet_config_policy(
+        &mut context,
+        wallet_account.pubkey(),
+        &assistant_account,
+        &WalletConfigPolicyUpdate {
+            approvals_required_for_config: None,
+            approval_timeout_for_config: Some(Duration::from_secs(3600)),
+            add_config_approvers: vec![],
+            remove_config_approvers: vec![],
+        },
+        vec![&approvers[1], &approvers[2]],
+    )
+    .await;
+
+    assert_eq!(
+        expected_wallet,
         get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
     );
 }
@@ -170,15 +208,15 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
     .unwrap();
 
     let first_update = WalletConfigPolicyUpdate {
-        approvals_required_for_config: 1,
-        approval_timeout_for_config: Duration::from_secs(7200),
+        approvals_required_for_config: Some(1),
+        approval_timeout_for_config: Some(Duration::from_secs(7200)),
         add_config_approvers: vec![(SlotId::new(2), signers[2])],
         remove_config_approvers: vec![(SlotId::new(0), signers[0])],
     };
 
     let second_update = WalletConfigPolicyUpdate {
-        approvals_required_for_config: 3,
-        approval_timeout_for_config: Duration::from_secs(7200),
+        approvals_required_for_config: Some(3),
+        approval_timeout_for_config: Some(Duration::from_secs(7200)),
         add_config_approvers: vec![(SlotId::new(0), signers[0])],
         remove_config_approvers: vec![],
     };
@@ -307,8 +345,8 @@ async fn invalid_wallet_config_policy_updates() {
             wallet_account.pubkey(),
             &assistant_account,
             &WalletConfigPolicyUpdate {
-                approvals_required_for_config: 3,
-                approval_timeout_for_config: Duration::from_secs(3200),
+                approvals_required_for_config: Some(3),
+                approval_timeout_for_config: Some(Duration::from_secs(3200)),
                 add_config_approvers: vec![],
                 remove_config_approvers: vec![],
             },
@@ -325,8 +363,8 @@ async fn invalid_wallet_config_policy_updates() {
             wallet_account.pubkey(),
             &assistant_account,
             &WalletConfigPolicyUpdate {
-                approvals_required_for_config: 2,
-                approval_timeout_for_config: Duration::from_secs(3200),
+                approvals_required_for_config: Some(2),
+                approval_timeout_for_config: Some(Duration::from_secs(3200)),
                 add_config_approvers: vec![(SlotId::new(2), signers[2])],
                 remove_config_approvers: vec![],
             },
@@ -343,8 +381,8 @@ async fn invalid_wallet_config_policy_updates() {
             wallet_account.pubkey(),
             &assistant_account,
             &WalletConfigPolicyUpdate {
-                approvals_required_for_config: 2,
-                approval_timeout_for_config: Duration::from_secs(3200),
+                approvals_required_for_config: Some(2),
+                approval_timeout_for_config: Some(Duration::from_secs(3200)),
                 add_config_approvers: vec![(SlotId::new(0), signers[2])],
                 remove_config_approvers: vec![],
             },
@@ -360,8 +398,8 @@ async fn invalid_wallet_config_policy_updates() {
             wallet_account.pubkey(),
             &assistant_account,
             &WalletConfigPolicyUpdate {
-                approvals_required_for_config: 2,
-                approval_timeout_for_config: Duration::from_secs(3200),
+                approvals_required_for_config: Some(2),
+                approval_timeout_for_config: Some(Duration::from_secs(3200)),
                 add_config_approvers: vec![],
                 remove_config_approvers: vec![(SlotId::new(0), signers[2])],
             },

@@ -280,10 +280,12 @@ impl Wallet {
     }
 
     pub fn update_config_policy(&mut self, update: &WalletConfigPolicyUpdate) -> ProgramResult {
-        self.approvals_required_for_config = update.approvals_required_for_config;
-        if update.approval_timeout_for_config.as_secs() > 0 {
-            Wallet::validate_approval_timeout(&update.approval_timeout_for_config)?;
-            self.approval_timeout_for_config = update.approval_timeout_for_config;
+        if let Some(approval_timeout_for_config) = update.approval_timeout_for_config {
+            Wallet::validate_approval_timeout(&approval_timeout_for_config)?;
+            self.approval_timeout_for_config = approval_timeout_for_config;
+        }
+        if let Some(approvals_required_for_config) = update.approvals_required_for_config {
+            self.approvals_required_for_config = approvals_required_for_config;
         }
 
         self.disable_config_approvers(&update.remove_config_approvers)?;
@@ -295,10 +297,10 @@ impl Wallet {
         }
 
         let approvers_count = self.config_approvers.count_enabled();
-        if usize::from(update.approvals_required_for_config) > approvers_count {
+        if usize::from(self.approvals_required_for_config) > approvers_count {
             msg!(
                 "Approvals required for config {} can't exceed configured approvers count {}",
-                update.approvals_required_for_config,
+                self.approvals_required_for_config,
                 approvers_count
             );
             return Err(WalletError::InvalidApproverCount.into());

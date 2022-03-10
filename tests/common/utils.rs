@@ -252,6 +252,29 @@ pub async fn finalize_wallet_config_policy_update(
     .await;
 }
 
+pub async fn update_wallet_config_policy(
+    test_context: &mut TestContext,
+    wallet_account: Pubkey,
+    assistant_account: &Keypair,
+    update: &WalletConfigPolicyUpdate,
+    approvers: Vec<&Keypair>,
+) {
+    let multisig_op_account =
+        init_wallet_config_policy_update(test_context, wallet_account, &assistant_account, &update)
+            .await
+            .unwrap();
+
+    approve_n_of_n_multisig_op(test_context, &multisig_op_account, approvers).await;
+
+    finalize_wallet_config_policy_update(
+        test_context,
+        wallet_account,
+        multisig_op_account,
+        &update.clone(),
+    )
+    .await;
+}
+
 pub fn assert_instruction_error<R: Debug>(
     res: Result<R, TransportError>,
     expected_instruction_index: u8,
