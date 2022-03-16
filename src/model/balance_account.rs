@@ -13,7 +13,7 @@ pub type AllowedDestinations = SlotFlags<AddressBookEntry, { AddressBook::FLAGS_
 const WHITELIST_SETTING_BIT: u8 = 0;
 const DAPPS_SETTING_BIT: u8 = 1;
 
-#[derive(Debug, Clone, Eq, PartialEq, Copy)]
+#[derive(Debug, Clone, Eq, PartialEq, Copy, Ord, PartialOrd)]
 pub struct BalanceAccountGuidHash([u8; 32]);
 
 impl BalanceAccountGuidHash {
@@ -30,7 +30,7 @@ impl BalanceAccountGuidHash {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Copy)]
+#[derive(Debug, Clone, Eq, PartialEq, Copy, Ord, PartialOrd)]
 pub struct BalanceAccountNameHash([u8; 32]);
 
 impl BalanceAccountNameHash {
@@ -47,7 +47,7 @@ impl BalanceAccountNameHash {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Ord, PartialOrd)]
 pub struct BalanceAccount {
     pub guid_hash: BalanceAccountGuidHash,
     pub name_hash: BalanceAccountNameHash,

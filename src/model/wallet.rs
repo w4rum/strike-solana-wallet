@@ -20,11 +20,11 @@ use solana_program::msg;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{IsInitialized, Pack, Sealed};
 use solana_program::pubkey::Pubkey;
-use std::borrow::BorrowMut;
 use std::time::Duration;
 
 pub type Signers = Slots<Signer, { Wallet::MAX_SIGNERS }>;
 pub type Approvers = SlotFlags<Signer, { Signers::FLAGS_STORAGE_SIZE }>;
+pub type BalanceAccounts = Slots<BalanceAccount, { Wallet::MAX_BALANCE_ACCOUNTS }>;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Wallet {
@@ -35,7 +35,7 @@ pub struct Wallet {
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
     pub config_approvers: Approvers,
-    pub balance_accounts: Vec<BalanceAccount>,
+    pub balance_accounts: BalanceAccounts,
     pub config_policy_update_locked: bool,
     pub dapp_book: DAppBook,
 }
@@ -82,21 +82,21 @@ impl Wallet {
             .collect_vec()
     }
 
-    fn get_balance_account_index(
-        &self,
-        account_guid_hash: &BalanceAccountGuidHash,
-    ) -> Result<usize, ProgramError> {
-        self.balance_accounts
-            .iter()
-            .position(|it| it.guid_hash == *account_guid_hash)
-            .ok_or(WalletError::BalanceAccountNotFound.into())
-    }
-
     pub fn get_balance_account(
         &self,
         account_guid_hash: &BalanceAccountGuidHash,
-    ) -> Result<&BalanceAccount, ProgramError> {
-        Ok(&self.balance_accounts[self.get_balance_account_index(account_guid_hash)?])
+    ) -> Result<BalanceAccount, ProgramError> {
+        self.get_balance_account_with_slot_id(account_guid_hash)
+            .map(|(_, balance_account)| balance_account)
+    }
+
+    pub fn get_balance_account_with_slot_id(
+        &self,
+        account_guid_hash: &BalanceAccountGuidHash,
+    ) -> Result<(SlotId<BalanceAccount>, BalanceAccount), ProgramError> {
+        self.balance_accounts
+            .find_by(|it| it.guid_hash == *account_guid_hash)
+            .ok_or(WalletError::BalanceAccountNotFound.into())
     }
 
     pub fn validate_config_initiator(&self, initiator: &AccountInfo) -> ProgramResult {
@@ -243,16 +243,17 @@ impl Wallet {
     pub fn update_address_book(&mut self, update: &AddressBookUpdate) -> ProgramResult {
         self.add_address_book_entries(&update.add_address_book_entries)?;
         for balance_account_whitelist_update in update.balance_account_whitelist_updates.clone() {
-            let balance_account_idx =
-                self.get_balance_account_index(&balance_account_whitelist_update.guid_hash)?;
+            let (slot_id, mut balance_account) =
+                self.get_balance_account_with_slot_id(&balance_account_whitelist_update.guid_hash)?;
             self.disable_transfer_destinations(
-                balance_account_idx,
+                &mut balance_account,
                 &balance_account_whitelist_update.remove_allowed_destinations,
             )?;
             self.enable_transfer_destinations(
-                balance_account_idx,
+                &mut balance_account,
                 &balance_account_whitelist_update.add_allowed_destinations,
             )?;
+            self.balance_accounts.replace(slot_id, balance_account);
         }
         self.remove_address_book_entries(&update.remove_address_book_entries)?;
         Ok(())
@@ -354,7 +355,7 @@ impl Wallet {
             return Err(WalletError::InvalidApproverCount.into());
         }
 
-        let balance_account = BalanceAccount {
+        let mut balance_account = BalanceAccount {
             guid_hash: *account_guid_hash,
             name_hash: creation_params.name_hash,
             approvals_required_for_transfer: creation_params.approvals_required_for_transfer,
@@ -365,10 +366,10 @@ impl Wallet {
             dapps_enabled: creation_params.dapps_enabled,
             policy_update_locked: false,
         };
+        self.enable_transfer_approvers(&mut balance_account, &creation_params.transfer_approvers)?;
 
-        self.balance_accounts.push(balance_account);
-        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
-        self.enable_transfer_approvers(balance_account_idx, &creation_params.transfer_approvers)?;
+        self.balance_accounts
+            .insert(creation_params.slot_id, balance_account);
 
         let (source_account_pda, _) =
             Pubkey::find_program_address(&[&account_guid_hash.to_bytes()], program_id);
@@ -406,16 +407,18 @@ impl Wallet {
         account_guid_hash: &BalanceAccountGuidHash,
         status: BooleanSetting,
     ) -> ProgramResult {
-        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
+        let (slot_id, mut balance_account) =
+            self.get_balance_account_with_slot_id(account_guid_hash)?;
+
         if status == BooleanSetting::Off {
-            if self.balance_accounts[balance_account_idx].has_whitelisted_destinations() {
+            if balance_account.has_whitelisted_destinations() {
                 msg!("Cannot turn whitelist status to off as there are whitelisted addresses");
                 return Err(WalletError::WhitelistedAddressInUse.into());
             }
         }
 
-        self.balance_accounts[balance_account_idx].whitelist_enabled = status;
-
+        balance_account.whitelist_enabled = status;
+        self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
     }
 
@@ -424,9 +427,10 @@ impl Wallet {
         account_guid_hash: &BalanceAccountGuidHash,
         enabled: BooleanSetting,
     ) -> ProgramResult {
-        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
-        self.balance_accounts[balance_account_idx].dapps_enabled = enabled;
-
+        let (slot_id, mut balance_account) =
+            self.get_balance_account_with_slot_id(account_guid_hash)?;
+        balance_account.dapps_enabled = enabled;
+        self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
     }
 
@@ -435,9 +439,10 @@ impl Wallet {
         account_guid_hash: &BalanceAccountGuidHash,
         account_name_hash: &BalanceAccountNameHash,
     ) -> ProgramResult {
-        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
-        let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
+        let (slot_id, mut balance_account) =
+            self.get_balance_account_with_slot_id(account_guid_hash)?;
         balance_account.name_hash = account_name_hash.clone();
+        self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
     }
 
@@ -445,14 +450,15 @@ impl Wallet {
         &mut self,
         account_guid_hash: &BalanceAccountGuidHash,
     ) -> ProgramResult {
-        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
-        let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
+        let (slot_id, mut balance_account) =
+            self.get_balance_account_with_slot_id(account_guid_hash)?;
 
         if balance_account.policy_update_locked {
             msg!("Only one pending policy update is allowed at a time per balance account");
             return Err(WalletError::ConcurrentOperationsNotAllowed.into());
         }
         balance_account.policy_update_locked = true;
+        self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
     }
 
@@ -460,9 +466,10 @@ impl Wallet {
         &mut self,
         account_guid_hash: &BalanceAccountGuidHash,
     ) -> ProgramResult {
-        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
-        let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
+        let (slot_id, mut balance_account) =
+            self.get_balance_account_with_slot_id(account_guid_hash)?;
         balance_account.policy_update_locked = false;
+        self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
     }
 
@@ -471,12 +478,12 @@ impl Wallet {
         account_guid_hash: &BalanceAccountGuidHash,
         update: &BalanceAccountPolicyUpdate,
     ) -> ProgramResult {
-        let balance_account_idx = self.get_balance_account_index(account_guid_hash)?;
+        let (slot_id, mut balance_account) =
+            self.get_balance_account_with_slot_id(account_guid_hash)?;
 
-        self.disable_transfer_approvers(balance_account_idx, &update.remove_transfer_approvers)?;
-        self.enable_transfer_approvers(balance_account_idx, &update.add_transfer_approvers)?;
+        self.disable_transfer_approvers(&mut balance_account, &update.remove_transfer_approvers)?;
+        self.enable_transfer_approvers(&mut balance_account, &update.add_transfer_approvers)?;
 
-        let balance_account = &mut self.balance_accounts[balance_account_idx].borrow_mut();
         if let Some(approval_timeout_for_transfer) = update.approval_timeout_for_transfer {
             Wallet::validate_approval_timeout(&approval_timeout_for_transfer)?;
             balance_account.approval_timeout_for_transfer = approval_timeout_for_transfer;
@@ -507,6 +514,7 @@ impl Wallet {
             return Err(WalletError::NoApproversEnabled.into());
         }
 
+        self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
     }
 
@@ -533,7 +541,7 @@ impl Wallet {
             msg!("Failed to remove signers: not allowed to remove a config approving signer");
             return Err(WalletError::SignerIsConfigApprover.into());
         };
-        for balance_account in &self.balance_accounts {
+        for (_, balance_account) in &self.balance_accounts.filled_slots() {
             if balance_account.transfer_approvers.any_enabled(&slot_ids) {
                 msg!("Failed to remove signers: not allowed to remove a transfer approving signer");
                 return Err(WalletError::SignerIsTransferApprover.into());
@@ -564,7 +572,7 @@ impl Wallet {
             return Err(WalletError::SlotCannotBeRemoved.into());
         }
         let slot_ids = entries_to_remove.slot_ids();
-        for balance_account in &self.balance_accounts {
+        for (_, balance_account) in &self.balance_accounts.filled_slots() {
             if balance_account.allowed_destinations.any_enabled(&slot_ids) {
                 msg!("Failed to remove address book entries: at least one address is currently in use");
                 return Err(WalletError::DestinationInUse.into());
@@ -627,14 +635,14 @@ impl Wallet {
 
     fn enable_transfer_approvers(
         &mut self,
-        balance_account_index: usize,
+        balance_account: &mut BalanceAccount,
         approvers: &Vec<(SlotId<Signer>, Signer)>,
     ) -> ProgramResult {
         if !self.signers.contains(approvers) {
             msg!("Failed to enable transfer approvers: one of the given transfer approvers is not configured as signer");
             return Err(WalletError::UnknownSigner.into());
         }
-        self.balance_accounts[balance_account_index]
+        balance_account
             .transfer_approvers
             .enable_many(&approvers.slot_ids());
         Ok(())
@@ -642,14 +650,12 @@ impl Wallet {
 
     fn disable_transfer_approvers(
         &mut self,
-        balance_account_index: usize,
+        balance_account: &mut BalanceAccount,
         approvers: &Vec<(SlotId<Signer>, Signer)>,
     ) -> ProgramResult {
         for (id, signer) in approvers {
             if self.signers[*id] == Some(*signer) || self.signers[*id] == None {
-                self.balance_accounts[balance_account_index]
-                    .transfer_approvers
-                    .disable(id);
+                balance_account.transfer_approvers.disable(id);
             } else {
                 msg!("Failed to disable transfer approvers: unexpected slot value");
                 return Err(WalletError::InvalidSlot.into());
@@ -660,19 +666,18 @@ impl Wallet {
 
     fn enable_transfer_destinations(
         &mut self,
-        balance_account_index: usize,
+        balance_account: &mut BalanceAccount,
         destinations: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     ) -> ProgramResult {
         if !self.address_book.contains(destinations) {
             msg!("Failed to enable transfer destinations: address book does not contain one of the given destinations");
             return Err(WalletError::InvalidSlot.into());
         }
-        let balance_account = &mut self.balance_accounts[balance_account_index].borrow_mut();
         if !destinations.is_empty() && balance_account.is_whitelist_disabled() {
             msg!("Cannot add destinations when whitelisting status is Off");
             return Err(WalletError::WhitelistDisabled.into());
         }
-        self.balance_accounts[balance_account_index]
+        balance_account
             .allowed_destinations
             .enable_many(&destinations.slot_ids());
         Ok(())
@@ -680,15 +685,13 @@ impl Wallet {
 
     fn disable_transfer_destinations(
         &mut self,
-        balance_account_index: usize,
+        balance_account: &mut BalanceAccount,
         destinations: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     ) -> ProgramResult {
         for (id, address_book_entry) in destinations {
             if self.address_book[*id] == Some(*address_book_entry) || self.address_book[*id] == None
             {
-                self.balance_accounts[balance_account_index]
-                    .allowed_destinations
-                    .disable(id);
+                balance_account.allowed_destinations.disable(id);
             } else {
                 msg!("Failed to disable transfer destinations: unexpected slot value");
                 return Err(WalletError::InvalidSlot.into());
@@ -708,7 +711,7 @@ impl Pack for Wallet {
         Approvers::STORAGE_SIZE + // config approvers
         1 + // config_policy_update_locked
         DAppBook::LEN +
-        1 + BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS; // balance accounts with size
+        BalanceAccounts::LEN;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, Wallet::LEN];
@@ -722,7 +725,6 @@ impl Pack for Wallet {
             config_approvers_dst,
             config_policy_update_locked_dst,
             dapp_book_dst,
-            balance_accounts_count_dst,
             balance_accounts_dst,
         ) = mut_array_refs![
             dst,
@@ -735,31 +737,19 @@ impl Pack for Wallet {
             Approvers::STORAGE_SIZE,
             1,
             DAppBook::LEN,
-            1,
-            BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS
+            BalanceAccounts::LEN
         ];
 
         is_initialized_dst[0] = self.is_initialized as u8;
-
         self.signers.pack_into_slice(signers_dst);
         self.assistant.pack_into_slice(assistant_account_dst);
         self.address_book.pack_into_slice(address_book_dst);
-        self.dapp_book.pack_into_slice(dapp_book_dst);
-
         approvals_required_for_config_dst[0] = self.approvals_required_for_config;
         *approval_timeout_for_config_dst = self.approval_timeout_for_config.as_secs().to_le_bytes();
-
         config_approvers_dst.copy_from_slice(self.config_approvers.as_bytes());
-
-        balance_accounts_count_dst[0] = self.balance_accounts.len() as u8;
-        balance_accounts_dst.fill(0);
-        balance_accounts_dst
-            .chunks_exact_mut(BalanceAccount::LEN)
-            .take(self.balance_accounts.len())
-            .enumerate()
-            .for_each(|(i, chunk)| self.balance_accounts[i].pack_into_slice(chunk));
-
         config_policy_update_locked_dst[0] = self.config_policy_update_locked as u8;
+        self.dapp_book.pack_into_slice(dapp_book_dst);
+        self.balance_accounts.pack_into_slice(balance_accounts_dst);
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -774,7 +764,6 @@ impl Pack for Wallet {
             config_approvers_src,
             config_policy_update_locked_src,
             dapp_book_src,
-            balance_accounts_count,
             balance_accounts_src,
         ) = array_refs![
             src,
@@ -787,17 +776,8 @@ impl Pack for Wallet {
             Approvers::STORAGE_SIZE,
             1,
             DAppBook::LEN,
-            1,
-            BalanceAccount::LEN * Wallet::MAX_BALANCE_ACCOUNTS
+            BalanceAccounts::LEN
         ];
-
-        let mut balance_accounts = Vec::with_capacity(Wallet::MAX_BALANCE_ACCOUNTS);
-        balance_accounts_src
-            .chunks_exact(BalanceAccount::LEN)
-            .take(usize::from(balance_accounts_count[0]))
-            .for_each(|chunk| {
-                balance_accounts.push(BalanceAccount::unpack_from_slice(chunk).unwrap());
-            });
 
         Ok(Wallet {
             is_initialized: match is_initialized {
@@ -813,7 +793,7 @@ impl Pack for Wallet {
                 *approval_timeout_for_config,
             )),
             config_approvers: Approvers::new(*config_approvers_src),
-            balance_accounts,
+            balance_accounts: BalanceAccounts::unpack_from_slice(balance_accounts_src)?,
             config_policy_update_locked: match config_policy_update_locked_src {
                 [0] => false,
                 [1] => true,

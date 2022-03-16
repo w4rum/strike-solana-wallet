@@ -42,7 +42,7 @@ pub fn init(
     let balance_account = wallet.get_balance_account(account_guid_hash)?;
 
     if !wallet.destination_allowed(
-        balance_account,
+        &balance_account,
         destination_account.key,
         destination_name_hash,
     )? {
@@ -50,7 +50,7 @@ pub fn init(
         return Err(WalletError::DestinationNotAllowed.into());
     }
 
-    wallet.validate_transfer_initiator(balance_account, initiator_account_info)?;
+    wallet.validate_transfer_initiator(&balance_account, initiator_account_info)?;
 
     if *token_mint.key != Pubkey::default() && *destination_token_account.owner == Pubkey::default()
     {

@@ -69,15 +69,15 @@ async fn test_balance_account_policy_update() {
     assert_eq!(updated_balance_account.name_hash, balance_account.name_hash);
     assert_eq!(
         updated_wallet
-            .get_transfer_approvers_keys(updated_balance_account)
+            .get_transfer_approvers_keys(&updated_balance_account)
             .to_set(),
         HashSet::from([context.approvers[1].pubkey(), context.approvers[2].pubkey()])
     );
     assert_eq!(
         updated_wallet
-            .get_allowed_destinations(updated_balance_account)
+            .get_allowed_destinations(&updated_balance_account)
             .to_set(),
-        wallet.get_allowed_destinations(balance_account).to_set(),
+        wallet.get_allowed_destinations(&balance_account).to_set(),
     );
 
     // verify the multisig op account is closed
@@ -111,7 +111,7 @@ async fn test_balance_account_policy_update() {
     .unwrap();
     assert_eq!(
         expected_balance_account,
-        *get_wallet(&mut context.banks_client, &context.wallet_account.pubkey())
+        get_wallet(&mut context.banks_client, &context.wallet_account.pubkey())
             .await
             .get_balance_account(&context.balance_account_guid_hash)
             .unwrap()
@@ -132,7 +132,7 @@ async fn test_balance_account_policy_update() {
     .unwrap();
     assert_eq!(
         expected_balance_account,
-        *get_wallet(&mut context.banks_client, &context.wallet_account.pubkey())
+        get_wallet(&mut context.banks_client, &context.wallet_account.pubkey())
             .await
             .get_balance_account(&context.balance_account_guid_hash)
             .unwrap()
@@ -394,15 +394,17 @@ async fn test_balance_account_policy_update_is_denied() {
     );
     assert_eq!(
         wallet_after_update
-            .get_transfer_approvers_keys(balance_account_after_update)
+            .get_transfer_approvers_keys(&balance_account_after_update)
             .to_set(),
-        wallet.get_transfer_approvers_keys(balance_account).to_set()
+        wallet
+            .get_transfer_approvers_keys(&balance_account)
+            .to_set()
     );
     assert_eq!(
         wallet_after_update
-            .get_allowed_destinations(balance_account_after_update)
+            .get_allowed_destinations(&balance_account_after_update)
             .to_set(),
-        wallet.get_allowed_destinations(balance_account).to_set()
+        wallet.get_allowed_destinations(&balance_account).to_set()
     );
 
     // verify the multisig op account is closed

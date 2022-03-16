@@ -6,6 +6,7 @@ use solana_program::{system_program, sysvar};
 use std::borrow::Borrow;
 use std::time::Duration;
 use strike_wallet::instruction::{BalanceAccountCreation, BalanceAccountPolicyUpdate};
+use strike_wallet::model::balance_account::BalanceAccount;
 use strike_wallet::{
     instruction::{
         AddressBookUpdate, BalanceAccountWhitelistUpdate, DAppBookUpdate, InitialWalletConfig,
@@ -92,6 +93,7 @@ pub fn init_balance_account_creation(
     wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     assistant_account: &Pubkey,
+    slot_id: SlotId<BalanceAccount>,
     account_guid_hash: BalanceAccountGuidHash,
     name_hash: BalanceAccountNameHash,
     approvals_required_for_transfer: u8,
@@ -109,6 +111,7 @@ pub fn init_balance_account_creation(
         ProgramInstruction::InitBalanceAccountCreation {
             account_guid_hash,
             creation_params: BalanceAccountCreation {
+                slot_id,
                 name_hash,
                 approvals_required_for_transfer,
                 approval_timeout_for_transfer,

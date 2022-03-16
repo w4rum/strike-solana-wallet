@@ -111,11 +111,23 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
         }
     }
 
+    pub fn replace(&mut self, id: SlotId<A>, item: A) {
+        self.array[id.value] = Some(item)
+    }
+
     pub fn find_id(&self, value: &A) -> Option<SlotId<A>> {
         self.array
             .iter()
             .position(|value_opt| *value_opt == Some(*value))
             .map(|pos| SlotId::new(usize::from(pos)))
+    }
+
+    pub fn find_by<F: Fn(A) -> bool>(&self, predicate: F) -> Option<(SlotId<A>, A)> {
+        self.array
+            .iter()
+            .enumerate()
+            .find(|(_, value_opt)| value_opt.is_some() && predicate(value_opt.unwrap()))
+            .map(|(pos, value_opt)| (SlotId::new(pos), value_opt.unwrap()))
     }
 
     pub fn filled_slots(&self) -> Vec<(SlotId<A>, A)> {
@@ -157,7 +169,7 @@ impl<A: Pack + Copy + PartialEq + Ord, const SIZE: usize> Pack for Slots<A, SIZE
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SlotFlags<A, const STORAGE_SIZE: usize> {
     bit_arr: BitArray<[u8; STORAGE_SIZE]>,
     item_type: PhantomData<A>,

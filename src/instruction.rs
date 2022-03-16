@@ -11,7 +11,9 @@ use solana_program::program_pack::Pack;
 use solana_program::{instruction::AccountMeta, instruction::Instruction, pubkey::Pubkey};
 
 use crate::model::address_book::{AddressBookEntry, AddressBookEntryNameHash, DAppBookEntry};
-use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
+use crate::model::balance_account::{
+    BalanceAccount, BalanceAccountGuidHash, BalanceAccountNameHash,
+};
 use crate::model::multisig_op::{
     ApprovalDisposition, BooleanSetting, SlotUpdateType, WrapDirection,
 };
@@ -994,6 +996,7 @@ impl WalletConfigPolicyUpdate {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct BalanceAccountCreation {
+    pub slot_id: SlotId<BalanceAccount>,
     pub name_hash: BalanceAccountNameHash,
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
@@ -1009,6 +1012,7 @@ impl BalanceAccountCreation {
             return Err(ProgramError::InvalidInstructionData);
         }
         let mut iter = bytes.iter();
+        let slot_id = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
         let name_hash: [u8; 32] =
             *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let approvals_required_for_transfer =
@@ -1021,6 +1025,7 @@ impl BalanceAccountCreation {
         let address_book_slot_id = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
 
         Ok(BalanceAccountCreation {
+            slot_id: SlotId::new(slot_id as usize),
             name_hash: BalanceAccountNameHash::new(&name_hash),
             approvals_required_for_transfer,
             approval_timeout_for_transfer,
@@ -1032,6 +1037,7 @@ impl BalanceAccountCreation {
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
+        dst.push(self.slot_id.value as u8);
         dst.extend_from_slice(self.name_hash.to_bytes());
         dst.push(self.approvals_required_for_transfer);
         append_duration(&self.approval_timeout_for_transfer, dst);

@@ -16,7 +16,7 @@ use strike_wallet::error::WalletError;
 use strike_wallet::instruction::InitialWalletConfig;
 use strike_wallet::model::address_book::{AddressBook, DAppBook};
 use strike_wallet::model::signer::Signer;
-use strike_wallet::model::wallet::{Approvers, Signers, Wallet};
+use strike_wallet::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet};
 use strike_wallet::utils::SlotId;
 use {
     solana_program_test::{processor, tokio, ProgramTest},
@@ -77,7 +77,7 @@ async fn init_wallet() {
                     .map(|(slot_id, _)| slot_id)
                     .collect_vec()
             ),
-            balance_accounts: Vec::new(),
+            balance_accounts: BalanceAccounts::new(),
             config_policy_update_locked: false,
             dapp_book: DAppBook::from_vec(vec![]),
         }

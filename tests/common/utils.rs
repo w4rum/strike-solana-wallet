@@ -1091,6 +1091,7 @@ pub async fn setup_balance_account_tests(
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
+                SlotId::new(0),
                 balance_account_guid_hash,
                 balance_account_name_hash,
                 2,
@@ -1137,6 +1138,7 @@ pub async fn setup_balance_account_tests(
     assert_eq!(multisig_op.dispositions_required, 1);
 
     let expected_creation_params = BalanceAccountCreation {
+        slot_id: SlotId::new(0),
         name_hash: balance_account_name_hash,
         approvals_required_for_transfer: 2,
         approval_timeout_for_transfer,
@@ -1268,6 +1270,7 @@ pub async fn setup_create_balance_account_failure_tests(
                 &wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &assistant_account.pubkey(),
+                SlotId::new(0),
                 balance_account_guid_hash,
                 balance_account_name_hash,
                 approvals_required_for_transfer,
@@ -2141,6 +2144,6 @@ pub async fn verify_address_book(
         .unwrap();
     assert_eq!(
         whitelist_entries.to_set(),
-        wallet.get_allowed_destinations(balance_account).to_set()
+        wallet.get_allowed_destinations(&balance_account).to_set()
     );
 }

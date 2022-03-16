@@ -39,7 +39,7 @@ pub fn init(
         return Err(WalletError::DAppsDisabled.into());
     }
 
-    wallet.validate_transfer_initiator(balance_account, initiator_account_info)?;
+    wallet.validate_transfer_initiator(&balance_account, initiator_account_info)?;
 
     if !balance_account.is_whitelist_disabled() {
         if !wallet.dapp_allowed(dapp) {
@@ -49,7 +49,7 @@ pub fn init(
 
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
     multisig_op.init(
-        wallet.get_transfer_approvers_keys(balance_account),
+        wallet.get_transfer_approvers_keys(&balance_account),
         1,
         clock.unix_timestamp,
         calculate_expires(

@@ -126,7 +126,7 @@ impl SlotUpdateType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Ord, PartialOrd)]
 #[repr(u8)]
 pub enum BooleanSetting {
     Off = 0,

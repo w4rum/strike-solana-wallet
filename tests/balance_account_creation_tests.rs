@@ -66,11 +66,13 @@ async fn test_balance_account_creation() {
     assert_eq!(balance_account.guid_hash, context.balance_account_guid_hash);
     assert_eq!(balance_account.name_hash, context.balance_account_name_hash);
     assert_eq!(
-        wallet.get_transfer_approvers_keys(balance_account).to_set(),
+        wallet
+            .get_transfer_approvers_keys(&balance_account)
+            .to_set(),
         HashSet::from([context.approvers[0].pubkey(), context.approvers[1].pubkey()])
     );
     assert_eq!(
-        wallet.get_allowed_destinations(balance_account).to_set(),
+        wallet.get_allowed_destinations(&balance_account).to_set(),
         HashSet::from([])
     );
     assert_eq!(balance_account.approvals_required_for_transfer, 2);
