@@ -88,7 +88,7 @@ pub fn set_approval_disposition(
     }
 }
 
-pub fn init_balance_account_creation(
+pub fn init_balance_account_creation_instruction(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
@@ -436,7 +436,7 @@ pub fn init_update_signer(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
-    assistant_account: &Pubkey,
+    initiator_account: &Pubkey,
     slot_update_type: SlotUpdateType,
     slot_id: SlotId<Signer>,
     signer: Signer,
@@ -445,7 +445,7 @@ pub fn init_update_signer(
         program_id,
         wallet_account,
         multisig_op_account,
-        assistant_account,
+        initiator_account,
         ProgramInstruction::InitUpdateSigner {
             slot_update_type,
             slot_id,
@@ -715,7 +715,7 @@ pub fn finalize_balance_account_name_update(
     }
 }
 
-pub fn init_address_book_update(
+pub fn init_address_book_update_instruction(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,

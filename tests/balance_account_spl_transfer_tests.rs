@@ -8,6 +8,7 @@ pub use common::utils::*;
 use std::borrow::BorrowMut;
 
 use solana_program::instruction::InstructionError::Custom;
+use solana_sdk::signature::Keypair;
 use solana_sdk::transaction::TransactionError;
 
 use common::instructions::finalize_transfer;
@@ -238,8 +239,10 @@ async fn test_transfer_spl(
             .unwrap();
     }
 
+    let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
     let (multisig_op_account, result) = setup_transfer_test(
         context.borrow_mut(),
+        initiator,
         &balance_account,
         Some(&spl_context.mint.pubkey()),
         None,
@@ -306,8 +309,10 @@ async fn test_transfer_spl_insufficient_balance() {
         setup_balance_account_tests_and_finalize(Some(60_000)).await;
     let spl_context = setup_spl_transfer_test(&mut context, &balance_account, true).await;
 
+    let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
     let (multisig_op_account, result) = setup_transfer_test(
         context.borrow_mut(),
+        initiator,
         &balance_account,
         Some(&spl_context.mint.pubkey()),
         Some(1230),

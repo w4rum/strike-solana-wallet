@@ -114,6 +114,7 @@ pub fn init(
             amount,
             token_mint: *token_mint.key,
         },
+        *initiator_account_info.key,
     )
 }
 

@@ -35,6 +35,7 @@ pub fn init(
             wallet_address: *wallet_account_info.key,
             update: update.clone(),
         },
+        *initiator_account_info.key,
     )?;
 
     Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;

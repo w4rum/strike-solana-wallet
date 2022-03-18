@@ -41,6 +41,7 @@ pub fn init(
             slot_id,
             signer,
         },
+        *initiator_account_info.key,
     )
 }
 

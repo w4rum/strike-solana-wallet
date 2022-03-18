@@ -84,6 +84,7 @@ pub fn init(
             amount,
             direction,
         },
+        *initiator_account.key,
     )
 }
 

@@ -37,6 +37,7 @@ pub fn init(
             account_guid_hash: *account_guid_hash,
             account_name_hash: *account_name_hash,
         },
+        *initiator_account_info.key,
     )?;
 
     Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;

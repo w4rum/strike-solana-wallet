@@ -39,6 +39,7 @@ pub fn init(
             whitelist_enabled,
             dapps_enabled,
         },
+        *initiator_account_info.key,
     )
 }
 

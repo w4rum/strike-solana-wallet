@@ -33,6 +33,7 @@ pub fn init(
             wallet_address: *wallet_account_info.key,
             update: update.clone(),
         },
+        *initiator_account_info.key,
     )
 }
 

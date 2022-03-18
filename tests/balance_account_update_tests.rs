@@ -6,7 +6,7 @@ pub use common::instructions::*;
 pub use common::utils::*;
 
 use std::borrow::BorrowMut;
-use std::time::Duration;
+use std::time::{Duration};
 
 use solana_program::instruction::InstructionError::Custom;
 
@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use strike_wallet::error::WalletError;
 use strike_wallet::instruction::BalanceAccountPolicyUpdate;
 use strike_wallet::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
-use strike_wallet::model::multisig_op::{ApprovalDisposition, OperationDisposition};
+use strike_wallet::model::multisig_op::{ApprovalDisposition, ApprovalDispositionRecord, OperationDisposition};
 use strike_wallet::utils::SlotId;
 use {
     solana_program::system_instruction,
@@ -83,7 +83,7 @@ async fn test_balance_account_policy_update() {
     // verify the multisig op account is closed
     assert!(context
         .banks_client
-        .get_account(multisig_op_account.pubkey())
+        .get_account(multisig_op_account)
         .await
         .unwrap()
         .is_none());
@@ -136,6 +136,73 @@ async fn test_balance_account_policy_update() {
             .await
             .get_balance_account(&context.balance_account_guid_hash)
             .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_balance_account_policy_update_initiator_approval() {
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+
+    let multisig_op_account = init_balance_account_policy_update(
+        &mut context,
+        &initiator_account,
+        BalanceAccountPolicyUpdate {
+            approvals_required_for_transfer: None,
+            approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
+            add_transfer_approvers: vec![],
+            remove_transfer_approvers: vec![],
+        }
+    )
+        .await
+        .unwrap();
+
+    assert_multisig_op_dispositions(
+        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        2,
+        &vec![
+            ApprovalDispositionRecord {
+                approver: context.approvers[0].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+            ApprovalDispositionRecord {
+                approver: context.approvers[1].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+        ],
+        OperationDisposition::NONE,
+    );
+
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let initiator_account = Keypair::from_base58_string(&context.approvers[0].to_base58_string());
+
+    let multisig_op_account = init_balance_account_policy_update(
+        &mut context,
+        &initiator_account,
+        BalanceAccountPolicyUpdate {
+            approvals_required_for_transfer: None,
+            approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
+            add_transfer_approvers: vec![],
+            remove_transfer_approvers: vec![],
+        }
+    )
+        .await
+        .unwrap();
+
+    assert_multisig_op_dispositions(
+        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        2,
+        &vec![
+            ApprovalDispositionRecord {
+                approver: context.approvers[0].pubkey(),
+                disposition: ApprovalDisposition::APPROVE,
+            },
+            ApprovalDispositionRecord {
+                approver: context.approvers[1].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+        ],
+        OperationDisposition::NONE,
     );
 }
 
@@ -327,15 +394,15 @@ async fn test_balance_account_policy_update_is_denied() {
         .await
         .unwrap();
 
-    approve_or_deny_1_of_2_multisig_op(
+    approve_or_deny_n_of_n_multisig_op(
         context.banks_client.borrow_mut(),
         &context.program_id,
         &multisig_op_account.pubkey(),
-        &context.approvers[0],
+        vec![&context.approvers[0], &context.approvers[1]],
         &context.payer,
-        &context.approvers[1].pubkey(),
         context.recent_blockhash,
         ApprovalDisposition::DENY,
+        OperationDisposition::DENIED
     )
     .await;
 
@@ -567,4 +634,55 @@ async fn test_update_balance_account_name_fails_when_guid_invalid() {
         Some(Custom(WalletError::BalanceAccountNotFound as u32)),
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_update_balance_account_name_initiator_approval() {
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let name_hash = BalanceAccountNameHash::new(&[1; 32]);
+    let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+
+    let multisig_op = init_balance_account_name_hash_update(&mut context, &initiator_account, name_hash)
+        .await
+        .unwrap();
+
+    assert_multisig_op_dispositions(
+        &get_multisig_op_data(&mut context.banks_client, multisig_op).await,
+        2,
+        &vec![
+            ApprovalDispositionRecord {
+                approver: context.approvers[0].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+            ApprovalDispositionRecord {
+                approver: context.approvers[1].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+        ],
+        OperationDisposition::NONE,
+    );
+
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let name_hash = BalanceAccountNameHash::new(&[1; 32]);
+    let initiator_account = Keypair::from_base58_string(&context.approvers[0].to_base58_string());
+
+    let multisig_op = init_balance_account_name_hash_update(&mut context, &initiator_account, name_hash)
+        .await
+        .unwrap();
+
+    assert_multisig_op_dispositions(
+        &get_multisig_op_data(&mut context.banks_client, multisig_op).await,
+        2,
+        &vec![
+            ApprovalDispositionRecord {
+                approver: context.approvers[0].pubkey(),
+                disposition: ApprovalDisposition::APPROVE,
+            },
+            ApprovalDispositionRecord {
+                approver: context.approvers[1].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+        ],
+        OperationDisposition::NONE,
+    );
 }

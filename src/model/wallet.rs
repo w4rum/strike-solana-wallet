@@ -121,7 +121,7 @@ impl Wallet {
         // approval timeout seconds must fall within program-defined range.
         if *timeout < Wallet::MIN_APPROVAL_TIMEOUT {
             msg!(
-                "Approval timeout for config can't be less than {}",
+                "Approval timeout can't be less than {}",
                 Wallet::MIN_APPROVAL_TIMEOUT.as_secs(),
             );
             return Err(WalletError::InvalidApprovalTimeout.into());
@@ -129,7 +129,7 @@ impl Wallet {
 
         if *timeout > Wallet::MAX_APPROVAL_TIMEOUT {
             msg!(
-                "Approval timeout for config can't be more than {} seconds",
+                "Approval timeout can't be more than {} seconds",
                 Wallet::MAX_APPROVAL_TIMEOUT.as_secs(),
             );
             return Err(WalletError::InvalidApprovalTimeout.into());

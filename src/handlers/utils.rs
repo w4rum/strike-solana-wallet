@@ -1,6 +1,6 @@
 use crate::error::WalletError;
 use crate::model::balance_account::{BalanceAccount, BalanceAccountGuidHash};
-use crate::model::multisig_op::{MultisigOp, MultisigOpParams};
+use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, MultisigOpParams};
 use crate::model::wallet::Wallet;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
@@ -79,11 +79,13 @@ pub fn start_multisig_transfer_op(
     balance_account: &BalanceAccount,
     clock: Clock,
     params: MultisigOpParams,
+    initiator: Pubkey,
 ) -> ProgramResult {
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
 
     multisig_op.init(
         wallet.get_transfer_approvers_keys(balance_account),
+        (initiator, ApprovalDisposition::APPROVE),
         balance_account.approvals_required_for_transfer,
         clock.unix_timestamp,
         calculate_expires(
@@ -102,11 +104,13 @@ pub fn start_multisig_config_op(
     wallet: &Wallet,
     clock: Clock,
     params: MultisigOpParams,
+    initiator: Pubkey,
 ) -> ProgramResult {
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
 
     multisig_op.init(
         wallet.get_config_approvers_keys(),
+        (initiator, ApprovalDisposition::APPROVE),
         wallet.approvals_required_for_config,
         clock.unix_timestamp,
         calculate_expires(clock.unix_timestamp, wallet.approval_timeout_for_config)?,

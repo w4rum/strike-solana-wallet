@@ -223,6 +223,7 @@ impl MultisigOp {
     pub fn init(
         &mut self,
         approvers: Vec<Pubkey>,
+        initiator_disposition: (Pubkey, ApprovalDisposition),
         approvals_required: u8,
         started_at: i64,
         expires_at: i64,
@@ -232,7 +233,11 @@ impl MultisigOp {
             .iter()
             .map(|approver| ApprovalDispositionRecord {
                 approver: *approver,
-                disposition: ApprovalDisposition::NONE,
+                disposition: if *approver == initiator_disposition.0 {
+                    initiator_disposition.1
+                } else {
+                    ApprovalDisposition::NONE
+                },
             })
             .collect::<Vec<_>>();
         self.dispositions_required = approvals_required;
@@ -240,7 +245,12 @@ impl MultisigOp {
         self.is_initialized = true;
         self.started_at = started_at;
         self.expires_at = expires_at;
-        self.operation_disposition = OperationDisposition::NONE;
+
+        if self.get_disposition_count(ApprovalDisposition::APPROVE) == self.dispositions_required {
+            self.operation_disposition = OperationDisposition::APPROVED
+        } else {
+            self.operation_disposition = OperationDisposition::NONE
+        }
 
         Ok(())
     }

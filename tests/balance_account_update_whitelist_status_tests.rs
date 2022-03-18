@@ -9,6 +9,7 @@ use solana_program::instruction::InstructionError::Custom;
 use solana_program_test::tokio;
 use solana_sdk::transaction::TransactionError;
 use std::borrow::BorrowMut;
+use solana_sdk::signature::Keypair;
 use strike_wallet::error::WalletError;
 use strike_wallet::model::{balance_account::BalanceAccountGuidHash, multisig_op::BooleanSetting};
 use strike_wallet::utils::SlotId;
@@ -21,7 +22,14 @@ async fn test_whitelist_status() {
     verify_whitelist_status(&mut context, BooleanSetting::Off, 0).await;
 
     // transfer should go through
-    let (_, result) = setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+    let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+    let (_, result) = setup_transfer_test(
+        context.borrow_mut(),
+        initiator,
+        &balance_account,
+        None,
+        None
+    ).await;
     result.unwrap();
 
     // add a whitelisted destination, should fail since whitelisting on
@@ -67,7 +75,14 @@ async fn test_whitelist_status() {
     verify_whitelist_status(&mut context, BooleanSetting::On, 0).await;
 
     // make sure transfer fails
-    let (_, result) = setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+    let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+    let (_, result) = setup_transfer_test(
+        context.borrow_mut(),
+        initiator,
+        &balance_account,
+        None,
+        None
+    ).await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -76,7 +91,15 @@ async fn test_whitelist_status() {
     // explicitly turn it off and verify transfer succeeds
     account_settings_update(&mut context, Some(BooleanSetting::Off), None, None).await;
     verify_whitelist_status(&mut context, BooleanSetting::Off, 0).await;
-    let (_, result) = setup_transfer_test(context.borrow_mut(), &balance_account, None, None).await;
+
+    let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+    let (_, result) = setup_transfer_test(
+        context.borrow_mut(),
+        initiator,
+        &balance_account,
+        None,
+        None
+    ).await;
     result.unwrap();
 
     // explicitly turn it on

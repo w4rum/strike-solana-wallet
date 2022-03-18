@@ -7,9 +7,11 @@ pub use common::utils::*;
 
 use solana_program::instruction::InstructionError::Custom;
 use solana_program_test::tokio;
+use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use strike_wallet::error::WalletError;
-use strike_wallet::model::multisig_op::BooleanSetting;
+use strike_wallet::instruction::AddressBookUpdate;
+use strike_wallet::model::multisig_op::{ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition};
 
 #[tokio::test]
 async fn test_address_book_update() {
@@ -180,4 +182,69 @@ async fn test_address_book_failures() {
         Some(Custom(WalletError::InvalidSlot as u32)),
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_address_book_update_initiator_approval() {
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000)).await;
+    let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+
+    let wallet = get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+
+    let multisig_op_account = init_address_book_update(
+        &mut context,
+        &initiator_account,
+        AddressBookUpdate {
+            add_address_book_entries: vec![],
+            remove_address_book_entries: wallet.address_book.filled_slots(),
+            balance_account_whitelist_updates: vec![],
+        }
+    )
+        .await
+        .unwrap();
+
+    assert_multisig_op_dispositions(
+        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        2,
+        &vec![
+            ApprovalDispositionRecord {
+                approver: context.approvers[0].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+            ApprovalDispositionRecord {
+                approver: context.approvers[1].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+        ],
+        OperationDisposition::NONE,
+    );
+
+    let initiator_account = Keypair::from_base58_string(&context.approvers[0].to_base58_string());
+    let multisig_op_account = init_address_book_update(
+        &mut context,
+        &initiator_account,
+        AddressBookUpdate {
+            add_address_book_entries: vec![],
+            remove_address_book_entries: wallet.address_book.filled_slots(),
+            balance_account_whitelist_updates: vec![],
+        }
+    )
+        .await
+        .unwrap();
+
+    assert_multisig_op_dispositions(
+        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        2,
+        &vec![
+            ApprovalDispositionRecord {
+                approver: context.approvers[0].pubkey(),
+                disposition: ApprovalDisposition::APPROVE,
+            },
+            ApprovalDispositionRecord {
+                approver: context.approvers[1].pubkey(),
+                disposition: ApprovalDisposition::NONE,
+            },
+        ],
+        OperationDisposition::NONE,
+    );
 }

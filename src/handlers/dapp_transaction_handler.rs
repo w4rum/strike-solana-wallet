@@ -8,7 +8,7 @@ use crate::handlers::utils::{
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::dapp_multisig_data::DAppMultisigData;
-use crate::model::multisig_op::{MultisigOp, MultisigOpParams};
+use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, MultisigOpParams};
 use crate::model::wallet::Wallet;
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
@@ -54,6 +54,7 @@ pub fn init(
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
     multisig_op.init(
         wallet.get_transfer_approvers_keys(&balance_account),
+        (*initiator_account_info.key, ApprovalDisposition::NONE),
         1,
         clock.unix_timestamp,
         calculate_expires(

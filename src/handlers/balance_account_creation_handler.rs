@@ -36,6 +36,7 @@ pub fn init(
             wallet_address: *wallet_account_info.key,
             creation_params: creation_params.clone(),
         },
+        *initiator_account_info.key,
     )
 }
 
