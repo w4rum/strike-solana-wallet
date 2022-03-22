@@ -22,7 +22,7 @@ use strike_wallet::utils::SlotId;
 #[tokio::test]
 async fn wallet_config_policy_update() {
     let started_at = SystemTime::now();
-    let mut context = setup_test(30_000).await;
+    let mut context = setup_test(40_000).await;
 
     let wallet_account = Keypair::new();
     let assistant_account = Keypair::new();
@@ -174,7 +174,7 @@ async fn wallet_config_policy_update() {
 
 #[tokio::test]
 async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
-    let mut context = setup_test(30_000).await;
+    let mut context = setup_test(40_000).await;
 
     let wallet_account = Keypair::new();
     let assistant_account = Keypair::new();
@@ -309,7 +309,7 @@ async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
 
 #[tokio::test]
 async fn invalid_wallet_config_policy_updates() {
-    let mut context = setup_test(30_000).await;
+    let mut context = setup_test(40_000).await;
 
     let wallet_account = Keypair::new();
     let assistant_account = Keypair::new();
@@ -442,8 +442,8 @@ async fn wallet_config_policy_update_initiator_approval() {
             config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
         },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let update = WalletConfigPolicyUpdate {
         approvals_required_for_config: Some(1),
@@ -458,8 +458,8 @@ async fn wallet_config_policy_update_initiator_approval() {
         &approvers[0],
         &update.clone(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
@@ -482,7 +482,7 @@ async fn wallet_config_policy_update_initiator_approval() {
         &multisig_op_account,
         vec![&approvers[0], &approvers[1]],
     )
-        .await;
+    .await;
 
     utils::finalize_wallet_config_policy_update(
         &mut context,
@@ -490,7 +490,7 @@ async fn wallet_config_policy_update_initiator_approval() {
         multisig_op_account,
         &update.clone(),
     )
-        .await;
+    .await;
 
     let multisig_op_account = utils::init_wallet_config_policy_update(
         &mut context,
@@ -501,20 +501,18 @@ async fn wallet_config_policy_update_initiator_approval() {
             approval_timeout_for_config: Some(Duration::from_secs(7200)),
             add_config_approvers: vec![],
             remove_config_approvers: vec![],
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
         1,
-        &vec![
-            ApprovalDispositionRecord {
-                approver: approvers[0].pubkey(),
-                disposition: ApprovalDisposition::APPROVE,
-            },
-        ],
+        &vec![ApprovalDispositionRecord {
+            approver: approvers[0].pubkey(),
+            disposition: ApprovalDisposition::APPROVE,
+        }],
         OperationDisposition::APPROVED,
     );
 }

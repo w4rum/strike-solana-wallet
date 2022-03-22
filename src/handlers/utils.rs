@@ -92,7 +92,7 @@ pub fn start_multisig_transfer_op(
             clock.unix_timestamp,
             balance_account.approval_timeout_for_transfer,
         )?,
-        params,
+        Some(params),
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
@@ -114,7 +114,7 @@ pub fn start_multisig_config_op(
         wallet.approvals_required_for_config,
         clock.unix_timestamp,
         calculate_expires(clock.unix_timestamp, wallet.approval_timeout_for_config)?,
-        params,
+        Some(params),
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
@@ -137,7 +137,7 @@ where
 
     let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
-    if multisig_op.approved(&expected_params, &clock)? {
+    if multisig_op.approved(expected_params.hash(), &clock, None)? {
         on_op_approved()?
     }
 

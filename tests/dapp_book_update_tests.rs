@@ -18,13 +18,16 @@ use strike_wallet::utils::{SlotId, Slots};
 #[tokio::test]
 async fn test_dapp_book_update() {
     let started_at = SystemTime::now();
-    let mut context = setup_test(30_000).await;
+    let mut context = setup_test(40_000).await;
 
     let wallet_account = Keypair::new();
     let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new()];
-    let signers = vec![approvers[0].pubkey_as_signer(), approvers[1].pubkey_as_signer()];
+    let signers = vec![
+        approvers[0].pubkey_as_signer(),
+        approvers[1].pubkey_as_signer(),
+    ];
 
     utils::init_wallet(
         &mut context.banks_client,
@@ -180,34 +183,29 @@ async fn test_dapp_book_update_initiator_approval() {
                 (SlotId::new(1), signers[1]),
                 (SlotId::new(2), signers[2]),
             ],
-            config_approvers: vec![
-                (SlotId::new(0), signers[0]),
-                (SlotId::new(1), signers[1]),
-            ],
+            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
         },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let multisig_op_account = utils::init_dapp_book_update(
         &mut context,
         wallet_account.pubkey(),
         &approvers[2],
         DAppBookUpdate {
-            add_dapps: vec![
-                (
-                    SlotId::new(0),
-                    DAppBookEntry {
-                        address: Keypair::new().pubkey(),
-                        name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
-                    },
-                )
-            ],
+            add_dapps: vec![(
+                SlotId::new(0),
+                DAppBookEntry {
+                    address: Keypair::new().pubkey(),
+                    name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
+                },
+            )],
             remove_dapps: vec![],
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
@@ -220,7 +218,7 @@ async fn test_dapp_book_update_initiator_approval() {
             ApprovalDispositionRecord {
                 approver: approvers[1].pubkey(),
                 disposition: ApprovalDisposition::NONE,
-            }
+            },
         ],
         OperationDisposition::NONE,
     );
@@ -230,20 +228,18 @@ async fn test_dapp_book_update_initiator_approval() {
         wallet_account.pubkey(),
         &approvers[0],
         DAppBookUpdate {
-            add_dapps: vec![
-                (
-                    SlotId::new(0),
-                    DAppBookEntry {
-                        address: Keypair::new().pubkey(),
-                        name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
-                    },
-                )
-            ],
+            add_dapps: vec![(
+                SlotId::new(0),
+                DAppBookEntry {
+                    address: Keypair::new().pubkey(),
+                    name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
+                },
+            )],
             remove_dapps: vec![],
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
@@ -256,7 +252,7 @@ async fn test_dapp_book_update_initiator_approval() {
             ApprovalDispositionRecord {
                 approver: approvers[1].pubkey(),
                 disposition: ApprovalDisposition::NONE,
-            }
+            },
         ],
         OperationDisposition::NONE,
     );

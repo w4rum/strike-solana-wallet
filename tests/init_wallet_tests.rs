@@ -88,7 +88,7 @@ async fn init_wallet() {
 async fn invalid_wallet_initialization() {
     let program_id = Keypair::new().pubkey();
     let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_bpf_compute_max_units(30_000);
+    pt.set_bpf_compute_max_units(40_000);
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
     let wallet_account = Keypair::new();
     let assistant_account = Keypair::new();

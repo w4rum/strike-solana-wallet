@@ -176,25 +176,33 @@ impl Processor {
             ProgramInstruction::InitDAppTransaction {
                 ref account_guid_hash,
                 dapp,
-                instructions,
+                instruction_count,
             } => dapp_transaction_handler::init(
                 program_id,
                 accounts,
                 account_guid_hash,
                 dapp,
+                instruction_count,
+            ),
+
+            ProgramInstruction::SupplyDAppTransactionInstructions {
+                instructions,
+                starting_index,
+            } => dapp_transaction_handler::supply_instructions(
+                program_id,
+                accounts,
+                starting_index,
                 instructions,
             ),
 
             ProgramInstruction::FinalizeDAppTransaction {
                 ref account_guid_hash,
-                dapp,
-                ref instructions,
+                ref params_hash,
             } => dapp_transaction_handler::finalize(
                 program_id,
                 accounts,
                 account_guid_hash,
-                dapp,
-                instructions,
+                params_hash,
             ),
 
             ProgramInstruction::InitAccountSettingsUpdate {

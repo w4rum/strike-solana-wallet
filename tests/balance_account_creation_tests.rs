@@ -14,11 +14,15 @@ use solana_sdk::transaction::TransactionError;
 use crate::common::utils;
 use common::instructions::finalize_balance_account_creation;
 use std::collections::HashSet;
-use uuid::Uuid;
 use strike_wallet::error::WalletError;
+use strike_wallet::instruction::{BalanceAccountCreation, InitialWalletConfig};
 use strike_wallet::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
-use strike_wallet::model::multisig_op::{ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition};
+use strike_wallet::model::multisig_op::{
+    ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition,
+};
 use strike_wallet::model::wallet::Wallet;
+use strike_wallet::utils::SlotId;
+use uuid::Uuid;
 use {
     solana_program_test::tokio,
     solana_sdk::{
@@ -27,8 +31,6 @@ use {
         transaction::Transaction,
     },
 };
-use strike_wallet::instruction::{BalanceAccountCreation, InitialWalletConfig};
-use strike_wallet::utils::SlotId;
 
 #[tokio::test]
 async fn test_balance_account_creation() {
@@ -42,7 +44,7 @@ async fn test_balance_account_creation() {
         &context.payer,
         context.recent_blockhash,
         ApprovalDisposition::APPROVE,
-        OperationDisposition::APPROVED
+        OperationDisposition::APPROVED,
     )
     .await;
 
@@ -248,19 +250,23 @@ async fn test_balance_account_creation_incorrect_hash() {
 async fn test_balance_account_creation_initiator_approval() {
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
 
-    let mut context = setup_wallet_test(30_000, InitialWalletConfig {
-        approvals_required_for_config: 2,
-        approval_timeout_for_config: Duration::from_secs(3600),
-        signers: vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
-            (SlotId::new(2), approvers[2].pubkey_as_signer()),
-        ],
-        config_approvers: vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
-        ],
-    }).await;
+    let mut context = setup_wallet_test(
+        30_000,
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), approvers[0].pubkey_as_signer()),
+                (SlotId::new(1), approvers[1].pubkey_as_signer()),
+                (SlotId::new(2), approvers[2].pubkey_as_signer()),
+            ],
+            config_approvers: vec![
+                (SlotId::new(0), approvers[0].pubkey_as_signer()),
+                (SlotId::new(1), approvers[1].pubkey_as_signer()),
+            ],
+        },
+    )
+    .await;
 
     let multisig_op_account = init_balance_account_creation(
         &mut context,
@@ -271,16 +277,14 @@ async fn test_balance_account_creation_initiator_approval() {
             name_hash: BalanceAccountNameHash::new(&hash_of(b"Account Name")),
             approvals_required_for_transfer: 1,
             approval_timeout_for_transfer: Duration::from_secs(120),
-            transfer_approvers: vec![
-                (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            ],
+            transfer_approvers: vec![(SlotId::new(0), approvers[0].pubkey_as_signer())],
             whitelist_enabled: BooleanSetting::Off,
             dapps_enabled: BooleanSetting::Off,
             address_book_slot_id: SlotId::new(32),
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
@@ -307,16 +311,14 @@ async fn test_balance_account_creation_initiator_approval() {
             name_hash: BalanceAccountNameHash::new(&hash_of(b"Account Name")),
             approvals_required_for_transfer: 1,
             approval_timeout_for_transfer: Duration::from_secs(120),
-            transfer_approvers: vec![
-                (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            ],
+            transfer_approvers: vec![(SlotId::new(0), approvers[0].pubkey_as_signer())],
             whitelist_enabled: BooleanSetting::Off,
             dapps_enabled: BooleanSetting::Off,
             address_book_slot_id: SlotId::new(32),
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,

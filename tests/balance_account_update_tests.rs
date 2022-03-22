@@ -6,7 +6,7 @@ pub use common::instructions::*;
 pub use common::utils::*;
 
 use std::borrow::BorrowMut;
-use std::time::{Duration};
+use std::time::Duration;
 
 use solana_program::instruction::InstructionError::Custom;
 
@@ -18,7 +18,9 @@ use std::collections::HashSet;
 use strike_wallet::error::WalletError;
 use strike_wallet::instruction::BalanceAccountPolicyUpdate;
 use strike_wallet::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
-use strike_wallet::model::multisig_op::{ApprovalDisposition, ApprovalDispositionRecord, OperationDisposition};
+use strike_wallet::model::multisig_op::{
+    ApprovalDisposition, ApprovalDispositionRecord, OperationDisposition,
+};
 use strike_wallet::utils::SlotId;
 use {
     solana_program::system_instruction,
@@ -152,10 +154,10 @@ async fn test_balance_account_policy_update_initiator_approval() {
             approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
             add_transfer_approvers: vec![],
             remove_transfer_approvers: vec![],
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
@@ -184,10 +186,10 @@ async fn test_balance_account_policy_update_initiator_approval() {
             approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
             add_transfer_approvers: vec![],
             remove_transfer_approvers: vec![],
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
@@ -402,7 +404,7 @@ async fn test_balance_account_policy_update_is_denied() {
         &context.payer,
         context.recent_blockhash,
         ApprovalDisposition::DENY,
-        OperationDisposition::DENIED
+        OperationDisposition::DENIED,
     )
     .await;
 
@@ -642,9 +644,10 @@ async fn test_update_balance_account_name_initiator_approval() {
     let name_hash = BalanceAccountNameHash::new(&[1; 32]);
     let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
-    let multisig_op = init_balance_account_name_hash_update(&mut context, &initiator_account, name_hash)
-        .await
-        .unwrap();
+    let multisig_op =
+        init_balance_account_name_hash_update(&mut context, &initiator_account, name_hash)
+            .await
+            .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op).await,
@@ -666,9 +669,10 @@ async fn test_update_balance_account_name_initiator_approval() {
     let name_hash = BalanceAccountNameHash::new(&[1; 32]);
     let initiator_account = Keypair::from_base58_string(&context.approvers[0].to_base58_string());
 
-    let multisig_op = init_balance_account_name_hash_update(&mut context, &initiator_account, name_hash)
-        .await
-        .unwrap();
+    let multisig_op =
+        init_balance_account_name_hash_update(&mut context, &initiator_account, name_hash)
+            .await
+            .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op).await,

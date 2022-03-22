@@ -104,6 +104,17 @@ pub enum WalletError {
     /// Signer Is A Transfer Approver
     #[error("Signer Is A Transfer Approver")]
     SignerIsTransferApprover,
+    /// Too many DApp instructions supplied
+    #[error("DApp Instruction Overflow")]
+    DAppInstructionOverflow,
+
+    // 30
+    /// DApp Instruction already supplied
+    #[error("DApp Instruction Already Supplied")]
+    DAppInstructionAlreadySupplied,
+    /// Operation not initialized
+    #[error("Operation Not Initialized")]
+    OperationNotInitialized,
 }
 
 impl From<WalletError> for ProgramError {

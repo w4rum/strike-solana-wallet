@@ -20,8 +20,13 @@ pub fn handle(
 
     let mut multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
-    if params_hash != multisig_op.params_hash {
-        return Err(WalletError::InvalidSignature.into());
+    match multisig_op.params_hash {
+        None => return Err(WalletError::OperationNotInitialized.into()),
+        Some(v) => {
+            if params_hash != v {
+                return Err(WalletError::InvalidSignature.into());
+            }
+        }
     }
 
     multisig_op.validate_and_record_approval_disposition(

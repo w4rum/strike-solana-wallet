@@ -404,11 +404,7 @@ pub async fn init_update_signer(
             ),
         ],
         Some(&context.payer.pubkey()),
-        &[
-            &context.payer,
-            &multisig_op_account,
-            &initiator_account,
-        ],
+        &[&context.payer, &multisig_op_account, &initiator_account],
         context.recent_blockhash,
     );
     context
@@ -427,21 +423,14 @@ pub async fn update_signer(
     expected_signers: Option<Signers>,
     expected_error: Option<InstructionError>,
 ) {
-    let init_multisig_op_result = init_update_signer(
-        context,
-        approvers[0],
-        slot_update_type,
-        slot_id,
-        signer
-    ).await;
+    let init_multisig_op_result =
+        init_update_signer(context, approvers[0], slot_update_type, slot_id, signer).await;
 
     let multisig_op_account = match expected_error {
         None => init_multisig_op_result.unwrap(),
         Some(error) => {
             assert_eq!(
-                init_multisig_op_result
-                    .unwrap_err()
-                    .unwrap(),
+                init_multisig_op_result.unwrap_err().unwrap(),
                 TransactionError::InstructionError(1, error),
             );
             return;
@@ -480,7 +469,7 @@ pub async fn update_signer(
     );
 
     assert_eq!(
-        multisig_op.params_hash,
+        multisig_op.params_hash.unwrap(),
         MultisigOpParams::UpdateSigner {
             wallet_address: context.wallet_account.pubkey(),
             slot_update_type,
@@ -498,7 +487,7 @@ pub async fn update_signer(
         &context.payer,
         context.recent_blockhash,
         ApprovalDisposition::APPROVE,
-        OperationDisposition::APPROVED
+        OperationDisposition::APPROVED,
     )
     .await;
 
@@ -601,11 +590,7 @@ pub async fn account_settings_update(
             ),
         ],
         Some(&context.payer.pubkey()),
-        &[
-            &context.payer,
-            &multisig_op_account,
-            &context.approvers[0],
-        ],
+        &[&context.payer, &multisig_op_account, &context.approvers[0]],
         context.recent_blockhash,
     );
     match expected_error {
@@ -660,7 +645,7 @@ pub async fn account_settings_update(
     );
 
     assert_eq!(
-        multisig_op.params_hash,
+        multisig_op.params_hash.unwrap(),
         MultisigOpParams::UpdateBalanceAccountSettings {
             wallet_address: context.wallet_account.pubkey(),
             account_guid_hash: context.balance_account_guid_hash,
@@ -678,7 +663,7 @@ pub async fn account_settings_update(
         &context.payer,
         context.recent_blockhash,
         ApprovalDisposition::APPROVE,
-        OperationDisposition::APPROVED
+        OperationDisposition::APPROVED,
     )
     .await;
 
@@ -1012,7 +997,7 @@ pub async fn init_balance_account_creation(
     context: &mut WalletTestContext,
     initiator_account: &Keypair,
     balance_account_guid_hash: BalanceAccountGuidHash,
-    creation_params: BalanceAccountCreation
+    creation_params: BalanceAccountCreation,
 ) -> Result<Pubkey, TransportError> {
     let rent = context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
@@ -1041,7 +1026,7 @@ pub async fn init_balance_account_creation(
                 creation_params.transfer_approvers.clone(),
                 creation_params.whitelist_enabled,
                 creation_params.dapps_enabled,
-                creation_params.address_book_slot_id
+                creation_params.address_book_slot_id,
             ),
         ],
         Some(&context.payer.pubkey()),
@@ -1049,7 +1034,8 @@ pub async fn init_balance_account_creation(
         context.recent_blockhash,
     );
 
-    context.banks_client
+    context
+        .banks_client
         .process_transaction(init_transaction)
         .await
         .map(|_| multisig_op_pubkey)
@@ -1196,7 +1182,7 @@ pub async fn setup_balance_account_tests(
     };
 
     assert_eq!(
-        multisig_op.params_hash,
+        multisig_op.params_hash.unwrap(),
         MultisigOpParams::CreateBalanceAccount {
             wallet_address: wallet_account.pubkey(),
             account_guid_hash: balance_account_guid_hash,
@@ -1229,7 +1215,7 @@ pub async fn setup_balance_account_tests(
         destination_name_hash: addr_book_entry.name_hash,
         allowed_destination: addr_book_entry,
         destination,
-        params_hash: multisig_op.params_hash,
+        params_hash: multisig_op.params_hash.unwrap(),
         allowed_dapp,
     }
 }
@@ -1245,7 +1231,7 @@ pub async fn get_operation_hash(banks_client: &mut BanksClient, op_address: Pubk
     )
     .unwrap();
 
-    multisig_op.params_hash
+    multisig_op.params_hash.unwrap()
 }
 
 pub async fn setup_create_balance_account_failure_tests(
@@ -1378,7 +1364,7 @@ pub async fn setup_balance_account_tests_and_finalize(
         &context.payer,
         context.recent_blockhash,
         ApprovalDisposition::APPROVE,
-        OperationDisposition::APPROVED
+        OperationDisposition::APPROVED,
     )
     .await;
 
@@ -1480,11 +1466,7 @@ pub async fn setup_transfer_test(
                 ),
             ],
             Some(&context.payer.pubkey()),
-            &[
-                &context.payer,
-                &multisig_op_account,
-                &initiator_account,
-            ],
+            &[&context.payer, &multisig_op_account, &initiator_account],
             context.recent_blockhash,
         ))
         .await;
@@ -1545,14 +1527,9 @@ pub async fn init_address_book_update(
                 update.remove_address_book_entries,
                 update.balance_account_whitelist_updates,
             ),
-
         ],
         Some(&context.payer.pubkey()),
-        &[
-            &context.payer,
-            &multisig_op_account,
-            &initiator_account,
-        ],
+        &[&context.payer, &multisig_op_account, &initiator_account],
         context.recent_blockhash,
     );
 
@@ -1572,7 +1549,8 @@ pub async fn modify_address_book_and_whitelist(
     expected_error: Option<InstructionError>,
 ) {
     // add a whitelisted destination
-    let initiator_account = Keypair::from_base58_string(&context.initiator_account.to_base58_string());
+    let initiator_account =
+        Keypair::from_base58_string(&context.initiator_account.to_base58_string());
 
     let update = AddressBookUpdate {
         add_address_book_entries: entries_to_add.clone(),
@@ -1584,19 +1562,13 @@ pub async fn modify_address_book_and_whitelist(
         }],
     };
 
-    let init_result = init_address_book_update(
-        context,
-        &initiator_account,
-        update.clone()
-    ).await;
+    let init_result = init_address_book_update(context, &initiator_account, update.clone()).await;
 
     let multisig_op_account = match expected_error {
         None => init_result.unwrap(),
         Some(error) => {
             assert_eq!(
-                init_result
-                    .unwrap_err()
-                    .unwrap(),
+                init_result.unwrap_err().unwrap(),
                 TransactionError::InstructionError(1, error),
             );
             return;
@@ -1611,7 +1583,7 @@ pub async fn modify_address_book_and_whitelist(
         &context.payer,
         context.recent_blockhash,
         ApprovalDisposition::APPROVE,
-        OperationDisposition::APPROVED
+        OperationDisposition::APPROVED,
     )
     .await;
 
@@ -1664,11 +1636,7 @@ pub async fn init_balance_account_name_hash_update(
             ),
         ],
         Some(&context.payer.pubkey()),
-        &[
-            &context.payer,
-            &multisig_op_account,
-            &initiator_account,
-        ],
+        &[&context.payer, &multisig_op_account, &initiator_account],
         context.recent_blockhash,
     );
 
@@ -1684,21 +1652,17 @@ pub async fn update_balance_account_name_hash(
     account_name_hash: BalanceAccountNameHash,
     expected_error: Option<InstructionError>,
 ) -> Option<Pubkey> {
-    let initiator_account = Keypair::from_base58_string(&context.initiator_account.to_base58_string());
+    let initiator_account =
+        Keypair::from_base58_string(&context.initiator_account.to_base58_string());
 
-    let init_result = init_balance_account_name_hash_update(
-        context,
-        &initiator_account,
-        account_name_hash,
-    ).await;
+    let init_result =
+        init_balance_account_name_hash_update(context, &initiator_account, account_name_hash).await;
 
     let multisig_op_account = match expected_error {
         None => init_result.unwrap(),
         Some(error) => {
             assert_eq!(
-                init_result
-                    .unwrap_err()
-                    .unwrap(),
+                init_result.unwrap_err().unwrap(),
                 TransactionError::InstructionError(1, error),
             );
             return None;
@@ -1769,11 +1733,7 @@ pub async fn init_balance_account_policy_update(
             ),
         ],
         Some(&context.payer.pubkey()),
-        &[
-            &context.payer,
-            &multisig_op_account,
-            &initiator_account,
-        ],
+        &[&context.payer, &multisig_op_account, &initiator_account],
         context.recent_blockhash,
     );
 
@@ -1789,21 +1749,17 @@ pub async fn update_balance_account_policy(
     update: BalanceAccountPolicyUpdate,
     expected_error: Option<InstructionError>,
 ) -> Option<Pubkey> {
-    let initiator_account = Keypair::from_base58_string(&context.initiator_account.to_base58_string());
+    let initiator_account =
+        Keypair::from_base58_string(&context.initiator_account.to_base58_string());
 
-    let init_result = init_balance_account_policy_update(
-        context,
-        &initiator_account,
-        update.clone()
-    ).await;
+    let init_result =
+        init_balance_account_policy_update(context, &initiator_account, update.clone()).await;
 
     let multisig_op_account = match expected_error {
         None => init_result.unwrap(),
         Some(error) => {
             assert_eq!(
-                init_result
-                    .unwrap_err()
-                    .unwrap(),
+                init_result.unwrap_err().unwrap(),
                 TransactionError::InstructionError(1, error),
             );
             return None;
@@ -2010,7 +1966,7 @@ pub fn assert_initialized_multisig_op(
         expected_dispositions.to_set()
     );
     assert_eq!(multisig_op.operation_disposition, expected_op_disposition);
-    assert_eq!(multisig_op.params_hash, expected_params.hash());
+    assert_eq!(multisig_op.params_hash.unwrap(), expected_params.hash());
 }
 
 pub fn assert_multisig_op_dispositions(

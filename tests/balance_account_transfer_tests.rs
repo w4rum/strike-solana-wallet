@@ -16,7 +16,9 @@ use solana_sdk::transaction::TransactionError;
 use common::instructions::finalize_transfer;
 use strike_wallet::error::WalletError;
 use strike_wallet::model::address_book::AddressBookEntryNameHash;
-use strike_wallet::model::multisig_op::{ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition};
+use strike_wallet::model::multisig_op::{
+    ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition,
+};
 use strike_wallet::utils::SlotId;
 use {
     solana_program::system_instruction,
@@ -29,8 +31,14 @@ async fn test_transfer_sol() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, None).await;
+    let (multisig_op_account, result) = setup_transfer_test(
+        context.borrow_mut(),
+        initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     result.unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
@@ -123,8 +131,14 @@ async fn test_transfer_sol_denied() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), &initiator, &balance_account, None, None).await;
+    let (multisig_op_account, result) = setup_transfer_test(
+        context.borrow_mut(),
+        &initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     result.unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
@@ -230,7 +244,14 @@ async fn test_transfer_wrong_destination_name_hash() {
 
     context.destination_name_hash = AddressBookEntryNameHash::zero();
 
-    let (_, result) = setup_transfer_test(context.borrow_mut(), &initiator, &balance_account, None, None).await;
+    let (_, result) = setup_transfer_test(
+        context.borrow_mut(),
+        &initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -241,8 +262,14 @@ async fn test_transfer_wrong_destination_name_hash() {
 async fn test_transfer_requires_multisig() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), &initiator, &balance_account, None, None).await;
+    let (multisig_op_account, result) = setup_transfer_test(
+        context.borrow_mut(),
+        &initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     result.unwrap();
 
     approve_or_deny_1_of_2_multisig_op(
@@ -291,8 +318,14 @@ async fn test_transfer_requires_multisig() {
 async fn test_approval_fails_if_incorrect_params_hash() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), &initiator, &balance_account, None, None).await;
+    let (multisig_op_account, result) = setup_transfer_test(
+        context.borrow_mut(),
+        &initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     result.unwrap();
 
     assert_eq!(
@@ -321,8 +354,14 @@ async fn test_approval_fails_if_incorrect_params_hash() {
 async fn test_transfer_insufficient_balance() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), &initiator, &balance_account, None, None).await;
+    let (multisig_op_account, result) = setup_transfer_test(
+        context.borrow_mut(),
+        &initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     result.unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
@@ -370,7 +409,14 @@ async fn test_transfer_unwhitelisted_address() {
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
     account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
 
-    let (_, result) = setup_transfer_test(context.borrow_mut(), &initiator, &balance_account, None, None).await;
+    let (_, result) = setup_transfer_test(
+        context.borrow_mut(),
+        &initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -382,8 +428,14 @@ async fn test_transfer_initiator_approval() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, None).await;
+    let (multisig_op_account, result) = setup_transfer_test(
+        context.borrow_mut(),
+        initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     result.unwrap();
 
     assert_multisig_op_dispositions(
@@ -405,8 +457,14 @@ async fn test_transfer_initiator_approval() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[0].to_base58_string());
 
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, None).await;
+    let (multisig_op_account, result) = setup_transfer_test(
+        context.borrow_mut(),
+        initiator,
+        &balance_account,
+        None,
+        None,
+    )
+    .await;
     result.unwrap();
 
     assert_multisig_op_dispositions(

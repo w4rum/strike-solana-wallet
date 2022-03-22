@@ -11,7 +11,9 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use strike_wallet::error::WalletError;
 use strike_wallet::instruction::AddressBookUpdate;
-use strike_wallet::model::multisig_op::{ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition};
+use strike_wallet::model::multisig_op::{
+    ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition,
+};
 
 #[tokio::test]
 async fn test_address_book_update() {
@@ -198,10 +200,10 @@ async fn test_address_book_update_initiator_approval() {
             add_address_book_entries: vec![],
             remove_address_book_entries: wallet.address_book.filled_slots(),
             balance_account_whitelist_updates: vec![],
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
@@ -227,10 +229,10 @@ async fn test_address_book_update_initiator_approval() {
             add_address_book_entries: vec![],
             remove_address_book_entries: wallet.address_book.filled_slots(),
             balance_account_whitelist_updates: vec![],
-        }
+        },
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,

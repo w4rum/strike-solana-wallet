@@ -5,7 +5,9 @@ use solana_program::pubkey::Pubkey;
 use solana_program::{system_program, sysvar};
 use std::borrow::Borrow;
 use std::time::Duration;
-use strike_wallet::instruction::{BalanceAccountCreation, BalanceAccountPolicyUpdate};
+use strike_wallet::instruction::{
+    pack_supply_dapp_transaction_instructions, BalanceAccountCreation, BalanceAccountPolicyUpdate,
+};
 use strike_wallet::model::balance_account::BalanceAccount;
 use strike_wallet::{
     instruction::{
@@ -539,12 +541,12 @@ pub fn init_dapp_transaction(
     initiator_account: &Pubkey,
     account_guid_hash: &BalanceAccountGuidHash,
     dapp: DAppBookEntry,
-    instructions: Vec<Instruction>,
+    instruction_count: u8,
 ) -> Instruction {
     let data = ProgramInstruction::InitDAppTransaction {
         account_guid_hash: *account_guid_hash,
         dapp,
-        instructions,
+        instruction_count,
     }
     .borrow()
     .pack();
@@ -564,6 +566,29 @@ pub fn init_dapp_transaction(
     }
 }
 
+pub fn supply_dapp_transaction_instructions(
+    program_id: &Pubkey,
+    multisig_op_account: &Pubkey,
+    multisig_data_account: &Pubkey,
+    initiator_account: &Pubkey,
+    starting_index: u8,
+    instructions: &Vec<Instruction>,
+) -> Instruction {
+    let mut data = Vec::<u8>::new();
+    pack_supply_dapp_transaction_instructions(starting_index, instructions, &mut data);
+    let accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new(*multisig_data_account, false),
+        AccountMeta::new_readonly(*initiator_account, true),
+    ];
+
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    }
+}
+
 pub fn finalize_dapp_transaction(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
@@ -572,13 +597,12 @@ pub fn finalize_dapp_transaction(
     balance_account: &Pubkey,
     rent_collector_account: &Pubkey,
     account_guid_hash: &BalanceAccountGuidHash,
-    dapp: DAppBookEntry,
+    params_hash: &Hash,
     instructions: &Vec<Instruction>,
 ) -> Instruction {
     let data = ProgramInstruction::FinalizeDAppTransaction {
         account_guid_hash: *account_guid_hash,
-        dapp,
-        instructions: instructions.clone(),
+        params_hash: *params_hash,
     }
     .borrow()
     .pack();

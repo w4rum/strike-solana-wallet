@@ -7,9 +7,9 @@ pub use common::utils::*;
 
 use solana_program::instruction::InstructionError::Custom;
 use solana_program_test::tokio;
+use solana_sdk::signature::Keypair;
 use solana_sdk::transaction::TransactionError;
 use std::borrow::BorrowMut;
-use solana_sdk::signature::Keypair;
 use strike_wallet::error::WalletError;
 use strike_wallet::model::{balance_account::BalanceAccountGuidHash, multisig_op::BooleanSetting};
 use strike_wallet::utils::SlotId;
@@ -28,8 +28,9 @@ async fn test_whitelist_status() {
         initiator,
         &balance_account,
         None,
-        None
-    ).await;
+        None,
+    )
+    .await;
     result.unwrap();
 
     // add a whitelisted destination, should fail since whitelisting on
@@ -81,8 +82,9 @@ async fn test_whitelist_status() {
         initiator,
         &balance_account,
         None,
-        None
-    ).await;
+        None,
+    )
+    .await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -98,8 +100,9 @@ async fn test_whitelist_status() {
         initiator,
         &balance_account,
         None,
-        None
-    ).await;
+        None,
+    )
+    .await;
     result.unwrap();
 
     // explicitly turn it on
