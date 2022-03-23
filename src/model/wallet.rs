@@ -49,12 +49,12 @@ impl IsInitialized for Wallet {
 }
 
 impl Wallet {
-    pub const MAX_BALANCE_ACCOUNTS: usize = 10;
+    pub const MAX_BALANCE_ACCOUNTS: usize = 9;
     pub const MAX_SIGNERS: usize = 24;
-    pub const MAX_ADDRESS_BOOK_ENTRIES: usize = 128;
+    pub const MAX_ADDRESS_BOOK_ENTRIES: usize = 88;
     pub const MIN_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60);
     pub const MAX_APPROVAL_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24 * 365);
-    pub const MAX_DAPP_BOOK_ENTRIES: usize = 32;
+    pub const MAX_DAPP_BOOK_ENTRIES: usize = 20;
 
     pub fn get_signers_keys(&self) -> Vec<Pubkey> {
         return self
@@ -804,5 +804,17 @@ impl Pack for Wallet {
             },
             dapp_book: DAppBook::unpack_from_slice(dapp_book_src)?,
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::model::wallet::Wallet;
+    use solana_program::program_pack::Pack;
+
+    #[test]
+    fn test_wallet_data_size() {
+        // plan is to convert wallet account to PDA, which has a data limit of 10K
+        assert!(Wallet::LEN < 10 * 1024)
     }
 }
