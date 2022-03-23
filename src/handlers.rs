@@ -7,6 +7,7 @@ pub mod balance_account_settings_update_handler;
 pub mod dapp_book_update_handler;
 pub mod dapp_transaction_handler;
 pub mod init_wallet_handler;
+pub mod spl_token_accounts_creation_handler;
 pub mod transfer_handler;
 pub mod update_signer_handler;
 pub mod utils;

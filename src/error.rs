@@ -115,6 +115,9 @@ pub enum WalletError {
     /// Operation not initialized
     #[error("Operation Not Initialized")]
     OperationNotInitialized,
+    /// Invalid PDA address or bump seed
+    #[error("Invalid PDA")]
+    InvalidPDA,
 }
 
 impl From<WalletError> for ProgramError {

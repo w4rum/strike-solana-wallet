@@ -2,8 +2,8 @@ use crate::handlers::{
     address_book_update_handler, approval_disposition_handler, balance_account_creation_handler,
     balance_account_name_update_handler, balance_account_policy_update_handler,
     balance_account_settings_update_handler, dapp_book_update_handler, dapp_transaction_handler,
-    init_wallet_handler, transfer_handler, update_signer_handler,
-    wallet_config_policy_update_handler, wrap_unwrap_handler,
+    init_wallet_handler, spl_token_accounts_creation_handler, transfer_handler,
+    update_signer_handler, wallet_config_policy_update_handler, wrap_unwrap_handler,
 };
 use crate::instruction::ProgramInstruction;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, pubkey::Pubkey};
@@ -244,6 +244,26 @@ impl Processor {
             ProgramInstruction::FinalizeAddressBookUpdate { update } => {
                 address_book_update_handler::finalize(program_id, accounts, &update)
             }
+
+            ProgramInstruction::InitSPLTokenAccountsCreation {
+                payer_account_guid_hash,
+                account_guid_hashes,
+            } => spl_token_accounts_creation_handler::init(
+                program_id,
+                accounts,
+                &payer_account_guid_hash,
+                &account_guid_hashes,
+            ),
+
+            ProgramInstruction::FinalizeSPLTokenAccountsCreation {
+                payer_account_guid_hash,
+                account_guid_hashes,
+            } => spl_token_accounts_creation_handler::finalize(
+                program_id,
+                accounts,
+                &payer_account_guid_hash,
+                &account_guid_hashes,
+            ),
         }
     }
 }

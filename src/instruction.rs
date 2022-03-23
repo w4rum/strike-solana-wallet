@@ -8,9 +8,9 @@ use bytes::BufMut;
 use solana_program::hash::Hash;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::Pack;
-use solana_program::pubkey::PUBKEY_BYTES;
 use solana_program::{instruction::AccountMeta, instruction::Instruction, pubkey::Pubkey};
 
+use crate::constants::{HASH_LEN, PUBKEY_BYTES};
 use crate::model::address_book::{AddressBookEntry, AddressBookEntryNameHash, DAppBookEntry};
 use crate::model::balance_account::{
     BalanceAccount, BalanceAccountGuidHash, BalanceAccountNameHash,
@@ -25,6 +25,38 @@ use crate::serialization_utils::{
     unpack_option,
 };
 use crate::utils::SlotId;
+
+// Instruction "tags" are sent as the first byte of each instruction
+// and are mapped to corresponding ProgramInstructions to execute:
+pub const TAG_INIT_WALLET: u8 = 0;
+pub const TAG_INIT_BALANCE_ACCOUNT_CREATION: u8 = 3;
+pub const TAG_FINALIZE_BALANCE_ACCOUNT_CREATION: u8 = 4;
+pub const TAG_INIT_BALANCE_ACCOUNT_UPDATE: u8 = 5;
+pub const TAG_FINALIZE_BALANCE_ACCOUNT_UPDATE: u8 = 6;
+pub const TAG_INIT_TRANSFER: u8 = 7;
+pub const TAG_FINALIZE_TRANSFER: u8 = 8;
+pub const TAG_SET_APPROVAL_DISPOSITION: u8 = 9;
+pub const TAG_INIT_WRAP_UNWRAP: u8 = 10;
+pub const TAG_FINALIZE_WRAP_UNWRAP: u8 = 11;
+pub const TAG_INIT_UPDATE_SIGNER: u8 = 12;
+pub const TAG_FINALIZE_UPDATE_SIGNER: u8 = 13;
+pub const TAG_INIT_WALLET_CONFIG_POLICY_UPDATE: u8 = 14;
+pub const TAG_FINALIZE_WALLET_CONFIG_POLICY_UPDATE: u8 = 15;
+pub const TAG_INIT_DAPP_TRANSACTION: u8 = 16;
+pub const TAG_FINALIZE_DAPP_TRANSACTION: u8 = 17;
+pub const TAG_INIT_ACCOUNT_SETTINGS_UPDATE: u8 = 18;
+pub const TAG_FINALIZE_ACCOUNT_SETTINGS_UPDATE: u8 = 19;
+pub const TAG_INIT_DAPP_BOOK_UPDATE: u8 = 20;
+pub const TAG_FINALIZE_DAPP_BOOK_UPDATE: u8 = 21;
+pub const TAG_INIT_ADDRESS_BOOK_UPDATE: u8 = 22;
+pub const TAG_FINALIZE_ADDRESS_BOOK_UPDATE: u8 = 23;
+pub const TAG_INIT_BALANCE_ACCOUNT_NAME_UPDATE: u8 = 24;
+pub const TAG_FINALIZE_BALANCE_ACCOUNT_NAME_UPDATE: u8 = 25;
+pub const TAG_INIT_BALANCE_ACCOUNT_POLICY_UPDATE: u8 = 26;
+pub const TAG_FINALIZE_BALANCE_ACCOUNT_POLICY_UPDATE: u8 = 27;
+pub const TAG_SUPPLY_DAPP_INSTRUCTIONS: u8 = 28;
+pub const TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 29;
+pub const TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 30;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -263,9 +295,40 @@ pub enum ProgramInstruction {
         account_guid_hash: BalanceAccountGuidHash,
         update: BalanceAccountPolicyUpdate,
     },
+
+    /// 0. `[writable]` The multisig operation account
+    /// 1. `[writable]` The wallet account
+    /// 2. `[signer]` The initiator/rent collector account
+    /// 3. `[]` The token mint account enabled for the given BalanceAccounts.
+    /// 4. `[]` The sysvar clock account
+    /// 5..N `[]` One or more associated token accounts, corresponding in number
+    ///           and order to the account GUID hashes.
+    InitSPLTokenAccountsCreation {
+        payer_account_guid_hash: BalanceAccountGuidHash,
+        account_guid_hashes: Vec<BalanceAccountGuidHash>,
+    },
+
+    /// 0. `[writable]` The multisig operation account
+    /// 1. `[writable]` The wallet account
+    /// 2. `[signer]` The rent collector account
+    /// 3. `[]` The token mint account enabled for the given BalanceAccounts.
+    /// 4. `[]` The payer balance account.
+    /// 5. `[]` The sysvar clock account
+    /// 6. `[]` The system program (only by SPL associated token program)
+    /// 7. `[]` The SPL associated token program
+    /// 8. `[]` The SPL token program (only used by SPL associated token program)
+    /// 9. `[]` The Rent sysvar program
+    /// 10..N `[]` One or more associated token accounts.
+    /// N..M  `[]` One or more BalanceAccount accounts, corresponding in number
+    ///            and order to the associated token accounts.
+    FinalizeSPLTokenAccountsCreation {
+        payer_account_guid_hash: BalanceAccountGuidHash,
+        account_guid_hashes: Vec<BalanceAccountGuidHash>,
+    },
 }
 
 impl ProgramInstruction {
+    /// Serialize a ProgramInstruction to a byte vector.
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
@@ -274,16 +337,8 @@ impl ProgramInstruction {
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(0);
+                buf.push(TAG_INIT_WALLET);
                 buf.extend_from_slice(&update_bytes);
-            }
-            &ProgramInstruction::SetApprovalDisposition {
-                ref disposition,
-                ref params_hash,
-            } => {
-                buf.push(9);
-                buf.push(disposition.to_u8());
-                buf.extend_from_slice(params_hash.as_ref());
             }
             &ProgramInstruction::InitBalanceAccountCreation {
                 ref account_guid_hash,
@@ -291,7 +346,7 @@ impl ProgramInstruction {
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 creation_params.pack(&mut update_bytes);
-                buf.push(3);
+                buf.push(TAG_INIT_BALANCE_ACCOUNT_CREATION);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
@@ -301,7 +356,7 @@ impl ProgramInstruction {
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 creation_params.pack(&mut update_bytes);
-                buf.push(4);
+                buf.push(TAG_FINALIZE_BALANCE_ACCOUNT_CREATION);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
@@ -310,7 +365,7 @@ impl ProgramInstruction {
                 ref amount,
                 ref destination_name_hash,
             } => {
-                buf.push(7);
+                buf.push(TAG_INIT_TRANSFER);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.extend_from_slice(destination_name_hash.to_bytes());
@@ -320,18 +375,26 @@ impl ProgramInstruction {
                 ref amount,
                 ref token_mint,
             } => {
-                buf.push(8);
+                buf.push(TAG_FINALIZE_TRANSFER);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.extend_from_slice(&token_mint.to_bytes());
                 buf.push(0);
+            }
+            &ProgramInstruction::SetApprovalDisposition {
+                ref disposition,
+                ref params_hash,
+            } => {
+                buf.push(TAG_SET_APPROVAL_DISPOSITION);
+                buf.push(disposition.to_u8());
+                buf.extend_from_slice(params_hash.as_ref());
             }
             &ProgramInstruction::InitWrapUnwrap {
                 ref account_guid_hash,
                 ref amount,
                 ref direction,
             } => {
-                buf.push(10);
+                buf.push(TAG_INIT_WRAP_UNWRAP);
                 buf.extend_from_slice(&account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.push(direction.to_u8());
@@ -341,7 +404,7 @@ impl ProgramInstruction {
                 ref amount,
                 ref direction,
             } => {
-                buf.push(11);
+                buf.push(TAG_FINALIZE_WRAP_UNWRAP);
                 buf.extend_from_slice(&account_guid_hash.to_bytes());
                 buf.extend_from_slice(&amount.to_le_bytes());
                 buf.push(direction.to_u8());
@@ -351,7 +414,7 @@ impl ProgramInstruction {
                 ref slot_id,
                 ref signer,
             } => {
-                buf.push(12);
+                buf.push(TAG_INIT_UPDATE_SIGNER);
                 buf.push(slot_update_type.to_u8());
                 buf.push(slot_id.value as u8);
                 buf.extend_from_slice(signer.key.as_ref());
@@ -361,7 +424,7 @@ impl ProgramInstruction {
                 ref slot_id,
                 ref signer,
             } => {
-                buf.push(13);
+                buf.push(TAG_FINALIZE_UPDATE_SIGNER);
                 buf.push(slot_update_type.to_u8());
                 buf.push(slot_id.value as u8);
                 buf.extend_from_slice(signer.key.as_ref());
@@ -369,13 +432,13 @@ impl ProgramInstruction {
             &ProgramInstruction::InitWalletConfigPolicyUpdate { ref update } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(14);
+                buf.push(TAG_INIT_WALLET_CONFIG_POLICY_UPDATE);
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::FinalizeWalletConfigPolicyUpdate { ref update } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(15);
+                buf.push(TAG_FINALIZE_WALLET_CONFIG_POLICY_UPDATE);
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::InitDAppTransaction {
@@ -383,7 +446,7 @@ impl ProgramInstruction {
                 ref dapp,
                 instruction_count,
             } => {
-                buf.push(16);
+                buf.push(TAG_INIT_DAPP_TRANSACTION);
                 buf.extend_from_slice(&account_guid_hash.to_bytes());
                 let mut buf2 = vec![0; DAppBookEntry::LEN];
                 dapp.pack_into_slice(buf2.as_mut_slice());
@@ -394,7 +457,7 @@ impl ProgramInstruction {
                 ref account_guid_hash,
                 ref params_hash,
             } => {
-                buf.push(17);
+                buf.push(TAG_FINALIZE_DAPP_TRANSACTION);
                 buf.extend_from_slice(&account_guid_hash.to_bytes());
                 buf.extend_from_slice(&params_hash.to_bytes());
             }
@@ -403,7 +466,7 @@ impl ProgramInstruction {
                 ref whitelist_enabled,
                 ref dapps_enabled,
             } => {
-                buf.push(18);
+                buf.push(TAG_INIT_ACCOUNT_SETTINGS_UPDATE);
                 buf.extend_from_slice(&account_guid_hash.to_bytes());
                 pack_option(whitelist_enabled.as_ref(), &mut buf);
                 pack_option(dapps_enabled.as_ref(), &mut buf);
@@ -413,19 +476,19 @@ impl ProgramInstruction {
                 ref whitelist_enabled,
                 ref dapps_enabled,
             } => {
-                buf.push(19);
+                buf.push(TAG_FINALIZE_ACCOUNT_SETTINGS_UPDATE);
                 buf.extend_from_slice(&account_guid_hash.to_bytes());
                 pack_option(whitelist_enabled.as_ref(), &mut buf);
                 pack_option(dapps_enabled.as_ref(), &mut buf);
             }
             &ProgramInstruction::InitDAppBookUpdate { ref update } => {
-                buf.push(20);
+                buf.push(TAG_INIT_DAPP_BOOK_UPDATE);
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::FinalizeDAppBookUpdate { ref update } => {
-                buf.push(21);
+                buf.push(TAG_FINALIZE_DAPP_BOOK_UPDATE);
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
                 buf.extend_from_slice(&update_bytes);
@@ -433,20 +496,20 @@ impl ProgramInstruction {
             &ProgramInstruction::InitAddressBookUpdate { ref update } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(22);
+                buf.push(TAG_INIT_ADDRESS_BOOK_UPDATE);
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::FinalizeAddressBookUpdate { ref update } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(23);
+                buf.push(TAG_FINALIZE_ADDRESS_BOOK_UPDATE);
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::InitBalanceAccountNameUpdate {
                 ref account_guid_hash,
                 ref account_name_hash,
             } => {
-                buf.push(24);
+                buf.push(TAG_INIT_BALANCE_ACCOUNT_NAME_UPDATE);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(account_name_hash.to_bytes());
             }
@@ -454,7 +517,7 @@ impl ProgramInstruction {
                 ref account_guid_hash,
                 ref account_name_hash,
             } => {
-                buf.push(25);
+                buf.push(TAG_FINALIZE_BALANCE_ACCOUNT_NAME_UPDATE);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(account_name_hash.to_bytes());
             }
@@ -464,7 +527,7 @@ impl ProgramInstruction {
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(26);
+                buf.push(TAG_INIT_BALANCE_ACCOUNT_POLICY_UPDATE);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
@@ -474,7 +537,7 @@ impl ProgramInstruction {
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(27);
+                buf.push(TAG_FINALIZE_BALANCE_ACCOUNT_POLICY_UPDATE);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
@@ -484,40 +547,105 @@ impl ProgramInstruction {
             } => {
                 pack_supply_dapp_transaction_instructions(starting_index, instructions, &mut buf);
             }
+            &ProgramInstruction::InitSPLTokenAccountsCreation {
+                ref payer_account_guid_hash,
+                ref account_guid_hashes,
+            } => {
+                buf.push(TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN);
+                buf.extend_from_slice(payer_account_guid_hash.to_bytes());
+                pack_balance_account_guid_hash_vec(account_guid_hashes, &mut buf);
+            }
+            &ProgramInstruction::FinalizeSPLTokenAccountsCreation {
+                ref payer_account_guid_hash,
+                ref account_guid_hashes,
+            } => {
+                buf.push(TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN);
+                buf.extend_from_slice(payer_account_guid_hash.to_bytes());
+                pack_balance_account_guid_hash_vec(account_guid_hashes, &mut buf);
+            }
         }
         buf
     }
 
+    /// Deserialize a byte buffer to ProgramInstruction.
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
         let (tag, rest) = input
             .split_first()
             .ok_or(ProgramError::InvalidInstructionData)?;
-        Ok(match tag {
-            0 => Self::unpack_init_wallet_instruction(rest)?,
-            3 => Self::unpack_init_balance_account_creation_instruction(rest)?,
-            4 => Self::unpack_finalize_balance_account_creation_instruction(rest)?,
-            7 => Self::unpack_init_transfer_for_approval_instruction(rest)?,
-            8 => Self::unpack_finalize_transfer_instruction(rest)?,
-            9 => Self::unpack_set_approval_disposition_instruction(rest)?,
-            10 => Self::unpack_init_wrap_unwrap_instruction(rest)?,
-            11 => Self::unpack_finalize_wrap_unwrap_instruction(rest)?,
-            12 => Self::unpack_init_update_signer_instruction(rest)?,
-            13 => Self::unpack_finalize_update_signer_instruction(rest)?,
-            14 => Self::unpack_init_wallet_config_policy_update_instruction(rest)?,
-            15 => Self::unpack_finalize_wallet_config_policy_update_instruction(rest)?,
-            16 => Self::unpack_init_dapp_transaction_instruction(rest)?,
-            17 => Self::unpack_finalize_dapp_transaction_instruction(rest)?,
-            18 => Self::unpack_init_account_settings_update_instruction(rest)?,
-            19 => Self::unpack_finalize_account_settings_update_instruction(rest)?,
-            20 => Self::unpack_init_dapp_book_update_instruction(rest)?,
-            21 => Self::unpack_finalize_dapp_book_update_instruction(rest)?,
-            22 => Self::unpack_init_address_book_update_instruction(rest)?,
-            23 => Self::unpack_finalize_address_book_update_instruction(rest)?,
-            24 => Self::unpack_init_balance_account_name_update_instruction(rest)?,
-            25 => Self::unpack_finalize_balance_account_name_update_instruction(rest)?,
-            26 => Self::unpack_init_balance_account_policy_update_instruction(rest)?,
-            27 => Self::unpack_finalize_balance_account_policy_update_instruction(rest)?,
-            28 => Self::unpack_supply_dapp_instructions_instruction(rest)?,
+
+        Ok(match *tag {
+            TAG_INIT_WALLET => Self::unpack_init_wallet_instruction(rest)?,
+
+            TAG_INIT_BALANCE_ACCOUNT_CREATION => {
+                Self::unpack_init_balance_account_creation_instruction(rest)?
+            }
+            TAG_FINALIZE_BALANCE_ACCOUNT_CREATION => {
+                Self::unpack_finalize_balance_account_creation_instruction(rest)?
+            }
+            TAG_INIT_TRANSFER => Self::unpack_init_transfer_for_approval_instruction(rest)?,
+
+            TAG_FINALIZE_TRANSFER => Self::unpack_finalize_transfer_instruction(rest)?,
+
+            TAG_SET_APPROVAL_DISPOSITION => {
+                Self::unpack_set_approval_disposition_instruction(rest)?
+            }
+            TAG_INIT_WRAP_UNWRAP => Self::unpack_init_wrap_unwrap_instruction(rest)?,
+
+            TAG_FINALIZE_WRAP_UNWRAP => Self::unpack_finalize_wrap_unwrap_instruction(rest)?,
+
+            TAG_INIT_UPDATE_SIGNER => Self::unpack_init_update_signer_instruction(rest)?,
+
+            TAG_FINALIZE_UPDATE_SIGNER => Self::unpack_finalize_update_signer_instruction(rest)?,
+
+            TAG_INIT_WALLET_CONFIG_POLICY_UPDATE => {
+                Self::unpack_init_wallet_config_policy_update_instruction(rest)?
+            }
+            TAG_FINALIZE_WALLET_CONFIG_POLICY_UPDATE => {
+                Self::unpack_finalize_wallet_config_policy_update_instruction(rest)?
+            }
+            TAG_INIT_DAPP_TRANSACTION => Self::unpack_init_dapp_transaction_instruction(rest)?,
+
+            TAG_FINALIZE_DAPP_TRANSACTION => {
+                Self::unpack_finalize_dapp_transaction_instruction(rest)?
+            }
+            TAG_INIT_ACCOUNT_SETTINGS_UPDATE => {
+                Self::unpack_init_account_settings_update_instruction(rest)?
+            }
+            TAG_FINALIZE_ACCOUNT_SETTINGS_UPDATE => {
+                Self::unpack_finalize_account_settings_update_instruction(rest)?
+            }
+            TAG_INIT_DAPP_BOOK_UPDATE => Self::unpack_init_dapp_book_update_instruction(rest)?,
+
+            TAG_FINALIZE_DAPP_BOOK_UPDATE => {
+                Self::unpack_finalize_dapp_book_update_instruction(rest)?
+            }
+            TAG_INIT_ADDRESS_BOOK_UPDATE => {
+                Self::unpack_init_address_book_update_instruction(rest)?
+            }
+            TAG_FINALIZE_ADDRESS_BOOK_UPDATE => {
+                Self::unpack_finalize_address_book_update_instruction(rest)?
+            }
+            TAG_INIT_BALANCE_ACCOUNT_NAME_UPDATE => {
+                Self::unpack_init_balance_account_name_update_instruction(rest)?
+            }
+            TAG_FINALIZE_BALANCE_ACCOUNT_NAME_UPDATE => {
+                Self::unpack_finalize_balance_account_name_update_instruction(rest)?
+            }
+            TAG_INIT_BALANCE_ACCOUNT_POLICY_UPDATE => {
+                Self::unpack_init_balance_account_policy_update_instruction(rest)?
+            }
+            TAG_FINALIZE_BALANCE_ACCOUNT_POLICY_UPDATE => {
+                Self::unpack_finalize_balance_account_policy_update_instruction(rest)?
+            }
+            TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN => {
+                Self::unpack_init_balance_account_enable_spl_token(rest)?
+            }
+            TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN => {
+                Self::unpack_finalize_balance_account_enable_spl_token(rest)?
+            }
+            TAG_SUPPLY_DAPP_INSTRUCTIONS => {
+                Self::unpack_supply_dapp_instructions_instruction(rest)?
+            }
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }
@@ -535,7 +663,7 @@ impl ProgramInstruction {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             creation_params: BalanceAccountCreation::unpack(
                 bytes
-                    .get(32..)
+                    .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
             )?,
         })
@@ -548,7 +676,7 @@ impl ProgramInstruction {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             creation_params: BalanceAccountCreation::unpack(
                 bytes
-                    .get(32..)
+                    .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
             )?,
         })
@@ -561,7 +689,7 @@ impl ProgramInstruction {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             update: BalanceAccountPolicyUpdate::unpack(
                 bytes
-                    .get(32..)
+                    .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
             )?,
         })
@@ -574,7 +702,7 @@ impl ProgramInstruction {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             update: BalanceAccountPolicyUpdate::unpack(
                 bytes
-                    .get(32..)
+                    .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
             )?,
         })
@@ -586,13 +714,14 @@ impl ProgramInstruction {
         let account_guid_hash = unpack_account_guid_hash(bytes)?;
 
         let amount = bytes
-            .get(32..40)
+            .get(HASH_LEN..HASH_LEN + 8)
             .and_then(|slice| slice.try_into().ok())
             .map(u64::from_le_bytes)
             .ok_or(ProgramError::InvalidInstructionData)?;
 
+        let byte_offset = HASH_LEN + 8;
         let destination_name_hash = bytes
-            .get(40..72)
+            .get(byte_offset..byte_offset + HASH_LEN)
             .and_then(|slice| {
                 slice
                     .try_into()
@@ -617,7 +746,7 @@ impl ProgramInstruction {
         Ok(Self::SetApprovalDisposition {
             disposition: ApprovalDisposition::from_u8(*disposition),
             params_hash: Hash::new_from_array(
-                rest.get(0..32)
+                rest.get(0..HASH_LEN)
                     .and_then(|slice| slice.try_into().ok())
                     .ok_or(ProgramError::InvalidInstructionData)?,
             ),
@@ -630,16 +759,11 @@ impl ProgramInstruction {
         Ok(Self::FinalizeTransfer {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             amount: bytes
-                .get(32..40)
+                .get(HASH_LEN..HASH_LEN + 8)
                 .and_then(|slice| slice.try_into().ok())
                 .map(u64::from_le_bytes)
                 .ok_or(ProgramError::InvalidInstructionData)?,
-            token_mint: Pubkey::new_from_array(
-                bytes
-                    .get(40..72)
-                    .and_then(|slice| slice.try_into().ok())
-                    .ok_or(ProgramError::InvalidInstructionData)?,
-            ),
+            token_mint: unpack_public_key(bytes, HASH_LEN + 8)?,
         })
     }
 
@@ -650,7 +774,7 @@ impl ProgramInstruction {
             Ok(Self::InitWrapUnwrap {
                 account_guid_hash: unpack_account_guid_hash(bytes)?,
                 amount: bytes
-                    .get(32..40)
+                    .get(HASH_LEN..HASH_LEN + 8)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u64::from_le_bytes)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -668,7 +792,7 @@ impl ProgramInstruction {
             Ok(Self::FinalizeWrapUnwrap {
                 account_guid_hash: unpack_account_guid_hash(bytes)?,
                 amount: bytes
-                    .get(32..40)
+                    .get(HASH_LEN..HASH_LEN + 8)
                     .and_then(|slice| slice.try_into().ok())
                     .map(u64::from_le_bytes)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -732,7 +856,7 @@ impl ProgramInstruction {
     ) -> Result<ProgramInstruction, ProgramError> {
         let iter = &mut bytes.into_iter();
         let account_guid_hash = unpack_account_guid_hash(
-            read_slice(iter, 32).ok_or(ProgramError::InvalidInstructionData)?,
+            read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?,
         )?;
         let dapp = DAppBookEntry::unpack_from_slice(
             read_slice(iter, DAppBookEntry::LEN).ok_or(ProgramError::InvalidInstructionData)?,
@@ -750,10 +874,10 @@ impl ProgramInstruction {
     ) -> Result<ProgramInstruction, ProgramError> {
         let iter = &mut bytes.into_iter();
         let account_guid_hash = unpack_account_guid_hash(
-            read_slice(iter, 32).ok_or(ProgramError::InvalidInstructionData)?,
+            read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?,
         )?;
         let params_hash =
-            Hash::new(read_slice(iter, 32).ok_or(ProgramError::InvalidInstructionData)?);
+            Hash::new(read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?);
         Ok(Self::FinalizeDAppTransaction {
             account_guid_hash,
             params_hash,
@@ -766,7 +890,7 @@ impl ProgramInstruction {
         let iter = &mut bytes.into_iter();
         Ok(Self::InitAccountSettingsUpdate {
             account_guid_hash: unpack_account_guid_hash(
-                read_slice(iter, 32).ok_or(ProgramError::InvalidInstructionData)?,
+                read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?,
             )?,
             whitelist_enabled: unpack_option::<BooleanSetting>(iter)?,
             dapps_enabled: unpack_option::<BooleanSetting>(iter)?,
@@ -779,7 +903,7 @@ impl ProgramInstruction {
         let iter = &mut bytes.into_iter();
         Ok(Self::FinalizeAccountSettingsUpdate {
             account_guid_hash: unpack_account_guid_hash(
-                read_slice(iter, 32).ok_or(ProgramError::InvalidInstructionData)?,
+                read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?,
             )?,
             whitelist_enabled: unpack_option::<BooleanSetting>(iter)?,
             dapps_enabled: unpack_option::<BooleanSetting>(iter)?,
@@ -825,7 +949,7 @@ impl ProgramInstruction {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             account_name_hash: unpack_account_name_hash(
                 bytes
-                    .get(32..)
+                    .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
             )?,
         })
@@ -838,7 +962,41 @@ impl ProgramInstruction {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             account_name_hash: unpack_account_name_hash(
                 bytes
-                    .get(32..)
+                    .get(HASH_LEN..)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            )?,
+        })
+    }
+
+    fn unpack_init_balance_account_enable_spl_token(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        Ok(Self::InitSPLTokenAccountsCreation {
+            payer_account_guid_hash: unpack_account_guid_hash(
+                bytes
+                    .get(0..HASH_LEN)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            )?,
+            account_guid_hashes: unpack_account_guid_hash_vec(
+                bytes
+                    .get(HASH_LEN..)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            )?,
+        })
+    }
+
+    fn unpack_finalize_balance_account_enable_spl_token(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        Ok(Self::FinalizeSPLTokenAccountsCreation {
+            payer_account_guid_hash: unpack_account_guid_hash(
+                bytes
+                    .get(0..HASH_LEN)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            )?,
+            account_guid_hashes: unpack_account_guid_hash_vec(
+                bytes
+                    .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
             )?,
         })
@@ -861,7 +1019,7 @@ pub fn pack_supply_dapp_transaction_instructions(
     instructions: &Vec<Instruction>,
     buf: &mut Vec<u8>,
 ) {
-    buf.push(28);
+    buf.push(TAG_SUPPLY_DAPP_INSTRUCTIONS);
     buf.push(starting_index);
     buf.put_u16_le(instructions.len() as u16);
     for instruction in instructions.iter() {
@@ -919,7 +1077,7 @@ impl BalanceAccountWhitelistUpdate {
     ) -> Result<BalanceAccountWhitelistUpdate, ProgramError> {
         Ok(BalanceAccountWhitelistUpdate {
             guid_hash: unpack_account_guid_hash(
-                read_slice(iter, 32).ok_or(ProgramError::InvalidInstructionData)?,
+                read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?,
             )?,
             add_allowed_destinations: read_address_book_entries(iter)?,
             remove_allowed_destinations: read_address_book_entries(iter)?,
@@ -1013,7 +1171,7 @@ impl BalanceAccountCreation {
         }
         let mut iter = bytes.iter();
         let slot_id = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
-        let name_hash: [u8; 32] =
+        let name_hash: [u8; HASH_LEN] =
             *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let approvals_required_for_transfer =
             *read_u8(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
@@ -1132,6 +1290,19 @@ fn append_signers(signers: &Vec<(SlotId<Signer>, Signer)>, dst: &mut Vec<u8>) {
     }
 }
 
+fn read_account_guid_vec(iter: &mut Iter<u8>) -> Result<Vec<BalanceAccountGuidHash>, ProgramError> {
+    let n = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
+    Ok((0..n).map(|_| read_account_guid(iter).unwrap()).collect())
+}
+
+fn read_account_guid(iter: &mut Iter<u8>) -> Result<BalanceAccountGuidHash, ProgramError> {
+    unpack_account_guid_hash(
+        read_slice(iter, HASH_LEN)
+            .ok_or(ProgramError::InvalidInstructionData)?
+            .into(),
+    )
+}
+
 fn read_instructions(iter: &mut Iter<u8>) -> Result<Vec<Instruction>, ProgramError> {
     let instruction_count = read_u16(iter).ok_or(ProgramError::InvalidInstructionData)?;
     Ok((0..instruction_count)
@@ -1144,7 +1315,7 @@ fn read_account_meta(iter: &mut Iter<u8>) -> Result<AccountMeta, ProgramError> {
         .ok_or(ProgramError::InvalidInstructionData)
         .unwrap();
     let pubkey = Pubkey::new(
-        read_slice(iter, 32)
+        read_slice(iter, PUBKEY_BYTES)
             .ok_or(ProgramError::InvalidInstructionData)
             .unwrap()
             .try_into()
@@ -1267,9 +1438,16 @@ fn append_address_book_entries(
     }
 }
 
+pub fn unpack_account_guid_hash_vec(
+    bytes: &[u8],
+) -> Result<Vec<BalanceAccountGuidHash>, ProgramError> {
+    let iter = &mut bytes.iter();
+    read_account_guid_vec(iter)
+}
+
 fn unpack_account_guid_hash(bytes: &[u8]) -> Result<BalanceAccountGuidHash, ProgramError> {
     bytes
-        .get(..32)
+        .get(..HASH_LEN)
         .and_then(|slice| {
             slice
                 .try_into()
@@ -1281,7 +1459,7 @@ fn unpack_account_guid_hash(bytes: &[u8]) -> Result<BalanceAccountGuidHash, Prog
 
 fn unpack_account_name_hash(bytes: &[u8]) -> Result<BalanceAccountNameHash, ProgramError> {
     bytes
-        .get(..32)
+        .get(..HASH_LEN)
         .and_then(|slice| {
             slice
                 .try_into()
@@ -1289,6 +1467,16 @@ fn unpack_account_name_hash(bytes: &[u8]) -> Result<BalanceAccountNameHash, Prog
                 .map(|bytes| BalanceAccountNameHash::new(bytes))
         })
         .ok_or(ProgramError::InvalidInstructionData)
+}
+
+/// Deserialize a Pubkey, starting from the given offset in `bytes` slice.
+fn unpack_public_key(bytes: &[u8], offset: usize) -> Result<Pubkey, ProgramError> {
+    Ok(Pubkey::new_from_array(
+        bytes
+            .get(offset..offset + PUBKEY_BYTES)
+            .and_then(|slice| slice.try_into().ok())
+            .ok_or(ProgramError::InvalidInstructionData)?,
+    ))
 }
 
 fn append_balance_account_whitelist_updates(
@@ -1310,4 +1498,11 @@ fn read_balance_account_whitelist_updates(
         updates.push(BalanceAccountWhitelistUpdate::unpack_from_slice(iter)?)
     }
     Ok(updates)
+}
+
+pub fn pack_balance_account_guid_hash_vec(hashes: &Vec<BalanceAccountGuidHash>, buf: &mut Vec<u8>) {
+    buf.put_u8(hashes.len() as u8);
+    for h in hashes.iter() {
+        buf.extend_from_slice(h.to_bytes());
+    }
 }

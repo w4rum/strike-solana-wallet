@@ -1,3 +1,4 @@
+use crate::constants::HASH_LEN;
 use crate::model::address_book::{AddressBook, AddressBookEntry};
 use crate::model::multisig_op::BooleanSetting;
 use crate::model::wallet::Approvers;
@@ -5,6 +6,7 @@ use crate::utils::SlotFlags;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{Pack, Sealed};
+use solana_program::pubkey::Pubkey;
 use std::convert::TryFrom;
 use std::time::Duration;
 
@@ -14,15 +16,15 @@ const WHITELIST_SETTING_BIT: u8 = 0;
 const DAPPS_SETTING_BIT: u8 = 1;
 
 #[derive(Debug, Clone, Eq, PartialEq, Copy, Ord, PartialOrd)]
-pub struct BalanceAccountGuidHash([u8; 32]);
+pub struct BalanceAccountGuidHash([u8; HASH_LEN]);
 
 impl BalanceAccountGuidHash {
-    pub fn new(bytes: &[u8; 32]) -> Self {
+    pub fn new(bytes: &[u8; HASH_LEN]) -> Self {
         Self(*bytes)
     }
 
     pub fn zero() -> Self {
-        Self::new(&[0; 32])
+        Self::new(&[0; HASH_LEN])
     }
 
     pub fn to_bytes(&self) -> &[u8] {
@@ -31,19 +33,19 @@ impl BalanceAccountGuidHash {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Copy, Ord, PartialOrd)]
-pub struct BalanceAccountNameHash([u8; 32]);
+pub struct BalanceAccountNameHash([u8; HASH_LEN]);
 
 impl BalanceAccountNameHash {
-    pub fn new(bytes: &[u8; 32]) -> Self {
+    pub fn new(bytes: &[u8; HASH_LEN]) -> Self {
         Self(*bytes)
     }
 
     pub fn zero() -> Self {
-        Self::new(&[0; 32])
+        Self::new(&[0; HASH_LEN])
     }
 
-    pub fn to_bytes(&self) -> &[u8; 32] {
-        <&[u8; 32]>::try_from(&self.0[..]).unwrap()
+    pub fn to_bytes(&self) -> &[u8; HASH_LEN] {
+        <&[u8; HASH_LEN]>::try_from(&self.0[..]).unwrap()
     }
 }
 
@@ -63,8 +65,8 @@ pub struct BalanceAccount {
 impl Sealed for BalanceAccount {}
 
 impl Pack for BalanceAccount {
-    const LEN: usize = 32 + // guid_hash
-        32 + // name_hash
+    const LEN: usize = HASH_LEN +
+        HASH_LEN +
         1 + // approvals_required_for_transfer
         8 + // approval_timeout_for_transfer
         Approvers::STORAGE_SIZE + // transfer approvers
@@ -85,8 +87,8 @@ impl Pack for BalanceAccount {
             policy_update_locked_dst,
         ) = mut_array_refs![
             dst,
-            32,
-            32,
+            HASH_LEN,
+            HASH_LEN,
             1,
             8,
             Approvers::STORAGE_SIZE,
@@ -122,8 +124,8 @@ impl Pack for BalanceAccount {
             policy_update_locked_src,
         ) = array_refs![
             src,
-            32,
-            32,
+            HASH_LEN,
+            HASH_LEN,
             1,
             8,
             Approvers::STORAGE_SIZE,
@@ -167,5 +169,10 @@ impl BalanceAccount {
 
     pub fn has_whitelisted_destinations(&self) -> bool {
         return self.allowed_destinations.count_enabled() > 0;
+    }
+
+    /// Derive the PDA and "bump seed" of a BalanceAccount, given its GUID hash.
+    pub fn find_address(guid_hash: &BalanceAccountGuidHash, program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[&guid_hash.to_bytes()], program_id)
     }
 }

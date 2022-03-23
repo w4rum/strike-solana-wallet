@@ -250,6 +250,7 @@ impl Pack for DAppMultisigData {
 
 #[cfg(test)]
 mod test {
+    use crate::constants::{HASH_LEN, PUBKEY_BYTES};
     use crate::model::address_book::{DAppBookEntry, DAppBookEntryNameHash};
     use crate::model::balance_account::BalanceAccountGuidHash;
     use crate::model::dapp_multisig_data::{DAppMultisigData, INSTRUCTION_DATA_LEN};
@@ -259,22 +260,22 @@ mod test {
     use solana_program::program_pack::Pack;
     use solana_program::pubkey::Pubkey;
 
-    fn hash_of(data: &[u8]) -> [u8; 32] {
+    fn hash_of(data: &[u8]) -> [u8; HASH_LEN] {
         let mut hasher = Sha256::new();
         hasher.update(data);
         let hash_output = hasher.finalize();
-        *array_ref![hash_output, 0, 32]
+        *array_ref![hash_output, 0, HASH_LEN]
     }
 
     #[test]
     fn test_pack_unpack_empty() {
         let data = DAppMultisigData {
             is_initialized: false,
-            wallet_address: Pubkey::new(&[0; 32]),
-            account_guid_hash: BalanceAccountGuidHash::new(&[0; 32]),
+            wallet_address: Pubkey::new(&[0; PUBKEY_BYTES]),
+            account_guid_hash: BalanceAccountGuidHash::new(&[0; HASH_LEN]),
             dapp: DAppBookEntry {
-                address: Pubkey::new(&[0; 32]),
-                name_hash: DAppBookEntryNameHash::new(&[0; 32]),
+                address: Pubkey::new(&[0; PUBKEY_BYTES]),
+                name_hash: DAppBookEntryNameHash::new(&[0; HASH_LEN]),
             },
             num_instructions: 0,
             instruction_offsets: [0; 32],
