@@ -1,7 +1,10 @@
 use crate::error::WalletError;
 use crate::model::balance_account::{BalanceAccount, BalanceAccountGuidHash};
-use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, MultisigOpParams};
+use crate::model::multisig_op::{
+    ApprovalDisposition, MultisigOp, MultisigOpParams, OperationDisposition,
+};
 use crate::model::wallet::Wallet;
+use crate::version::{Versioned, VERSION};
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     clock::Clock,
@@ -122,6 +125,10 @@ pub fn start_multisig_config_op(
     Ok(())
 }
 
+pub fn log_op_disposition(disposition: OperationDisposition) {
+    msg!("OperationDisposition: [{}]", disposition.to_u8());
+}
+
 pub fn finalize_multisig_op<F>(
     multisig_op_account_info: &AccountInfo,
     account_to_return_rent_to: &AccountInfo,
@@ -136,10 +143,14 @@ where
         return Err(ProgramError::MissingRequiredSignature);
     }
 
-    let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
+    if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? == VERSION {
+        let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
-    if multisig_op.approved(expected_params.hash(), &clock, None)? {
-        on_op_approved()?
+        if multisig_op.approved(expected_params.hash(), &clock, None)? {
+            on_op_approved()?
+        }
+    } else {
+        log_op_disposition(OperationDisposition::EXPIRED);
     }
 
     collect_remaining_balance(&multisig_op_account_info, &account_to_return_rent_to)?;

@@ -118,6 +118,9 @@ pub enum WalletError {
     /// Invalid PDA address or bump seed
     #[error("Invalid PDA")]
     InvalidPDA,
+    /// The operation was initiated by a different version of the program
+    #[error("Operation Version Mismatch")]
+    OperationVersionMismatch,
 }
 
 impl From<WalletError> for ProgramError {

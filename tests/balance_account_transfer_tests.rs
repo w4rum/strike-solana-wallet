@@ -42,12 +42,12 @@ async fn test_transfer_sol() {
     result.unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
-        context.banks_client.borrow_mut(),
+        context.pt_context.banks_client.borrow_mut(),
         &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.payer,
-        context.recent_blockhash,
+        &context.pt_context.payer,
+        context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
         OperationDisposition::APPROVED,
     )
@@ -55,22 +55,24 @@ async fn test_transfer_sol() {
 
     // transfer enough balance from fee payer to source account
     context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[system_instruction::transfer(
-                &context.payer.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 &balance_account,
                 1000,
             )],
-            Some(&context.payer.pubkey()),
-            &[&context.payer],
-            context.recent_blockhash,
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer],
+            context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(balance_account)
             .await
@@ -79,6 +81,7 @@ async fn test_transfer_sol() {
     );
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(context.destination.pubkey())
             .await
@@ -87,6 +90,7 @@ async fn test_transfer_sol() {
     );
 
     context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
@@ -95,21 +99,22 @@ async fn test_transfer_sol() {
                 &context.wallet_account.pubkey(),
                 &balance_account,
                 &context.destination.pubkey(),
-                &context.payer.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 context.balance_account_guid_hash,
                 123,
                 &system_program::id(),
                 None,
             )],
-            Some(&context.payer.pubkey()),
-            &[&context.payer],
-            context.recent_blockhash,
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer],
+            context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(balance_account)
             .await
@@ -118,6 +123,7 @@ async fn test_transfer_sol() {
     );
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(context.destination.pubkey())
             .await
@@ -142,12 +148,12 @@ async fn test_transfer_sol_denied() {
     result.unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
-        context.banks_client.borrow_mut(),
+        context.pt_context.banks_client.borrow_mut(),
         &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.payer,
-        context.recent_blockhash,
+        &context.pt_context.payer,
+        context.pt_context.last_blockhash,
         ApprovalDisposition::DENY,
         OperationDisposition::DENIED,
     )
@@ -155,22 +161,24 @@ async fn test_transfer_sol_denied() {
 
     // transfer enough balance from fee payer to source account
     context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[system_instruction::transfer(
-                &context.payer.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 &balance_account,
                 1000,
             )],
-            Some(&context.payer.pubkey()),
-            &[&context.payer],
-            context.recent_blockhash,
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer],
+            context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(balance_account)
             .await
@@ -179,6 +187,7 @@ async fn test_transfer_sol_denied() {
     );
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(context.destination.pubkey())
             .await
@@ -187,6 +196,7 @@ async fn test_transfer_sol_denied() {
     );
 
     context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
@@ -195,15 +205,15 @@ async fn test_transfer_sol_denied() {
                 &context.wallet_account.pubkey(),
                 &balance_account,
                 &context.destination.pubkey(),
-                &context.payer.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 context.balance_account_guid_hash,
                 123,
                 &system_program::id(),
                 None,
             )],
-            Some(&context.payer.pubkey()),
-            &[&context.payer],
-            context.recent_blockhash,
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer],
+            context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -211,6 +221,7 @@ async fn test_transfer_sol_denied() {
     // balances should all be the same
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(balance_account)
             .await
@@ -219,6 +230,7 @@ async fn test_transfer_sol_denied() {
     );
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .get_balance(context.destination.pubkey())
             .await
@@ -273,19 +285,20 @@ async fn test_transfer_requires_multisig() {
     result.unwrap();
 
     approve_or_deny_1_of_2_multisig_op(
-        context.banks_client.borrow_mut(),
+        context.pt_context.banks_client.borrow_mut(),
         &context.program_id,
         &multisig_op_account.pubkey(),
         &context.approvers[0],
-        &context.payer,
+        &context.pt_context.payer,
         &context.approvers[1].pubkey(),
-        context.recent_blockhash,
+        context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
     )
     .await;
 
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
@@ -294,15 +307,15 @@ async fn test_transfer_requires_multisig() {
                     &context.wallet_account.pubkey(),
                     &balance_account,
                     &context.destination.pubkey(),
-                    &context.payer.pubkey(),
+                    &context.pt_context.payer.pubkey(),
                     context.balance_account_guid_hash,
                     123,
                     &system_program::id(),
                     None,
                 )],
-                Some(&context.payer.pubkey()),
-                &[&context.payer],
-                context.recent_blockhash,
+                Some(&context.pt_context.payer.pubkey()),
+                &[&context.pt_context.payer],
+                context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -330,6 +343,7 @@ async fn test_approval_fails_if_incorrect_params_hash() {
 
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[set_approval_disposition(
@@ -339,9 +353,9 @@ async fn test_approval_fails_if_incorrect_params_hash() {
                     ApprovalDisposition::APPROVE,
                     Hash::new_from_array([0; 32])
                 )],
-                Some(&context.payer.pubkey()),
-                &[&context.payer, &context.approvers[1]],
-                context.recent_blockhash,
+                Some(&context.pt_context.payer.pubkey()),
+                &[&context.pt_context.payer, &context.approvers[1]],
+                context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -365,12 +379,12 @@ async fn test_transfer_insufficient_balance() {
     result.unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
-        context.banks_client.borrow_mut(),
+        context.pt_context.banks_client.borrow_mut(),
         &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.payer,
-        context.recent_blockhash,
+        &context.pt_context.payer,
+        context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
         OperationDisposition::APPROVED,
     )
@@ -378,6 +392,7 @@ async fn test_transfer_insufficient_balance() {
 
     assert_eq!(
         context
+            .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
@@ -386,15 +401,15 @@ async fn test_transfer_insufficient_balance() {
                     &context.wallet_account.pubkey(),
                     &balance_account,
                     &context.destination.pubkey(),
-                    &context.payer.pubkey(),
+                    &context.pt_context.payer.pubkey(),
                     context.balance_account_guid_hash,
                     123,
                     &system_program::id(),
                     None,
                 )],
-                Some(&context.payer.pubkey()),
-                &[&context.payer],
-                context.recent_blockhash,
+                Some(&context.pt_context.payer.pubkey()),
+                &[&context.pt_context.payer],
+                context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -439,7 +454,11 @@ async fn test_transfer_initiator_approval() {
     result.unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account.pubkey()).await,
+        &get_multisig_op_data(
+            &mut context.pt_context.banks_client,
+            multisig_op_account.pubkey(),
+        )
+        .await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -468,7 +487,11 @@ async fn test_transfer_initiator_approval() {
     result.unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account.pubkey()).await,
+        &get_multisig_op_data(
+            &mut context.pt_context.banks_client,
+            multisig_op_account.pubkey(),
+        )
+        .await,
         2,
         &vec![
             ApprovalDispositionRecord {

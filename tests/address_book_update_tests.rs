@@ -19,7 +19,11 @@ use strike_wallet::model::multisig_op::{
 async fn test_address_book_update() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000)).await;
 
-    let wallet = get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+    let wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
 
     let initial_entries = wallet.address_book.filled_slots().clone();
     verify_address_book(&mut context, initial_entries.clone(), vec![]).await;
@@ -113,7 +117,11 @@ async fn test_address_book_update() {
 async fn test_address_book_failures() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(32000)).await;
 
-    let wallet = get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+    let wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
 
     // whitelist both entries, but whitelisting not on
     modify_address_book_and_whitelist(
@@ -191,7 +199,11 @@ async fn test_address_book_update_initiator_approval() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000)).await;
     let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
-    let wallet = get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+    let wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
 
     let multisig_op_account = init_address_book_update(
         &mut context,
@@ -206,7 +218,7 @@ async fn test_address_book_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -235,7 +247,7 @@ async fn test_address_book_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         2,
         &vec![
             ApprovalDispositionRecord {

@@ -1,5 +1,6 @@
 use crate::constants::{HASH_LEN, PUBKEY_BYTES};
 use crate::error::WalletError;
+use crate::handlers::utils::log_op_disposition;
 use crate::instruction::{
     append_instruction, AddressBookUpdate, BalanceAccountCreation, BalanceAccountPolicyUpdate,
     DAppBookUpdate, WalletConfigPolicyUpdate,
@@ -10,7 +11,7 @@ use crate::model::signer::Signer;
 use crate::model::wallet::Wallet;
 use crate::serialization_utils::pack_option;
 use crate::utils::SlotId;
-use crate::version::VERSION;
+use crate::version::{Versioned, VERSION};
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use bitvec::macros::internal::funty::Fundamental;
 use bytes::BufMut;
@@ -387,13 +388,25 @@ impl MultisigOp {
         if clock.unix_timestamp > self.expires_at {
             operation_disposition = OperationDisposition::EXPIRED
         }
-        msg!("OperationDisposition: [{}]", operation_disposition.to_u8());
+        log_op_disposition(operation_disposition);
 
         if operation_disposition == OperationDisposition::APPROVED {
             return Ok(true);
         }
 
         Ok(false)
+    }
+}
+
+impl Versioned for MultisigOp {
+    fn version_from_slice(src: &[u8]) -> Result<u32, ProgramError> {
+        if src.len() < 5 {
+            Err(ProgramError::InvalidAccountData)
+        } else {
+            let mut buf: [u8; 4] = [0; 4];
+            buf.copy_from_slice(&src[1..=4]);
+            Ok(u32::from_le_bytes(buf))
+        }
     }
 }
 

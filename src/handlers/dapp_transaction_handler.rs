@@ -1,15 +1,4 @@
 use bitvec::macros::internal::funty::Fundamental;
-
-use crate::error::WalletError;
-use crate::handlers::utils::{
-    calculate_expires, collect_remaining_balance, get_clock_from_next_account,
-    next_program_account_info, validate_balance_account_and_get_seed,
-};
-use crate::model::address_book::DAppBookEntry;
-use crate::model::balance_account::BalanceAccountGuidHash;
-use crate::model::dapp_multisig_data::DAppMultisigData;
-use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, OperationDisposition};
-use crate::model::wallet::Wallet;
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::hash::Hash;
@@ -20,6 +9,18 @@ use solana_program::program_error::ProgramError;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::Pubkey;
 use spl_token::state::Account as SPLAccount;
+
+use crate::error::WalletError;
+use crate::handlers::utils::{
+    calculate_expires, collect_remaining_balance, get_clock_from_next_account, log_op_disposition,
+    next_program_account_info, validate_balance_account_and_get_seed,
+};
+use crate::model::address_book::DAppBookEntry;
+use crate::model::balance_account::BalanceAccountGuidHash;
+use crate::model::dapp_multisig_data::DAppMultisigData;
+use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, OperationDisposition};
+use crate::model::wallet::Wallet;
+use crate::version::{Versioned, VERSION};
 
 pub fn init(
     program_id: &Pubkey,
@@ -94,6 +95,11 @@ pub fn supply_instructions(
     if !initiator_account_info.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
+
+    if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? != VERSION {
+        return Err(WalletError::OperationVersionMismatch.into());
+    }
+
     // TODO - once we are storing the initiator in the multisig op (PRIME-3999), verify that the supplied one matches
 
     let params_hash = {
@@ -252,60 +258,81 @@ pub fn finalize(
         return Err(ProgramError::MissingRequiredSignature);
     }
 
-    let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
-    let multisig_data = DAppMultisigData::unpack(&multisig_data_account_info.data.borrow())?;
+    if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? == VERSION {
+        let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
+        let multisig_data = DAppMultisigData::unpack(&multisig_data_account_info.data.borrow())?;
 
-    let instructions = multisig_data.instructions()?;
-    let (is_approved, is_final) = {
-        const NOT_FINAL: u32 = WalletError::TransferDispositionNotFinal as u32;
-        match multisig_op.approved(multisig_data.hash()?, &clock, Some(params_hash)) {
-            Ok(a) => (a, true),
-            Err(ProgramError::Custom(NOT_FINAL)) => (false, false),
-            Err(e) => return Err(e),
+        let instructions = multisig_data.instructions()?;
+        let (is_approved, is_final) = {
+            const NOT_FINAL: u32 = WalletError::TransferDispositionNotFinal as u32;
+            match multisig_op.approved(multisig_data.hash()?, &clock, Some(params_hash)) {
+                Ok(a) => (a, true),
+                Err(ProgramError::Custom(NOT_FINAL)) => (false, false),
+                Err(e) => return Err(e),
+            }
+        };
+
+        let bump_seed =
+            validate_balance_account_and_get_seed(balance_account, account_guid_hash, program_id)?;
+
+        let starting_balances: Vec<u64> = if is_final {
+            Vec::new()
+        } else {
+            account_balances(accounts)
+        };
+
+        let starting_spl_balances: Vec<SplBalance> = if is_final {
+            Vec::new()
+        } else {
+            spl_balances(accounts)
+        };
+
+        // actually run instructions if action is approved or this is a simulation (we are not final)
+        if is_approved || !is_final {
+            for instruction in instructions.iter() {
+                invoke_signed(
+                    &instruction,
+                    &accounts,
+                    &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
+                )?;
+            }
         }
-    };
 
-    let bump_seed =
-        validate_balance_account_and_get_seed(balance_account, account_guid_hash, program_id)?;
-
-    let starting_balances: Vec<u64> = if is_final {
-        Vec::new()
-    } else {
-        account_balances(accounts)
-    };
-
-    let starting_spl_balances: Vec<SplBalance> = if is_final {
-        Vec::new()
-    } else {
-        spl_balances(accounts)
-    };
-
-    // actually run instructions if action is approved or this is a simulation (we are not final)
-    if is_approved || !is_final {
-        for instruction in instructions.iter() {
-            invoke_signed(
-                &instruction,
-                &accounts,
-                &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
-            )?;
+        if is_final {
+            cleanup(
+                &multisig_op_account_info,
+                &multisig_data_account_info,
+                &rent_collector_account_info,
+            )
+        } else {
+            msg!(&balance_changes_from_simulation(
+                starting_balances,
+                starting_spl_balances,
+                account_balances(accounts),
+                spl_balances(accounts),
+                accounts,
+            ));
+            Err(WalletError::SimulationFinished.into())
         }
-    }
-
-    if is_final {
-        collect_remaining_balance(&multisig_op_account_info, &rent_collector_account_info)?;
-        collect_remaining_balance(&multisig_data_account_info, &rent_collector_account_info)?;
-
-        Ok(())
     } else {
-        msg!(&balance_changes_from_simulation(
-            starting_balances,
-            starting_spl_balances,
-            account_balances(accounts),
-            spl_balances(accounts),
-            accounts,
-        ));
-        Err(WalletError::SimulationFinished.into())
+        log_op_disposition(OperationDisposition::EXPIRED);
+        cleanup(
+            &multisig_op_account_info,
+            &multisig_data_account_info,
+            &rent_collector_account_info,
+        )
     }
+}
+
+fn cleanup(
+    multisig_op_account_info: &AccountInfo,
+    multisig_data_account_info: &AccountInfo,
+    rent_collector_account_info: &AccountInfo,
+) -> ProgramResult {
+    collect_remaining_balance(multisig_op_account_info, rent_collector_account_info)?;
+    collect_remaining_balance(multisig_data_account_info, rent_collector_account_info)?;
+
+    Ok(())
 }
 
 struct SplBalance {

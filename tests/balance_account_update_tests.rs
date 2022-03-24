@@ -37,7 +37,11 @@ use {
 async fn test_balance_account_policy_update() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
 
-    let wallet = get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+    let wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
     let balance_account = wallet
         .get_balance_account(&context.balance_account_guid_hash)
         .unwrap();
@@ -53,8 +57,11 @@ async fn test_balance_account_policy_update() {
         .unwrap();
 
     // verify that it was updated as expected
-    let updated_wallet =
-        get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+    let updated_wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
     let updated_balance_account = updated_wallet
         .get_balance_account(&context.balance_account_guid_hash)
         .unwrap();
@@ -84,6 +91,7 @@ async fn test_balance_account_policy_update() {
 
     // verify the multisig op account is closed
     assert!(context
+        .pt_context
         .banks_client
         .get_account(multisig_op_account)
         .await
@@ -91,12 +99,14 @@ async fn test_balance_account_policy_update() {
         .is_none());
 
     // verify optional updates
-    let mut expected_balance_account =
-        get_wallet(&mut context.banks_client, &context.wallet_account.pubkey())
-            .await
-            .get_balance_account(&context.balance_account_guid_hash)
-            .unwrap()
-            .clone();
+    let mut expected_balance_account = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await
+    .get_balance_account(&context.balance_account_guid_hash)
+    .unwrap()
+    .clone();
     expected_balance_account.approval_timeout_for_transfer = Duration::from_secs(6200);
 
     update_balance_account_policy(
@@ -113,10 +123,13 @@ async fn test_balance_account_policy_update() {
     .unwrap();
     assert_eq!(
         expected_balance_account,
-        get_wallet(&mut context.banks_client, &context.wallet_account.pubkey())
-            .await
-            .get_balance_account(&context.balance_account_guid_hash)
-            .unwrap()
+        get_wallet(
+            &mut context.pt_context.banks_client,
+            &context.wallet_account.pubkey()
+        )
+        .await
+        .get_balance_account(&context.balance_account_guid_hash)
+        .unwrap()
     );
 
     expected_balance_account.approvals_required_for_transfer = 2;
@@ -134,10 +147,13 @@ async fn test_balance_account_policy_update() {
     .unwrap();
     assert_eq!(
         expected_balance_account,
-        get_wallet(&mut context.banks_client, &context.wallet_account.pubkey())
-            .await
-            .get_balance_account(&context.balance_account_guid_hash)
-            .unwrap()
+        get_wallet(
+            &mut context.pt_context.banks_client,
+            &context.wallet_account.pubkey()
+        )
+        .await
+        .get_balance_account(&context.balance_account_guid_hash)
+        .unwrap()
     );
 }
 
@@ -160,7 +176,7 @@ async fn test_balance_account_policy_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -192,7 +208,7 @@ async fn test_balance_account_policy_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -212,7 +228,7 @@ async fn test_balance_account_policy_update_initiator_approval() {
 async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
 
-    let rent = context.banks_client.get_rent().await.unwrap();
+    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
 
@@ -231,11 +247,12 @@ async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
     };
 
     context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[
                 system_instruction::create_account(
-                    &context.payer.pubkey(),
+                    &context.pt_context.payer.pubkey(),
                     &multisig_op_account.pubkey(),
                     multisig_op_rent,
                     MultisigOp::LEN as u64,
@@ -250,13 +267,13 @@ async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
                     update1.clone(),
                 ),
             ],
-            Some(&context.payer.pubkey()),
+            Some(&context.pt_context.payer.pubkey()),
             &[
-                &context.payer,
+                &context.pt_context.payer,
                 &multisig_op_account,
                 &context.initiator_account,
             ],
-            context.recent_blockhash,
+            context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -264,9 +281,9 @@ async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
     // second update can't be initialized while the first one is still pending
     let multisig_op_account2 = Keypair::new();
     verify_multisig_op_init_fails(
-        &mut context.banks_client,
-        context.recent_blockhash,
-        &context.payer,
+        &mut context.pt_context.banks_client,
+        context.pt_context.last_blockhash,
+        &context.pt_context.payer,
         &context.initiator_account,
         &multisig_op_account2,
         init_balance_account_policy_update_instruction(
@@ -282,42 +299,44 @@ async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
     .await;
 
     approve_or_deny_n_of_n_multisig_op(
-        context.banks_client.borrow_mut(),
+        context.pt_context.banks_client.borrow_mut(),
         &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.payer,
-        context.recent_blockhash,
+        &context.pt_context.payer,
+        context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
         OperationDisposition::APPROVED,
     )
     .await;
 
     context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_balance_account_policy_update_instruction(
                 &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
-                &context.payer.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 context.balance_account_guid_hash,
                 update1.clone(),
             )],
-            Some(&context.payer.pubkey()),
-            &[&context.payer],
-            context.recent_blockhash,
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer],
+            context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     // now the second update can be initialized
     context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[
                 system_instruction::create_account(
-                    &context.payer.pubkey(),
+                    &context.pt_context.payer.pubkey(),
                     &multisig_op_account.pubkey(),
                     multisig_op_rent,
                     MultisigOp::LEN as u64,
@@ -332,13 +351,13 @@ async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
                     update2.clone(),
                 ),
             ],
-            Some(&context.payer.pubkey()),
+            Some(&context.pt_context.payer.pubkey()),
             &[
-                &context.payer,
+                &context.pt_context.payer,
                 &multisig_op_account,
                 &context.initiator_account,
             ],
-            context.recent_blockhash,
+            context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -348,12 +367,16 @@ async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
 async fn test_balance_account_policy_update_is_denied() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
 
-    let wallet = get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+    let wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
     let balance_account = wallet
         .get_balance_account(&context.balance_account_guid_hash)
         .unwrap();
 
-    let rent = context.banks_client.get_rent().await.unwrap();
+    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
 
@@ -367,7 +390,7 @@ async fn test_balance_account_policy_update_is_denied() {
     let balance_account_update_transaction = Transaction::new_signed_with_payer(
         &[
             system_instruction::create_account(
-                &context.payer.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 &multisig_op_account.pubkey(),
                 multisig_op_rent,
                 MultisigOp::LEN as u64,
@@ -382,27 +405,28 @@ async fn test_balance_account_policy_update_is_denied() {
                 update.clone(),
             ),
         ],
-        Some(&context.payer.pubkey()),
+        Some(&context.pt_context.payer.pubkey()),
         &[
-            &context.payer,
+            &context.pt_context.payer,
             &multisig_op_account,
             &context.initiator_account,
         ],
-        context.recent_blockhash,
+        context.pt_context.last_blockhash,
     );
     context
+        .pt_context
         .banks_client
         .process_transaction(balance_account_update_transaction)
         .await
         .unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
-        context.banks_client.borrow_mut(),
+        context.pt_context.banks_client.borrow_mut(),
         &context.program_id,
         &multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.payer,
-        context.recent_blockhash,
+        &context.pt_context.payer,
+        context.pt_context.last_blockhash,
         ApprovalDisposition::DENY,
         OperationDisposition::DENIED,
     )
@@ -410,11 +434,13 @@ async fn test_balance_account_policy_update_is_denied() {
 
     // finalize the update
     let starting_rent_collector_balance = context
+        .pt_context
         .banks_client
-        .get_balance(context.payer.pubkey())
+        .get_balance(context.pt_context.payer.pubkey())
         .await
         .unwrap();
     let op_account_balance = context
+        .pt_context
         .banks_client
         .get_balance(multisig_op_account.pubkey())
         .await
@@ -424,23 +450,27 @@ async fn test_balance_account_policy_update_is_denied() {
             &context.program_id,
             &context.wallet_account.pubkey(),
             &multisig_op_account.pubkey(),
-            &context.payer.pubkey(),
+            &context.pt_context.payer.pubkey(),
             context.balance_account_guid_hash,
             update,
         )],
-        Some(&context.payer.pubkey()),
-        &[&context.payer],
-        context.recent_blockhash,
+        Some(&context.pt_context.payer.pubkey()),
+        &[&context.pt_context.payer],
+        context.pt_context.last_blockhash,
     );
     context
+        .pt_context
         .banks_client
         .process_transaction(finalize_update)
         .await
         .unwrap();
 
     // verify that balance account was not changed
-    let wallet_after_update =
-        get_wallet(&mut context.banks_client, &context.wallet_account.pubkey()).await;
+    let wallet_after_update = get_wallet(
+        &mut context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
     let balance_account_after_update = wallet
         .get_balance_account(&context.balance_account_guid_hash)
         .unwrap();
@@ -478,6 +508,7 @@ async fn test_balance_account_policy_update_is_denied() {
 
     // verify the multisig op account is closed
     assert!(context
+        .pt_context
         .banks_client
         .get_account(multisig_op_account.pubkey())
         .await
@@ -486,8 +517,9 @@ async fn test_balance_account_policy_update_is_denied() {
 
     // and that the remaining balance went to the rent collector (less the 5000 in signature fees for the finalize)
     let ending_rent_collector_balance = context
+        .pt_context
         .banks_client
-        .get_balance(context.payer.pubkey())
+        .get_balance(context.pt_context.payer.pubkey())
         .await
         .unwrap();
     assert_eq!(
@@ -505,9 +537,9 @@ async fn invalid_balance_account_policy_updates() {
         let wrong_balance_account_guid_hash = BalanceAccountGuidHash::zero();
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client,
-            context.recent_blockhash,
-            &context.payer,
+            &mut context.pt_context.banks_client,
+            context.pt_context.last_blockhash,
+            &context.pt_context.payer,
             &context.initiator_account,
             &multisig_op_account,
             init_balance_account_policy_update_instruction(
@@ -531,9 +563,9 @@ async fn invalid_balance_account_policy_updates() {
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client,
-            context.recent_blockhash,
-            &context.payer,
+            &mut context.pt_context.banks_client,
+            context.pt_context.last_blockhash,
+            &context.pt_context.payer,
             &context.initiator_account,
             &multisig_op_account,
             init_balance_account_policy_update_instruction(
@@ -557,9 +589,9 @@ async fn invalid_balance_account_policy_updates() {
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client,
-            context.recent_blockhash,
-            &context.payer,
+            &mut context.pt_context.banks_client,
+            context.pt_context.last_blockhash,
+            &context.pt_context.payer,
             &context.initiator_account,
             &multisig_op_account,
             init_balance_account_policy_update_instruction(
@@ -586,9 +618,9 @@ async fn invalid_balance_account_policy_updates() {
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
-            &mut context.banks_client,
-            context.recent_blockhash,
-            &context.payer,
+            &mut context.pt_context.banks_client,
+            context.pt_context.last_blockhash,
+            &context.pt_context.payer,
             &context.initiator_account,
             &multisig_op_account,
             init_balance_account_policy_update_instruction(
@@ -650,7 +682,7 @@ async fn test_update_balance_account_name_initiator_approval() {
             .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op).await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -675,7 +707,7 @@ async fn test_update_balance_account_name_initiator_approval() {
             .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op).await,
         2,
         &vec![
             ApprovalDispositionRecord {

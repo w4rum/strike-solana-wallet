@@ -143,12 +143,12 @@ async fn test_remove_signer_fails_for_a_transfer_approver() {
     let mut context = setup_balance_account_tests(None, true).await;
 
     approve_or_deny_n_of_n_multisig_op(
-        context.banks_client.borrow_mut(),
+        context.pt_context.banks_client.borrow_mut(),
         &context.program_id,
         &context.multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.payer,
-        context.recent_blockhash,
+        &context.pt_context.payer,
+        context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
         OperationDisposition::APPROVED,
     )
@@ -158,9 +158,9 @@ async fn test_remove_signer_fails_for_a_transfer_approver() {
     // approvers 0 & 1 are config and transfer approvers, 2 is just a transfer approver
     let multisig_op_account = Keypair::new();
     verify_multisig_op_init_fails(
-        &mut context.banks_client,
-        context.recent_blockhash,
-        &context.payer,
+        &mut context.pt_context.banks_client,
+        context.pt_context.last_blockhash,
+        &context.pt_context.payer,
         &context.assistant_account,
         &multisig_op_account,
         instructions::init_update_signer(

@@ -1,6 +1,7 @@
 use crate::error::WalletError;
 use crate::handlers::utils::{get_clock_from_next_account, next_program_account_info};
 use crate::model::multisig_op::{ApprovalDisposition, MultisigOp};
+use crate::version::{Versioned, VERSION};
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::hash::Hash;
@@ -17,6 +18,10 @@ pub fn handle(
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
     let signer_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
+
+    if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? != VERSION {
+        return Err(WalletError::OperationVersionMismatch.into());
+    }
 
     let mut multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
