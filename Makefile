@@ -38,6 +38,9 @@ test:
 
 deploy_and_test: build deploy test
 
+version:
+	@grep 'static VERSION' ./src/version.rs | sed 's/pub static VERSION: u32 = \(.*\);/\1/'
+
 test-balance-account-update:
 	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=balance_account_update_tests
 
