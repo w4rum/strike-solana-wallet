@@ -10,6 +10,7 @@ use crate::model::signer::Signer;
 use crate::model::wallet::Wallet;
 use crate::serialization_utils::pack_option;
 use crate::utils::SlotId;
+use crate::version::VERSION;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use bitvec::macros::internal::funty::Fundamental;
 use bytes::BufMut;
@@ -240,6 +241,7 @@ impl ApprovalDispositionRecord {
 #[derive(Debug)]
 pub struct MultisigOp {
     pub is_initialized: bool,
+    pub version: u32,
     pub disposition_records: Vec<ApprovalDispositionRecord>,
     pub dispositions_required: u8,
     pub params_hash: Option<Hash>,
@@ -289,6 +291,8 @@ impl MultisigOp {
         } else {
             self.operation_disposition = OperationDisposition::NONE
         }
+
+        self.version = VERSION;
 
         Ok(())
     }
@@ -403,12 +407,13 @@ impl IsInitialized for MultisigOp {
 
 impl Pack for MultisigOp {
     const LEN: usize =
-        1 + ApprovalDispositionRecord::LEN * Wallet::MAX_SIGNERS + 1 + 1 + HASH_LEN + 8 + 8 + 1;
+        1 + 4 + ApprovalDispositionRecord::LEN * Wallet::MAX_SIGNERS + 1 + 1 + HASH_LEN + 8 + 8 + 1;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
         let (
             is_initialized_dst,
+            version_dst,
             disposition_records_count_dst,
             disposition_records_dst,
             dispositions_required_dst,
@@ -419,6 +424,7 @@ impl Pack for MultisigOp {
         ) = mut_array_refs![
             dst,
             1,
+            4,
             1,
             ApprovalDispositionRecord::LEN * Wallet::MAX_SIGNERS,
             1,
@@ -430,6 +436,7 @@ impl Pack for MultisigOp {
 
         let MultisigOp {
             is_initialized,
+            version,
             disposition_records,
             dispositions_required,
             params_hash,
@@ -439,6 +446,8 @@ impl Pack for MultisigOp {
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
+
+        *version_dst = version.to_le_bytes();
 
         disposition_records_count_dst[0] = disposition_records.len() as u8;
         disposition_records_dst.fill(0);
@@ -466,6 +475,7 @@ impl Pack for MultisigOp {
         let src = array_ref![src, 0, MultisigOp::LEN];
         let (
             is_initialized,
+            version,
             disposition_records_count,
             disposition_record_bytes,
             dispositions_required,
@@ -476,6 +486,7 @@ impl Pack for MultisigOp {
         ) = array_refs![
             src,
             1,
+            4,
             1,
             ApprovalDispositionRecord::LEN * Wallet::MAX_SIGNERS,
             1,
@@ -502,6 +513,7 @@ impl Pack for MultisigOp {
 
         Ok(MultisigOp {
             is_initialized,
+            version: u32::from_le_bytes(*version),
             disposition_records,
             dispositions_required: dispositions_required[0],
             params_hash: if *params_hash == EMPTY_PARAMS_HASH {

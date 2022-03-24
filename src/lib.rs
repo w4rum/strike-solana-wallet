@@ -5,6 +5,7 @@ pub mod model;
 pub mod processor;
 pub mod serialization_utils;
 pub mod utils;
+pub mod version;
 
 mod entrypoint;
 mod handlers;

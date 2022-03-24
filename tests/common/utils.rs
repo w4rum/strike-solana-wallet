@@ -40,6 +40,7 @@ use strike_wallet::model::multisig_op::{
 use strike_wallet::model::signer::Signer;
 use strike_wallet::model::wallet::Signers;
 use strike_wallet::utils::SlotId;
+use strike_wallet::version::VERSION;
 use uuid::Uuid;
 use {
     solana_program::{program_pack::Pack, pubkey::Pubkey},
@@ -1171,6 +1172,7 @@ pub async fn setup_balance_account_tests(
         ])
     );
     assert_eq!(multisig_op.dispositions_required, 2);
+    assert_eq!(multisig_op.version, VERSION);
 
     let expected_creation_params = BalanceAccountCreation {
         slot_id: SlotId::new(0),
