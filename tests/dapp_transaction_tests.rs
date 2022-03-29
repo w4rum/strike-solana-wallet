@@ -9,12 +9,11 @@ use solana_program::instruction::InstructionError::Custom;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::Pubkey;
 use solana_program::{system_instruction, system_program};
-use solana_program_test::tokio;
+use solana_program_test::{tokio, BanksClientError};
 use solana_sdk::account::{AccountSharedData, ReadableAccount, WritableAccount};
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer as SdkSigner;
 use solana_sdk::transaction::{Transaction, TransactionError};
-use solana_sdk::transport;
 
 pub use common::instructions::*;
 use common::instructions::{
@@ -452,7 +451,7 @@ async fn test_dapp_transaction_denied() {
 #[tokio::test]
 async fn test_dapp_transaction_with_spl_transfers() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(100000)).await;
+        utils::setup_balance_account_tests_and_finalize(Some(120000)).await;
 
     account_settings_update(&mut context, None, Some(BooleanSetting::On), None).await;
 
@@ -1006,7 +1005,7 @@ async fn supply_instructions(
     multisig_data_account: &Keypair,
     starting_index: u8,
     instructions: &Vec<Instruction>,
-) -> transport::Result<()> {
+) -> Result<(), BanksClientError> {
     context
         .pt_context
         .banks_client

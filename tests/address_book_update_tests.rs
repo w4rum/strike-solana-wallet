@@ -115,7 +115,7 @@ async fn test_address_book_update() {
 
 #[tokio::test]
 async fn test_address_book_failures() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(32000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(40000)).await;
 
     let wallet = get_wallet(
         &mut context.pt_context.banks_client,

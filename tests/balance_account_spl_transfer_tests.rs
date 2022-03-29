@@ -26,6 +26,7 @@ async fn test_wrap_unwrap() {
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let token_account_rent = rent.minimum_balance(spl_token::state::Account::LEN);
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
+    let balance_account_rent = rent.minimum_balance(0);
     let wrapped_sol_account = spl_associated_token_account::get_associated_token_address(
         &balance_account,
         &spl_token::native_mint::id(),
@@ -48,7 +49,7 @@ async fn test_wrap_unwrap() {
         TransactionError::InstructionError(1, Custom(1)),
     );
 
-    // move enough into balance account to fund wrapped sol token rent, but NOT what we want to transfer
+    // move enough into balance account to fund wrapped sol token rent and balance account minimum, but NOT what we want to transfer
     context
         .pt_context
         .banks_client
@@ -56,7 +57,7 @@ async fn test_wrap_unwrap() {
             &[system_instruction::transfer(
                 &context.pt_context.payer.pubkey(),
                 &balance_account,
-                token_account_rent,
+                token_account_rent + balance_account_rent,
             )],
             Some(&context.pt_context.payer.pubkey()),
             &[&context.pt_context.payer],
@@ -80,7 +81,7 @@ async fn test_wrap_unwrap() {
         TransactionError::InstructionError(0, Custom(WalletError::InsufficientBalance as u32)),
     );
 
-    // balance account should have 0 SOL now
+    // balance account should have balance account minimum SOL now
     assert_eq!(
         context
             .pt_context
@@ -88,7 +89,7 @@ async fn test_wrap_unwrap() {
             .get_balance(balance_account)
             .await
             .unwrap(),
-        0
+        balance_account_rent
     );
 
     // move enough into balance account to fund the amount
@@ -115,7 +116,7 @@ async fn test_wrap_unwrap() {
             .get_balance(balance_account)
             .await
             .unwrap(),
-        amount
+        balance_account_rent + amount
     );
 
     process_wrap(
@@ -146,7 +147,7 @@ async fn test_wrap_unwrap() {
             .get_balance(balance_account)
             .await
             .unwrap(),
-        0
+        balance_account_rent
     );
 
     let result = process_unwrapping(
@@ -193,7 +194,7 @@ async fn test_wrap_unwrap() {
             .get_balance(balance_account)
             .await
             .unwrap(),
-        unwrap_amount
+        balance_account_rent + unwrap_amount
     );
 }
 
@@ -252,7 +253,7 @@ async fn test_transfer_spl(
         initiator,
         &balance_account,
         Some(&spl_context.mint.pubkey()),
-        None,
+        123,
     )
     .await;
     result.unwrap();
@@ -323,7 +324,7 @@ async fn test_transfer_spl_insufficient_balance() {
         initiator,
         &balance_account,
         Some(&spl_context.mint.pubkey()),
-        Some(1230),
+        1230,
     )
     .await;
     result.unwrap();

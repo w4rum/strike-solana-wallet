@@ -23,14 +23,8 @@ async fn test_whitelist_status() {
 
     // transfer should go through
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (_, result) = setup_transfer_test(
-        context.borrow_mut(),
-        initiator,
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (_, result) =
+        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, 123).await;
     result.unwrap();
 
     // add a whitelisted destination, should fail since whitelisting on
@@ -77,14 +71,8 @@ async fn test_whitelist_status() {
 
     // make sure transfer fails
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (_, result) = setup_transfer_test(
-        context.borrow_mut(),
-        initiator,
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (_, result) =
+        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, 123).await;
     assert_eq!(
         result.unwrap_err().unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
@@ -95,14 +83,8 @@ async fn test_whitelist_status() {
     verify_whitelist_status(&mut context, BooleanSetting::Off, 0).await;
 
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (_, result) = setup_transfer_test(
-        context.borrow_mut(),
-        initiator,
-        &balance_account,
-        None,
-        None,
-    )
-    .await;
+    let (_, result) =
+        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, 123).await;
     result.unwrap();
 
     // explicitly turn it on

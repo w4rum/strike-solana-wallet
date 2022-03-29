@@ -5,6 +5,7 @@ use crate::model::multisig_op::{
 };
 use crate::model::wallet::Wallet;
 use crate::version::{Versioned, VERSION};
+use solana_program::rent::Rent;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     clock::Clock,
@@ -166,11 +167,19 @@ pub fn transfer_sol_checked<'a>(
     to: AccountInfo<'a>,
     lamports: u64,
 ) -> ProgramResult {
+    let balance_account_rent = Rent::get().unwrap().minimum_balance(0);
     if balance_account.lamports() < lamports {
         msg!(
             "Account only has {} lamports of {} requested",
             balance_account.lamports(),
             lamports
+        );
+        return Err(WalletError::InsufficientBalance.into());
+    } else if balance_account.lamports() - lamports < balance_account_rent {
+        msg!(
+            "Account would be left with {} lamports of {} required for rent exemption",
+            balance_account.lamports() - lamports,
+            balance_account_rent
         );
         return Err(WalletError::InsufficientBalance.into());
     }

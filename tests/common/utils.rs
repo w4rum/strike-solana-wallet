@@ -15,10 +15,9 @@ use sha2::{Digest, Sha256};
 use solana_program::instruction::{Instruction, InstructionError};
 use solana_program::rent::Rent;
 use solana_program::system_program;
-use solana_program_test::{processor, ProgramTest, ProgramTestContext};
+use solana_program_test::{processor, BanksClientError, ProgramTest, ProgramTestContext};
 use solana_sdk::account::ReadableAccount;
 use solana_sdk::transaction::TransactionError;
-use solana_sdk::transport;
 use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -50,7 +49,6 @@ use {
         signature::{Keypair, Signer as SdkSigner},
         system_instruction,
         transaction::Transaction,
-        transport::TransportError,
     },
     strike_wallet::{model::wallet::Wallet, processor::Processor},
 };
@@ -98,7 +96,7 @@ pub struct TestContext {
 pub async fn setup_test(max_compute_units: u64) -> TestContext {
     let program_id = Keypair::new().pubkey();
     let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_bpf_compute_max_units(max_compute_units);
+    pt.set_compute_max_units(max_compute_units);
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
     let rent = banks_client.get_rent().await.unwrap();
 
@@ -130,7 +128,7 @@ pub async fn init_multisig_op(
     multisig_op_account: Keypair,
     instruction: Instruction,
     initiator_account: &Keypair,
-) -> transport::Result<()> {
+) -> Result<(), BanksClientError> {
     test_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
@@ -218,7 +216,7 @@ pub async fn init_wallet_config_policy_update(
     wallet_account: Pubkey,
     initiator: &Keypair,
     update: &WalletConfigPolicyUpdate,
-) -> Result<Pubkey, TransportError> {
+) -> Result<Pubkey, BanksClientError> {
     let multisig_op_keypair = Keypair::new();
     let multisig_op_pubkey = multisig_op_keypair.pubkey();
 
@@ -279,7 +277,7 @@ pub async fn update_wallet_config_policy(
 }
 
 pub fn assert_instruction_error<R: Debug>(
-    res: Result<R, TransportError>,
+    res: Result<R, BanksClientError>,
     expected_instruction_index: u8,
     expected_error: InstructionError,
 ) {
@@ -297,7 +295,7 @@ pub async fn init_wallet(
     wallet_account: &Keypair,
     assistant_account: &Keypair,
     initial_config: InitialWalletConfig,
-) -> Result<(), TransportError> {
+) -> Result<(), BanksClientError> {
     let rent = banks_client.get_rent().await.unwrap();
     let program_rent = rent.minimum_balance(Wallet::LEN);
 
@@ -341,7 +339,7 @@ pub async fn setup_wallet_test(
 ) -> WalletTestContext {
     let program_id = Keypair::new().pubkey();
     let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_bpf_compute_max_units(max_compute_units);
+    pt.set_compute_max_units(max_compute_units);
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
     let rent = banks_client.get_rent().await.unwrap();
 
@@ -381,7 +379,7 @@ pub async fn init_update_signer(
     slot_update_type: SlotUpdateType,
     slot_id: usize,
     signer: Signer,
-) -> Result<Pubkey, TransportError> {
+) -> Result<Pubkey, BanksClientError> {
     let rent = context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
@@ -738,7 +736,7 @@ pub async fn init_dapp_book_update(
     wallet_account: Pubkey,
     initiator: &Keypair,
     update: DAppBookUpdate,
-) -> Result<Pubkey, TransportError> {
+) -> Result<Pubkey, BanksClientError> {
     let multisig_op_keypair = Keypair::new();
     let multisig_op_pubkey = multisig_op_keypair.pubkey();
 
@@ -1023,7 +1021,7 @@ pub async fn init_balance_account_creation(
     initiator_account: &Keypair,
     balance_account_guid_hash: BalanceAccountGuidHash,
     creation_params: BalanceAccountCreation,
-) -> Result<Pubkey, TransportError> {
+) -> Result<Pubkey, BanksClientError> {
     let rent = context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
@@ -1067,12 +1065,12 @@ pub async fn init_balance_account_creation(
 }
 
 pub async fn setup_balance_account_tests(
-    bpf_compute_max_units: Option<u64>,
+    compute_max_units: Option<u64>,
     add_extra_transfer_approver: bool,
 ) -> BalanceAccountTestContext {
     let program_id = Keypair::new().pubkey();
     let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_bpf_compute_max_units(bpf_compute_max_units.unwrap_or(50_000));
+    pt.set_compute_max_units(compute_max_units.unwrap_or(50_000));
     let mut pt_context = pt.start_with_context().await;
     let wallet_account = Keypair::new();
     let multisig_op_account = Keypair::new();
@@ -1268,7 +1266,7 @@ pub async fn setup_create_balance_account_failure_tests(
 ) -> TransactionError {
     let program_id = Keypair::new().pubkey();
     let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_bpf_compute_max_units(bpf_compute_max_units.unwrap_or(25_000));
+    pt.set_compute_max_units(bpf_compute_max_units.unwrap_or(25_000));
     let (mut banks_client, payer, recent_blockhash) = pt.start().await;
     let wallet_account = Keypair::new();
     let multisig_op_account = Keypair::new();
@@ -1379,9 +1377,9 @@ pub async fn finalize_balance_account_creation(context: &mut BalanceAccountTestC
 }
 
 pub async fn setup_balance_account_tests_and_finalize(
-    bpf_compute_max_units: Option<u64>,
+    compute_max_units: Option<u64>,
 ) -> (BalanceAccountTestContext, Pubkey) {
-    let mut context = setup_balance_account_tests(bpf_compute_max_units, false).await;
+    let mut context = setup_balance_account_tests(compute_max_units, false).await;
 
     approve_or_deny_n_of_n_multisig_op(
         context.pt_context.banks_client.borrow_mut(),
@@ -1460,8 +1458,8 @@ pub async fn setup_transfer_test(
     initiator_account: &Keypair,
     balance_account: &Pubkey,
     token_mint: Option<&Pubkey>,
-    amount: Option<u64>,
-) -> (Keypair, transport::Result<()>) {
+    amount: u64,
+) -> (Keypair, Result<(), BanksClientError>) {
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
@@ -1487,7 +1485,7 @@ pub async fn setup_transfer_test(
                     &balance_account,
                     &context.destination.pubkey(),
                     context.balance_account_guid_hash,
-                    amount.unwrap_or(123),
+                    amount,
                     context.destination_name_hash,
                     token_mint.unwrap_or(&system_program::id()),
                     &context.pt_context.payer.pubkey(),
@@ -1539,7 +1537,7 @@ pub async fn init_address_book_update(
     context: &mut BalanceAccountTestContext,
     initiator_account: &Keypair,
     update: AddressBookUpdate,
-) -> Result<Pubkey, TransportError> {
+) -> Result<Pubkey, BanksClientError> {
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
@@ -1653,7 +1651,7 @@ pub async fn init_balance_account_name_hash_update(
     context: &mut BalanceAccountTestContext,
     initiator_account: &Keypair,
     account_name_hash: BalanceAccountNameHash,
-) -> Result<Pubkey, TransportError> {
+) -> Result<Pubkey, BanksClientError> {
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
@@ -1756,7 +1754,7 @@ pub async fn init_balance_account_policy_update(
     context: &mut BalanceAccountTestContext,
     initiator_account: &Keypair,
     update: BalanceAccountPolicyUpdate,
-) -> Result<Pubkey, TransportError> {
+) -> Result<Pubkey, BanksClientError> {
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
@@ -2094,7 +2092,7 @@ pub async fn process_wrap(
     amount: u64,
     token_account_rent: u64,
     wrapped_sol_account: Pubkey,
-) -> transport::Result<()> {
+) -> Result<(), BanksClientError> {
     let multisig_op_account = Keypair::new();
 
     let init_result = context
@@ -2187,7 +2185,7 @@ pub async fn process_unwrapping(
     multisig_account_rent: u64,
     balance_account: Pubkey,
     unwrap_amount: u64,
-) -> transport::Result<()> {
+) -> Result<(), BanksClientError> {
     let unwrap_multisig_op_account = Keypair::new();
 
     context

@@ -389,7 +389,7 @@ async fn test_multisig_op_version_mismatch() {
                     &context.multisig_op_account.pubkey(),
                     &approver.pubkey(),
                     ApprovalDisposition::APPROVE,
-                    Hash([0; 32]), // doesn't matter, it will fail for version mismatch first
+                    Hash::new_from_array([0; 32]), // doesn't matter, it will fail for version mismatch first
                 )],
                 Some(&context.pt_context.payer.pubkey()),
                 &[&context.pt_context.payer, approver],

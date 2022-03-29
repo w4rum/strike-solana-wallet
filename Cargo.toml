@@ -1,7 +1,7 @@
 [package]
 name = "strike-wallet"
 version = "0.0.1"
-edition = "2018"
+edition = "2021"
 publish = false
 resolver = "2"
 
@@ -10,7 +10,7 @@ bytes = "1.1.0"
 arrayref = "0.3.6"
 bitvec = "1.0"
 itertools = "0.10.3"
-solana-program = "=1.8.14"
+solana-program = "=1.10.3"
 spl-associated-token-account = { version = "=1.0.3", features = ["no-entrypoint"] }
 spl-token = "=3.2.0"
 thiserror = "1.0.30"
@@ -21,10 +21,10 @@ no-entrypoint = []
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-sha2 = "0.10.1"
-solana-program-test = "=1.8.14"
-solana-sdk = "=1.8.14"
-solana-validator = "=1.8.14"
+sha2 = "0.10.2"
+solana-program-test = "=1.10.3"
+solana-sdk = "=1.10.3"
+solana-validator = "=1.10.3"
 uuid = { version = "0.8.2", features = ["v4"] }
 
 [lib]
