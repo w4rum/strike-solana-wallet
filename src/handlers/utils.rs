@@ -175,10 +175,10 @@ pub fn transfer_sol_checked<'a>(
             lamports
         );
         return Err(WalletError::InsufficientBalance.into());
-    } else if balance_account.lamports() - lamports < balance_account_rent {
+    } else if balance_account.lamports().checked_sub(lamports).unwrap() < balance_account_rent {
         msg!(
             "Account would be left with {} lamports of {} required for rent exemption",
-            balance_account.lamports() - lamports,
+            balance_account.lamports().checked_sub(lamports).unwrap(),
             balance_account_rent
         );
         return Err(WalletError::InsufficientBalance.into());
