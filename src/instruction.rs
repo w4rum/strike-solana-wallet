@@ -62,6 +62,7 @@ pub const TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 30;
 pub enum ProgramInstruction {
     /// 0. `[writable]` The wallet account
     /// 1. `[signer]` The transaction assistant account
+    /// 2. `[signer]` The rent return account
     InitWallet { initial_config: InitialWalletConfig },
 
     /// 0. `[writable]` The multisig operation account

@@ -19,7 +19,7 @@ use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{IsInitialized, Pack, Sealed};
-use solana_program::pubkey::Pubkey;
+use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 use std::time::Duration;
 
 pub type Signers = Slots<Signer, { Wallet::MAX_SIGNERS }>;
@@ -29,6 +29,8 @@ pub type BalanceAccounts = Slots<BalanceAccount, { Wallet::MAX_BALANCE_ACCOUNTS 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Wallet {
     pub is_initialized: bool,
+    pub version: u32,
+    pub rent_return: Pubkey,
     pub signers: Signers,
     pub assistant: Signer,
     pub address_book: AddressBook,
@@ -717,6 +719,8 @@ impl Wallet {
 
 impl Pack for Wallet {
     const LEN: usize = 1 + // is_initialized
+        4 + // version
+        PUBKEY_BYTES + // rent return
         Signers::LEN +
         Signer::LEN + // assistant
         AddressBook::LEN +
@@ -731,6 +735,8 @@ impl Pack for Wallet {
         let dst = array_mut_ref![dst, 0, Wallet::LEN];
         let (
             is_initialized_dst,
+            version_dst,
+            rent_return_dst,
             signers_dst,
             assistant_account_dst,
             address_book_dst,
@@ -743,6 +749,8 @@ impl Pack for Wallet {
         ) = mut_array_refs![
             dst,
             1,
+            4,
+            PUBKEY_BYTES,
             Signers::LEN,
             Signer::LEN,
             AddressBook::LEN,
@@ -755,6 +763,8 @@ impl Pack for Wallet {
         ];
 
         is_initialized_dst[0] = self.is_initialized as u8;
+        *version_dst = self.version.to_le_bytes();
+        rent_return_dst.copy_from_slice(self.rent_return.as_ref());
         self.signers.pack_into_slice(signers_dst);
         self.assistant.pack_into_slice(assistant_account_dst);
         self.address_book.pack_into_slice(address_book_dst);
@@ -770,6 +780,8 @@ impl Pack for Wallet {
         let src = array_ref![src, 0, Wallet::LEN];
         let (
             is_initialized,
+            version,
+            rent_return,
             signers_src,
             assistant,
             address_book_src,
@@ -782,6 +794,8 @@ impl Pack for Wallet {
         ) = array_refs![
             src,
             1,
+            4,
+            PUBKEY_BYTES,
             Signers::LEN,
             Signer::LEN,
             AddressBook::LEN,
@@ -799,6 +813,8 @@ impl Pack for Wallet {
                 [1] => true,
                 _ => return Err(ProgramError::InvalidAccountData),
             },
+            version: u32::from_le_bytes(*version),
+            rent_return: Pubkey::new_from_array(*rent_return),
             signers: Signers::unpack_from_slice(signers_src)?,
             assistant: Signer::unpack_from_slice(assistant)?,
             address_book: AddressBook::unpack_from_slice(address_book_src)?,

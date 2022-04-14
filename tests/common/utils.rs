@@ -312,6 +312,7 @@ pub async fn init_wallet(
                 &program_id,
                 &wallet_account.pubkey(),
                 &assistant_account.pubkey(),
+                &payer.pubkey(),
                 initial_config,
             ),
         ],

@@ -18,6 +18,7 @@ use strike_wallet::model::address_book::{AddressBook, DAppBook};
 use strike_wallet::model::signer::Signer;
 use strike_wallet::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet};
 use strike_wallet::utils::SlotId;
+use strike_wallet::version::VERSION;
 use {
     solana_program_test::{processor, tokio, ProgramTest},
     solana_sdk::{
@@ -66,6 +67,8 @@ async fn init_wallet() {
         get_wallet(&mut banks_client, &wallet_account.pubkey()).await,
         Wallet {
             is_initialized: true,
+            version: VERSION,
+            rent_return: payer.pubkey().clone(),
             signers: Signers::from_vec(signers),
             assistant: assistant_account.pubkey_as_signer(),
             address_book: AddressBook::new(),
