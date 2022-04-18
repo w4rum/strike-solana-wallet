@@ -35,10 +35,7 @@ async fn test_add_and_remove_signer() {
             (SlotId::new(0), approvers[0].pubkey_as_signer()),
             (SlotId::new(1), approvers[1].pubkey_as_signer()),
         ],
-        config_approvers: vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
-        ],
+        config_approvers: vec![SlotId::new(0), SlotId::new(1)],
     };
 
     let expected_signers_after_add = Signers::from_vec(vec![
@@ -90,10 +87,7 @@ async fn test_add_and_remove_signer_init_failures() {
             (SlotId::new(0), approvers[0].pubkey_as_signer()),
             (SlotId::new(1), approvers[1].pubkey_as_signer()),
         ],
-        config_approvers: vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
-        ],
+        config_approvers: vec![SlotId::new(0), SlotId::new(1)],
     };
 
     let signer1 = approvers[1].pubkey_as_signer();
@@ -190,10 +184,7 @@ async fn test_signers_update_initiator_approval() {
                 (SlotId::new(0), approvers[0].pubkey_as_signer()),
                 (SlotId::new(1), approvers[1].pubkey_as_signer()),
             ],
-            config_approvers: vec![
-                (SlotId::new(0), approvers[0].pubkey_as_signer()),
-                (SlotId::new(1), approvers[1].pubkey_as_signer()),
-            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await;
@@ -234,10 +225,7 @@ async fn test_signers_update_initiator_approval() {
                 (SlotId::new(0), approvers[0].pubkey_as_signer()),
                 (SlotId::new(1), approvers[1].pubkey_as_signer()),
             ],
-            config_approvers: vec![
-                (SlotId::new(0), approvers[0].pubkey_as_signer()),
-                (SlotId::new(1), approvers[1].pubkey_as_signer()),
-            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await;

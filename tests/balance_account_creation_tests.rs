@@ -275,10 +275,7 @@ async fn test_balance_account_creation_initiator_approval() {
                 (SlotId::new(1), approvers[1].pubkey_as_signer()),
                 (SlotId::new(2), approvers[2].pubkey_as_signer()),
             ],
-            config_approvers: vec![
-                (SlotId::new(0), approvers[0].pubkey_as_signer()),
-                (SlotId::new(1), approvers[1].pubkey_as_signer()),
-            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await;
@@ -292,7 +289,8 @@ async fn test_balance_account_creation_initiator_approval() {
             name_hash: BalanceAccountNameHash::new(&hash_of(b"Account Name")),
             approvals_required_for_transfer: 1,
             approval_timeout_for_transfer: Duration::from_secs(120),
-            transfer_approvers: vec![(SlotId::new(0), approvers[0].pubkey_as_signer())],
+            transfer_approvers: vec![SlotId::new(0)],
+            signers_hash: hash_signers(&vec![approvers[0].pubkey_as_signer()]),
             whitelist_enabled: BooleanSetting::Off,
             dapps_enabled: BooleanSetting::Off,
             address_book_slot_id: SlotId::new(32),
@@ -326,7 +324,8 @@ async fn test_balance_account_creation_initiator_approval() {
             name_hash: BalanceAccountNameHash::new(&hash_of(b"Account Name")),
             approvals_required_for_transfer: 1,
             approval_timeout_for_transfer: Duration::from_secs(120),
-            transfer_approvers: vec![(SlotId::new(0), approvers[0].pubkey_as_signer())],
+            transfer_approvers: vec![SlotId::new(0)],
+            signers_hash: hash_signers(&vec![approvers[0].pubkey_as_signer()]),
             whitelist_enabled: BooleanSetting::Off,
             dapps_enabled: BooleanSetting::Off,
             address_book_slot_id: SlotId::new(32),

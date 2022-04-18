@@ -121,6 +121,9 @@ pub enum WalletError {
     /// The operation was initiated by a different version of the program
     #[error("Operation Version Mismatch")]
     OperationVersionMismatch,
+    /// The specified signers hash did not match the programs calculated hash.
+    #[error("Invalid Signers Hash")]
+    InvalidSignersHash,
 }
 
 impl From<WalletError> for ProgramError {

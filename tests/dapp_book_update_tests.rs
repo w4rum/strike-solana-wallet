@@ -40,7 +40,7 @@ async fn test_dapp_book_update() {
             approvals_required_for_config: 1,
             approval_timeout_for_config: Duration::from_secs(3600),
             signers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
-            config_approvers: vec![(SlotId::new(0), signers[0])],
+            config_approvers: vec![SlotId::new(0)],
         },
     )
     .await
@@ -85,10 +85,6 @@ async fn test_dapp_book_update() {
             update: add_dapp.clone(),
         },
     );
-
-    let wallet = get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await;
-    // ensure that config policy updates are not locked
-    assert!(!wallet.config_policy_update_locked);
 
     approve_n_of_n_multisig_op(&mut context, &multisig_op_account, vec![&approvers[0]]).await;
 
@@ -183,7 +179,7 @@ async fn test_dapp_book_update_initiator_approval() {
                 (SlotId::new(1), signers[1]),
                 (SlotId::new(2), signers[2]),
             ],
-            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await

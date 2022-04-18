@@ -20,9 +20,8 @@ use crate::model::multisig_op::{
 };
 use crate::model::signer::Signer;
 use crate::serialization_utils::{
-    append_duration, append_optional_duration, append_optional_u8, pack_option, read_duration,
-    read_fixed_size_array, read_optional_duration, read_optional_u8, read_slice, read_u16, read_u8,
-    unpack_option,
+    append_duration, pack_option, read_duration, read_fixed_size_array, read_slice, read_u16,
+    read_u8, unpack_option,
 };
 use crate::utils::SlotId;
 
@@ -1033,7 +1032,7 @@ pub struct InitialWalletConfig {
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
     pub signers: Vec<(SlotId<Signer>, Signer)>,
-    pub config_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub config_approvers: Vec<SlotId<Signer>>,
 }
 
 impl InitialWalletConfig {
@@ -1047,7 +1046,7 @@ impl InitialWalletConfig {
         let approval_timeout_for_config =
             read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let signers = read_signers(&mut iter)?;
-        let config_approvers = read_signers(&mut iter)?;
+        let config_approvers = read_signer_slots(&mut iter)?;
 
         Ok(InitialWalletConfig {
             approvals_required_for_config,
@@ -1061,7 +1060,7 @@ impl InitialWalletConfig {
         dst.push(self.approvals_required_for_config);
         append_duration(&self.approval_timeout_for_config, dst);
         append_signers(&self.signers, dst);
-        append_signers(&self.config_approvers, dst);
+        append_signer_slots(&self.config_approvers, dst);
     }
 }
 
@@ -1123,33 +1122,36 @@ impl AddressBookUpdate {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct WalletConfigPolicyUpdate {
-    pub approvals_required_for_config: Option<u8>,
-    pub approval_timeout_for_config: Option<Duration>,
-    pub add_config_approvers: Vec<(SlotId<Signer>, Signer)>,
-    pub remove_config_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub approvals_required_for_config: u8,
+    pub approval_timeout_for_config: Duration,
+    pub config_approvers: Vec<SlotId<Signer>>,
+    pub signers_hash: Hash,
 }
 
 impl WalletConfigPolicyUpdate {
     fn unpack(bytes: &[u8]) -> Result<WalletConfigPolicyUpdate, ProgramError> {
         let mut iter = bytes.iter();
-        let approvals_required_for_config = read_optional_u8(&mut iter)?;
-        let approval_timeout_for_config = read_optional_duration(&mut iter)?;
-        let add_config_approvers = read_signers(&mut iter)?;
-        let remove_config_approvers = read_signers(&mut iter)?;
+        let approvals_required_for_config =
+            *read_u8(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let approval_timeout_for_config =
+            read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let config_approvers = read_signer_slots(&mut iter)?;
+        let signers_hash: [u8; HASH_LEN] =
+            *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
 
         Ok(WalletConfigPolicyUpdate {
             approvals_required_for_config,
             approval_timeout_for_config,
-            add_config_approvers,
-            remove_config_approvers,
+            config_approvers,
+            signers_hash: Hash::new_from_array(signers_hash),
         })
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
-        append_optional_u8(&self.approvals_required_for_config, dst);
-        append_optional_duration(&self.approval_timeout_for_config, dst);
-        append_signers(&self.add_config_approvers, dst);
-        append_signers(&self.remove_config_approvers, dst);
+        dst.push(self.approvals_required_for_config);
+        append_duration(&self.approval_timeout_for_config, dst);
+        append_signer_slots(&self.config_approvers, dst);
+        dst.extend_from_slice(self.signers_hash.as_ref());
     }
 }
 
@@ -1159,7 +1161,8 @@ pub struct BalanceAccountCreation {
     pub name_hash: BalanceAccountNameHash,
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
-    pub transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub transfer_approvers: Vec<SlotId<Signer>>,
+    pub signers_hash: Hash,
     pub whitelist_enabled: BooleanSetting,
     pub dapps_enabled: BooleanSetting,
     pub address_book_slot_id: SlotId<AddressBookEntry>,
@@ -1178,7 +1181,9 @@ impl BalanceAccountCreation {
             *read_u8(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let approval_timeout_for_transfer =
             read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
-        let transfer_approvers = read_signers(&mut iter)?;
+        let transfer_approvers = read_signer_slots(&mut iter)?;
+        let signers_hash: [u8; HASH_LEN] =
+            *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
         let whitelist_enabled = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
         let dapps_enabled = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
         let address_book_slot_id = *iter.next().ok_or(ProgramError::InvalidInstructionData)?;
@@ -1189,6 +1194,7 @@ impl BalanceAccountCreation {
             approvals_required_for_transfer,
             approval_timeout_for_transfer,
             transfer_approvers,
+            signers_hash: Hash::new_from_array(signers_hash),
             whitelist_enabled: BooleanSetting::from_u8(whitelist_enabled),
             dapps_enabled: BooleanSetting::from_u8(dapps_enabled),
             address_book_slot_id: SlotId::new(address_book_slot_id as usize),
@@ -1200,7 +1206,8 @@ impl BalanceAccountCreation {
         dst.extend_from_slice(self.name_hash.to_bytes());
         dst.push(self.approvals_required_for_transfer);
         append_duration(&self.approval_timeout_for_transfer, dst);
-        append_signers(&self.transfer_approvers, dst);
+        append_signer_slots(&self.transfer_approvers, dst);
+        dst.extend_from_slice(self.signers_hash.as_ref());
         dst.push(self.whitelist_enabled.to_u8());
         dst.push(self.dapps_enabled.to_u8());
         dst.push(self.address_book_slot_id.value as u8);
@@ -1209,10 +1216,10 @@ impl BalanceAccountCreation {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BalanceAccountPolicyUpdate {
-    pub approvals_required_for_transfer: Option<u8>,
-    pub approval_timeout_for_transfer: Option<Duration>,
-    pub add_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
-    pub remove_transfer_approvers: Vec<(SlotId<Signer>, Signer)>,
+    pub approvals_required_for_transfer: u8,
+    pub approval_timeout_for_transfer: Duration,
+    pub transfer_approvers: Vec<SlotId<Signer>>,
+    pub signers_hash: Hash,
 }
 
 impl BalanceAccountPolicyUpdate {
@@ -1221,24 +1228,27 @@ impl BalanceAccountPolicyUpdate {
             return Err(ProgramError::InvalidInstructionData);
         }
         let mut iter = bytes.iter();
-        let approvals_required_for_transfer = read_optional_u8(&mut iter)?;
-        let approval_timeout_for_transfer = read_optional_duration(&mut iter)?;
-        let add_approvers = read_signers(&mut iter)?;
-        let remove_approvers = read_signers(&mut iter)?;
+        let approvals_required_for_transfer =
+            *read_u8(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let approval_timeout_for_transfer =
+            read_duration(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let approvers = read_signer_slots(&mut iter)?;
+        let signers_hash: [u8; HASH_LEN] =
+            *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?;
 
         Ok(BalanceAccountPolicyUpdate {
             approvals_required_for_transfer,
             approval_timeout_for_transfer,
-            add_transfer_approvers: add_approvers,
-            remove_transfer_approvers: remove_approvers,
+            transfer_approvers: approvers,
+            signers_hash: Hash::new_from_array(signers_hash),
         })
     }
 
     pub fn pack(&self, dst: &mut Vec<u8>) {
-        append_optional_u8(&self.approvals_required_for_transfer, dst);
-        append_optional_duration(&self.approval_timeout_for_transfer, dst);
-        append_signers(&self.add_transfer_approvers, dst);
-        append_signers(&self.remove_transfer_approvers, dst);
+        dst.push(self.approvals_required_for_transfer);
+        append_duration(&self.approval_timeout_for_transfer, dst);
+        append_signer_slots(&self.transfer_approvers, dst);
+        dst.extend_from_slice(self.signers_hash.as_ref());
     }
 }
 
@@ -1281,6 +1291,17 @@ fn read_signers(iter: &mut Iter<u8>) -> Result<Vec<(SlotId<Signer>, Signer)>, Pr
         .collect()
 }
 
+fn read_signer_slots(iter: &mut Iter<u8>) -> Result<Vec<SlotId<Signer>>, ProgramError> {
+    let signers_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)? as usize;
+    let mut slots: Vec<SlotId<Signer>> = Vec::with_capacity(signers_count);
+    for _ in 0..signers_count {
+        slots.push(SlotId::new(usize::from(
+            *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?,
+        )))
+    }
+    Ok(slots)
+}
+
 fn append_signers(signers: &Vec<(SlotId<Signer>, Signer)>, dst: &mut Vec<u8>) {
     dst.push(signers.len() as u8);
     for (slot_id, signer) in signers.iter() {
@@ -1288,6 +1309,13 @@ fn append_signers(signers: &Vec<(SlotId<Signer>, Signer)>, dst: &mut Vec<u8>) {
         buf[0] = slot_id.value as u8;
         signer.pack_into_slice(&mut buf[1..1 + Signer::LEN]);
         dst.extend_from_slice(buf.as_slice());
+    }
+}
+
+fn append_signer_slots(signers: &Vec<SlotId<Signer>>, dst: &mut Vec<u8>) {
+    dst.push(signers.len() as u8);
+    for slot_id in signers.iter() {
+        dst.push(slot_id.value as u8);
     }
 }
 

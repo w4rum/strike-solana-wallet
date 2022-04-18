@@ -46,11 +46,15 @@ async fn test_balance_account_policy_update() {
         .get_balance_account(&context.balance_account_guid_hash)
         .unwrap();
 
+    let signers_hash = hash_signers(&vec![
+        context.approvers[1].pubkey_as_signer(),
+        context.approvers[2].pubkey_as_signer(),
+    ]);
     let update = BalanceAccountPolicyUpdate {
-        approvals_required_for_transfer: Some(1),
-        approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-        add_transfer_approvers: vec![(SlotId::new(2), context.approvers[2].pubkey_as_signer())],
-        remove_transfer_approvers: vec![(SlotId::new(0), context.approvers[0].pubkey_as_signer())],
+        approvals_required_for_transfer: 1,
+        approval_timeout_for_transfer: Duration::from_secs(7200),
+        transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+        signers_hash,
     };
     let multisig_op_account = update_balance_account_policy(&mut context, update, None)
         .await
@@ -98,7 +102,7 @@ async fn test_balance_account_policy_update() {
         .unwrap()
         .is_none());
 
-    // verify optional updates
+    // verify changing time updates
     let mut expected_balance_account = get_wallet(
         &mut context.pt_context.banks_client,
         &context.wallet_account.pubkey(),
@@ -112,10 +116,10 @@ async fn test_balance_account_policy_update() {
     update_balance_account_policy(
         &mut context,
         BalanceAccountPolicyUpdate {
-            approvals_required_for_transfer: None,
-            approval_timeout_for_transfer: Some(Duration::from_secs(6200)),
-            add_transfer_approvers: vec![],
-            remove_transfer_approvers: vec![],
+            approvals_required_for_transfer: 1,
+            approval_timeout_for_transfer: Duration::from_secs(6200),
+            transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+            signers_hash,
         },
         None,
     )
@@ -136,10 +140,10 @@ async fn test_balance_account_policy_update() {
     update_balance_account_policy(
         &mut context,
         BalanceAccountPolicyUpdate {
-            approvals_required_for_transfer: Some(2),
-            approval_timeout_for_transfer: None,
-            add_transfer_approvers: vec![],
-            remove_transfer_approvers: vec![],
+            approvals_required_for_transfer: 2,
+            approval_timeout_for_transfer: Duration::from_secs(6200),
+            transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+            signers_hash,
         },
         None,
     )
@@ -162,14 +166,18 @@ async fn test_balance_account_policy_update_initiator_approval() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
     let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
+    let signers_hash = hash_signers(&vec![
+        context.approvers[1].pubkey_as_signer(),
+        context.approvers[2].pubkey_as_signer(),
+    ]);
     let multisig_op_account = init_balance_account_policy_update(
         &mut context,
         &initiator_account,
         BalanceAccountPolicyUpdate {
-            approvals_required_for_transfer: None,
-            approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-            add_transfer_approvers: vec![],
-            remove_transfer_approvers: vec![],
+            approvals_required_for_transfer: 1,
+            approval_timeout_for_transfer: Duration::from_secs(7200),
+            transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+            signers_hash,
         },
     )
     .await
@@ -194,14 +202,19 @@ async fn test_balance_account_policy_update_initiator_approval() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
     let initiator_account = Keypair::from_base58_string(&context.approvers[0].to_base58_string());
 
+    let signers_hash_new = hash_signers(&vec![
+        context.approvers[1].pubkey_as_signer(),
+        context.approvers[2].pubkey_as_signer(),
+    ]);
+
     let multisig_op_account = init_balance_account_policy_update(
         &mut context,
         &initiator_account,
         BalanceAccountPolicyUpdate {
-            approvals_required_for_transfer: None,
-            approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-            add_transfer_approvers: vec![],
-            remove_transfer_approvers: vec![],
+            approvals_required_for_transfer: 1,
+            approval_timeout_for_transfer: Duration::from_secs(7200),
+            transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+            signers_hash: signers_hash_new,
         },
     )
     .await
@@ -225,145 +238,6 @@ async fn test_balance_account_policy_update_initiator_approval() {
 }
 
 #[tokio::test]
-async fn test_only_one_pending_balance_account_policy_update_allowed_at_time() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
-
-    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
-    let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
-    let multisig_op_account = Keypair::new();
-
-    let update1 = BalanceAccountPolicyUpdate {
-        approvals_required_for_transfer: Some(1),
-        approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-        add_transfer_approvers: vec![(SlotId::new(2), context.approvers[2].pubkey_as_signer())],
-        remove_transfer_approvers: vec![(SlotId::new(0), context.approvers[0].pubkey_as_signer())],
-    };
-
-    let update2 = BalanceAccountPolicyUpdate {
-        approvals_required_for_transfer: None,
-        approval_timeout_for_transfer: Some(Duration::from_secs(6200)),
-        add_transfer_approvers: vec![],
-        remove_transfer_approvers: vec![],
-    };
-
-    context
-        .pt_context
-        .banks_client
-        .process_transaction(Transaction::new_signed_with_payer(
-            &[
-                system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
-                    &multisig_op_account.pubkey(),
-                    multisig_op_rent,
-                    MultisigOp::LEN as u64,
-                    &context.program_id,
-                ),
-                init_balance_account_policy_update_instruction(
-                    &context.program_id,
-                    &context.wallet_account.pubkey(),
-                    &multisig_op_account.pubkey(),
-                    &context.initiator_account.pubkey(),
-                    context.balance_account_guid_hash,
-                    update1.clone(),
-                ),
-            ],
-            Some(&context.pt_context.payer.pubkey()),
-            &[
-                &context.pt_context.payer,
-                &multisig_op_account,
-                &context.initiator_account,
-            ],
-            context.pt_context.last_blockhash,
-        ))
-        .await
-        .unwrap();
-
-    // second update can't be initialized while the first one is still pending
-    let multisig_op_account2 = Keypair::new();
-    verify_multisig_op_init_fails(
-        &mut context.pt_context.banks_client,
-        context.pt_context.last_blockhash,
-        &context.pt_context.payer,
-        &context.initiator_account,
-        &multisig_op_account2,
-        init_balance_account_policy_update_instruction(
-            &context.program_id,
-            &context.wallet_account.pubkey(),
-            &multisig_op_account2.pubkey(),
-            &context.initiator_account.pubkey(),
-            context.balance_account_guid_hash,
-            update2.clone(),
-        ),
-        Custom(WalletError::ConcurrentOperationsNotAllowed as u32),
-    )
-    .await;
-
-    approve_or_deny_n_of_n_multisig_op(
-        context.pt_context.banks_client.borrow_mut(),
-        &context.program_id,
-        &multisig_op_account.pubkey(),
-        vec![&context.approvers[0], &context.approvers[1]],
-        &context.pt_context.payer,
-        context.pt_context.last_blockhash,
-        ApprovalDisposition::APPROVE,
-        OperationDisposition::APPROVED,
-    )
-    .await;
-
-    context
-        .pt_context
-        .banks_client
-        .process_transaction(Transaction::new_signed_with_payer(
-            &[finalize_balance_account_policy_update_instruction(
-                &context.program_id,
-                &context.wallet_account.pubkey(),
-                &multisig_op_account.pubkey(),
-                &context.pt_context.payer.pubkey(),
-                context.balance_account_guid_hash,
-                update1.clone(),
-            )],
-            Some(&context.pt_context.payer.pubkey()),
-            &[&context.pt_context.payer],
-            context.pt_context.last_blockhash,
-        ))
-        .await
-        .unwrap();
-
-    // now the second update can be initialized
-    context
-        .pt_context
-        .banks_client
-        .process_transaction(Transaction::new_signed_with_payer(
-            &[
-                system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
-                    &multisig_op_account.pubkey(),
-                    multisig_op_rent,
-                    MultisigOp::LEN as u64,
-                    &context.program_id,
-                ),
-                init_balance_account_policy_update_instruction(
-                    &context.program_id,
-                    &context.wallet_account.pubkey(),
-                    &multisig_op_account.pubkey(),
-                    &context.initiator_account.pubkey(),
-                    context.balance_account_guid_hash,
-                    update2.clone(),
-                ),
-            ],
-            Some(&context.pt_context.payer.pubkey()),
-            &[
-                &context.pt_context.payer,
-                &multisig_op_account,
-                &context.initiator_account,
-            ],
-            context.pt_context.last_blockhash,
-        ))
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
 async fn test_balance_account_policy_update_is_denied() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
 
@@ -379,12 +253,15 @@ async fn test_balance_account_policy_update_is_denied() {
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
-
+    let signers_hash = hash_signers(&vec![
+        context.approvers[1].pubkey_as_signer(),
+        context.approvers[2].pubkey_as_signer(),
+    ]);
     let update = BalanceAccountPolicyUpdate {
-        approvals_required_for_transfer: Some(1),
-        approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-        add_transfer_approvers: vec![(SlotId::new(2), context.approvers[2].pubkey_as_signer())],
-        remove_transfer_approvers: vec![(SlotId::new(0), context.approvers[0].pubkey_as_signer())],
+        approvals_required_for_transfer: 1,
+        approval_timeout_for_transfer: Duration::from_secs(7200),
+        transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+        signers_hash,
     };
 
     let balance_account_update_transaction = Transaction::new_signed_with_payer(
@@ -531,7 +408,10 @@ async fn test_balance_account_policy_update_is_denied() {
 #[tokio::test]
 async fn invalid_balance_account_policy_updates() {
     let (mut context, _) = setup_balance_account_tests_and_finalize(None).await;
-
+    let signers_hash = hash_signers(&vec![
+        context.approvers[1].pubkey_as_signer(),
+        context.approvers[2].pubkey_as_signer(),
+    ]);
     // verify error when updating non existing balance account
     {
         let wrong_balance_account_guid_hash = BalanceAccountGuidHash::zero();
@@ -549,10 +429,10 @@ async fn invalid_balance_account_policy_updates() {
                 &context.initiator_account.pubkey(),
                 wrong_balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
-                    approvals_required_for_transfer: Some(2),
-                    approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-                    add_transfer_approvers: vec![],
-                    remove_transfer_approvers: vec![],
+                    approvals_required_for_transfer: 1,
+                    approval_timeout_for_transfer: Duration::from_secs(7200),
+                    transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+                    signers_hash,
                 },
             ),
             Custom(WalletError::BalanceAccountNotFound as u32),
@@ -575,10 +455,10 @@ async fn invalid_balance_account_policy_updates() {
                 &context.initiator_account.pubkey(),
                 context.balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
-                    approvals_required_for_transfer: Some(3),
-                    approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-                    add_transfer_approvers: vec![],
-                    remove_transfer_approvers: vec![],
+                    approvals_required_for_transfer: 3,
+                    approval_timeout_for_transfer: Duration::from_secs(7200),
+                    transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+                    signers_hash,
                 },
             ),
             Custom(WalletError::InvalidApproverCount as u32),
@@ -601,20 +481,17 @@ async fn invalid_balance_account_policy_updates() {
                 &context.initiator_account.pubkey(),
                 context.balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
-                    approvals_required_for_transfer: Some(2),
-                    approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-                    add_transfer_approvers: vec![(
-                        SlotId::new(2),
-                        Keypair::new().pubkey_as_signer(),
-                    )],
-                    remove_transfer_approvers: vec![],
+                    approvals_required_for_transfer: 1,
+                    approval_timeout_for_transfer: Duration::from_secs(7200),
+                    transfer_approvers: vec![SlotId::new(1), SlotId::new(3)],
+                    signers_hash,
                 },
             ),
             Custom(WalletError::UnknownSigner as u32),
         )
         .await;
     }
-    // verify it's not allowed to remove a transfer approver when provided slot value does not match the stored one
+    // verify fails if signers hash does not match
     {
         let multisig_op_account = Keypair::new();
         verify_multisig_op_init_fails(
@@ -630,16 +507,13 @@ async fn invalid_balance_account_policy_updates() {
                 &context.initiator_account.pubkey(),
                 context.balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
-                    approvals_required_for_transfer: Some(2),
-                    approval_timeout_for_transfer: Some(Duration::from_secs(7200)),
-                    add_transfer_approvers: vec![],
-                    remove_transfer_approvers: vec![(
-                        SlotId::new(0),
-                        context.approvers[1].pubkey_as_signer(),
-                    )],
+                    approvals_required_for_transfer: 1,
+                    approval_timeout_for_transfer: Duration::from_secs(7200),
+                    transfer_approvers: vec![SlotId::new(0), SlotId::new(1)],
+                    signers_hash,
                 },
             ),
-            Custom(WalletError::InvalidSlot as u32),
+            Custom(WalletError::InvalidSignersHash as u32),
         )
         .await;
     }

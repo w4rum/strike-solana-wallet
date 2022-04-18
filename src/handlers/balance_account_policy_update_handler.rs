@@ -23,9 +23,8 @@ pub fn init(
     let initiator_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
 
-    let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+    let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
     wallet.validate_config_initiator(initiator_account_info)?;
-    wallet.lock_balance_account_policy_updates(account_guid_hash)?;
     wallet.validate_balance_account_policy_update(account_guid_hash, update)?;
 
     start_multisig_config_op(
@@ -39,8 +38,6 @@ pub fn init(
         },
         *initiator_account_info.key,
     )?;
-
-    Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
 
     Ok(())
 }
@@ -57,8 +54,6 @@ pub fn finalize(
     let rent_collector_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
 
-    let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow_mut())?;
-
     finalize_multisig_op(
         &multisig_op_account_info,
         &rent_collector_account_info,
@@ -69,13 +64,12 @@ pub fn finalize(
             update: update.clone(),
         },
         || -> ProgramResult {
+            let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow_mut())?;
             wallet.update_balance_account_policy(account_guid_hash, update)?;
+            Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
             Ok(())
         },
     )?;
-
-    wallet.unlock_balance_account_policy_updates(account_guid_hash)?;
-    Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
 
     Ok(())
 }

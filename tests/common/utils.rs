@@ -12,6 +12,7 @@ use crate::{
 use arrayref::array_ref;
 use itertools::Itertools;
 use sha2::{Digest, Sha256};
+use solana_program::hash::hash;
 use solana_program::instruction::{Instruction, InstructionError};
 use solana_program::rent::Rent;
 use solana_program::system_program;
@@ -1048,6 +1049,7 @@ pub async fn init_balance_account_creation(
                 creation_params.approvals_required_for_transfer,
                 creation_params.approval_timeout_for_transfer,
                 creation_params.transfer_approvers.clone(),
+                creation_params.signers_hash,
                 creation_params.whitelist_enabled,
                 creation_params.dapps_enabled,
                 creation_params.address_book_slot_id,
@@ -1105,10 +1107,7 @@ pub async fn setup_balance_account_tests(
                 (SlotId::new(1), approvers[1].pubkey_as_signer()),
                 (SlotId::new(2), approvers[2].pubkey_as_signer()),
             ],
-            config_approvers: vec![
-                (SlotId::new(0), approvers[0].pubkey_as_signer()),
-                (SlotId::new(1), approvers[1].pubkey_as_signer()),
-            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await
@@ -1153,7 +1152,18 @@ pub async fn setup_balance_account_tests(
                 balance_account_name_hash,
                 2,
                 approval_timeout_for_transfer,
-                transfer_approvers.clone(),
+                transfer_approvers
+                    .clone()
+                    .iter()
+                    .map(|approver| approver.0)
+                    .collect_vec(),
+                hash_signers(
+                    &transfer_approvers
+                        .clone()
+                        .iter()
+                        .map(|approver| approver.1)
+                        .collect_vec(),
+                ),
                 BooleanSetting::Off,
                 BooleanSetting::Off,
                 slot_for_balance_account_address,
@@ -1202,7 +1212,18 @@ pub async fn setup_balance_account_tests(
         name_hash: balance_account_name_hash,
         approvals_required_for_transfer: 2,
         approval_timeout_for_transfer,
-        transfer_approvers: transfer_approvers.clone(),
+        transfer_approvers: transfer_approvers
+            .clone()
+            .iter()
+            .map(|approver| approver.0)
+            .collect_vec(),
+        signers_hash: hash_signers(
+            &transfer_approvers
+                .clone()
+                .iter()
+                .map(|approver| approver.1)
+                .collect_vec(),
+        ),
         whitelist_enabled: BooleanSetting::Off,
         dapps_enabled: BooleanSetting::Off,
         address_book_slot_id: SlotId::new(32),
@@ -1302,7 +1323,7 @@ pub async fn setup_create_balance_account_failure_tests(
             approvals_required_for_config: 1,
             approval_timeout_for_config: Duration::from_secs(3600),
             signers,
-            config_approvers,
+            config_approvers: vec![config_approvers[0].0, config_approvers[1].0], // take the first two signers as config approvers
         },
     )
     .await
@@ -1337,8 +1358,14 @@ pub async fn setup_create_balance_account_failure_tests(
                 transfer_approvers
                     .iter()
                     .enumerate()
-                    .map(|(i, pk)| (SlotId::new(i), Signer::new(*pk)))
+                    .map(|(i, _)| SlotId::new(i))
                     .collect_vec(),
+                hash_signers(
+                    &transfer_approvers
+                        .iter()
+                        .map(|pk| Signer::new(*pk))
+                        .collect_vec(),
+                ),
                 BooleanSetting::Off,
                 BooleanSetting::Off,
                 SlotId::new(32),
@@ -2285,6 +2312,15 @@ pub fn random_balance_account_guid_hash() -> BalanceAccountGuidHash {
     BalanceAccountGuidHash::new(&Pubkey::new_unique().to_bytes())
 }
 
+/// Hash vector of signer keys
+pub fn hash_signers(signers: &Vec<Signer>) -> Hash {
+    let mut bytes: Vec<u8> = Vec::new();
+    for signer in signers {
+        bytes.extend_from_slice(signer.key.as_ref());
+    }
+    hash(&bytes)
+}
+
 /// Derive BalanceAccount account PDAs from their GUID hashes.
 pub fn find_balance_account_addresses(
     hashes: &Vec<BalanceAccountGuidHash>,
@@ -2337,7 +2373,7 @@ pub async fn create_wallet(
             config_approvers: signer_keypairs
                 .iter()
                 .enumerate()
-                .map(|(i, s)| (SlotId::new(i), s.pubkey_as_signer()))
+                .map(|(i, _)| SlotId::new(i))
                 .collect(),
         },
     )
@@ -2412,8 +2448,14 @@ pub async fn create_balance_account(
         transfer_approvers: approver_keypairs
             .iter()
             .enumerate()
-            .map(|(i, s)| (SlotId::new(i), s.pubkey_as_signer()))
+            .map(|(i, _)| SlotId::new(i))
             .collect(),
+        signers_hash: hash_signers(
+            &approver_keypairs
+                .iter()
+                .map(|s| s.pubkey_as_signer())
+                .collect(),
+        ),
         whitelist_enabled: BooleanSetting::Off,
         dapps_enabled: BooleanSetting::Off,
         address_book_slot_id: slot_for_balance_account_address,
@@ -2441,8 +2483,14 @@ pub async fn create_balance_account(
                 approver_keypairs
                     .iter()
                     .enumerate()
-                    .map(|(i, s)| (SlotId::new(i), s.pubkey_as_signer()))
+                    .map(|(i, _)| SlotId::new(i))
                     .collect(),
+                hash_signers(
+                    &approver_keypairs
+                        .iter()
+                        .map(|s| s.pubkey_as_signer())
+                        .collect(),
+                ),
                 BooleanSetting::Off,
                 BooleanSetting::Off,
                 slot_for_balance_account_address,

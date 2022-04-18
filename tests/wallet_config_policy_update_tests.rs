@@ -49,20 +49,19 @@ async fn wallet_config_policy_update() {
                 (SlotId::new(1), signers[1]),
                 (SlotId::new(2), signers[2]),
             ],
-            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await
     .unwrap();
 
     let wallet = get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await;
-    assert!(!wallet.config_policy_update_locked);
 
     let update = WalletConfigPolicyUpdate {
-        approvals_required_for_config: Some(1),
-        approval_timeout_for_config: Some(Duration::from_secs(7200)),
-        add_config_approvers: vec![(SlotId::new(2), signers[2])],
-        remove_config_approvers: vec![(SlotId::new(0), signers[0])],
+        approvals_required_for_config: 1,
+        approval_timeout_for_config: Duration::from_secs(7200),
+        config_approvers: vec![SlotId::new(1), SlotId::new(2)],
+        signers_hash: hash_signers(&vec![signers[1], signers[2]]),
     };
 
     let multisig_op_account = utils::init_wallet_config_policy_update(
@@ -96,12 +95,6 @@ async fn wallet_config_policy_update() {
         },
     );
 
-    assert!(
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey())
-            .await
-            .config_policy_update_locked
-    );
-
     approve_n_of_n_multisig_op(
         &mut context,
         &multisig_op_account,
@@ -128,183 +121,52 @@ async fn wallet_config_policy_update() {
         get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
     );
 
-    // verify optional updates
+    // verify updates
     expected_wallet.approvals_required_for_config = 2;
+    expected_wallet.approval_timeout_for_config = Duration::from_secs(14400);
+    expected_wallet.config_approvers =
+        Approvers::from_enabled_vec(vec![SlotId::new(0), SlotId::new(1), SlotId::new(2)]);
 
     utils::update_wallet_config_policy(
         &mut context,
         wallet_account.pubkey(),
         &assistant_account,
         &WalletConfigPolicyUpdate {
-            approvals_required_for_config: Some(2),
-            approval_timeout_for_config: None,
-            add_config_approvers: vec![],
-            remove_config_approvers: vec![],
-        },
-        vec![&approvers[1], &approvers[2]],
-    )
-    .await;
-
-    assert_eq!(
-        expected_wallet,
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
-    );
-
-    expected_wallet.approval_timeout_for_config = Duration::from_secs(3600);
-
-    utils::update_wallet_config_policy(
-        &mut context,
-        wallet_account.pubkey(),
-        &assistant_account,
-        &WalletConfigPolicyUpdate {
-            approvals_required_for_config: None,
-            approval_timeout_for_config: Some(Duration::from_secs(3600)),
-            add_config_approvers: vec![],
-            remove_config_approvers: vec![],
-        },
-        vec![&approvers[1], &approvers[2]],
-    )
-    .await;
-
-    assert_eq!(
-        expected_wallet,
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
-    );
-}
-
-#[tokio::test]
-async fn only_one_pending_wallet_config_policy_update_allowed_at_time() {
-    let mut context = setup_test(40_000).await;
-
-    let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
-
-    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
-    let signers = vec![
-        approvers[0].pubkey_as_signer(),
-        approvers[1].pubkey_as_signer(),
-        approvers[2].pubkey_as_signer(),
-    ];
-
-    utils::init_wallet(
-        &mut context.banks_client,
-        &context.payer,
-        context.recent_blockhash,
-        &context.program_id,
-        &wallet_account,
-        &assistant_account,
-        InitialWalletConfig {
             approvals_required_for_config: 2,
-            approval_timeout_for_config: Duration::from_secs(3600),
-            signers: vec![
-                (SlotId::new(0), signers[0]),
-                (SlotId::new(1), signers[1]),
-                (SlotId::new(2), signers[2]),
-            ],
-            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+            approval_timeout_for_config: Duration::from_secs(14400),
+            config_approvers: vec![SlotId::new(0), SlotId::new(1), SlotId::new(2)],
+            signers_hash: hash_signers(&vec![signers[0], signers[1], signers[2]]),
         },
+        vec![&approvers[1], &approvers[2]],
     )
-    .await
-    .unwrap();
+    .await;
 
-    let first_update = WalletConfigPolicyUpdate {
-        approvals_required_for_config: Some(1),
-        approval_timeout_for_config: Some(Duration::from_secs(7200)),
-        add_config_approvers: vec![(SlotId::new(2), signers[2])],
-        remove_config_approvers: vec![(SlotId::new(0), signers[0])],
-    };
-
-    let second_update = WalletConfigPolicyUpdate {
-        approvals_required_for_config: Some(3),
-        approval_timeout_for_config: Some(Duration::from_secs(7200)),
-        add_config_approvers: vec![(SlotId::new(0), signers[0])],
-        remove_config_approvers: vec![],
-    };
-
-    let multisig_op_account = utils::init_wallet_config_policy_update(
-        &mut context,
-        wallet_account.pubkey(),
-        &assistant_account,
-        &first_update,
-    )
-    .await
-    .unwrap();
-
-    // not allowed because first update is pending
-    assert_instruction_error(
-        utils::init_wallet_config_policy_update(
-            &mut context,
-            wallet_account.pubkey(),
-            &assistant_account,
-            &second_update,
-        )
-        .await,
-        1,
-        Custom(WalletError::ConcurrentOperationsNotAllowed as u32),
+    assert_eq!(
+        expected_wallet,
+        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
     );
 
-    // deny and finalize
-    deny_n_of_n_multisig_op(
-        &mut context,
-        &multisig_op_account,
-        vec![&approvers[0], &approvers[1]],
-    )
-    .await;
-    utils::finalize_wallet_config_policy_update(
-        &mut context,
-        wallet_account.pubkey(),
-        multisig_op_account,
-        &first_update.clone(),
-    )
-    .await;
+    expected_wallet.config_approvers =
+        Approvers::from_enabled_vec(vec![SlotId::new(0), SlotId::new(1)]);
 
-    // allowed because first update is canceled
-    let multisig_op_account = utils::init_wallet_config_policy_update(
+    utils::update_wallet_config_policy(
         &mut context,
         wallet_account.pubkey(),
         &assistant_account,
-        &first_update,
+        &WalletConfigPolicyUpdate {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(14400),
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+            signers_hash: hash_signers(&vec![signers[0], signers[1]]),
+        },
+        vec![&approvers[0], &approvers[1], &approvers[2]],
     )
-    .await
-    .unwrap();
+    .await;
 
-    // not allowed because there is a new pending update
-    assert_instruction_error(
-        utils::init_wallet_config_policy_update(
-            &mut context,
-            wallet_account.pubkey(),
-            &assistant_account,
-            &second_update,
-        )
-        .await,
-        1,
-        Custom(WalletError::ConcurrentOperationsNotAllowed as u32),
+    assert_eq!(
+        expected_wallet,
+        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
     );
-
-    // approve and finalize
-    approve_n_of_n_multisig_op(
-        &mut context,
-        &multisig_op_account,
-        vec![&approvers[0], &approvers[1]],
-    )
-    .await;
-    utils::finalize_wallet_config_policy_update(
-        &mut context,
-        wallet_account.pubkey(),
-        multisig_op_account,
-        &first_update.clone(),
-    )
-    .await;
-
-    // allowed because there is no pending update anymore
-    utils::init_wallet_config_policy_update(
-        &mut context,
-        wallet_account.pubkey(),
-        &assistant_account,
-        &second_update,
-    )
-    .await
-    .unwrap();
 }
 
 #[tokio::test]
@@ -332,7 +194,7 @@ async fn invalid_wallet_config_policy_updates() {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(3600),
             signers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
-            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await
@@ -345,10 +207,10 @@ async fn invalid_wallet_config_policy_updates() {
             wallet_account.pubkey(),
             &assistant_account,
             &WalletConfigPolicyUpdate {
-                approvals_required_for_config: Some(3),
-                approval_timeout_for_config: Some(Duration::from_secs(3200)),
-                add_config_approvers: vec![],
-                remove_config_approvers: vec![],
+                approvals_required_for_config: 3,
+                approval_timeout_for_config: Duration::from_secs(3200),
+                config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+                signers_hash: hash_signers(&vec![signers[0], signers[1]]),
             },
         )
         .await,
@@ -356,17 +218,17 @@ async fn invalid_wallet_config_policy_updates() {
         Custom(WalletError::InvalidApproverCount as u32),
     );
 
-    // verify it's not allowed to add a config approver that is not configured as signer
+    // verify it's not allowed to add a config approver if signer slot is empty
     assert_instruction_error(
         utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,
             &WalletConfigPolicyUpdate {
-                approvals_required_for_config: Some(2),
-                approval_timeout_for_config: Some(Duration::from_secs(3200)),
-                add_config_approvers: vec![(SlotId::new(2), signers[2])],
-                remove_config_approvers: vec![],
+                approvals_required_for_config: 2,
+                approval_timeout_for_config: Duration::from_secs(3200),
+                config_approvers: vec![SlotId::new(0), SlotId::new(2)],
+                signers_hash: hash_signers(&vec![signers[0], signers[2]]),
             },
         )
         .await,
@@ -374,39 +236,22 @@ async fn invalid_wallet_config_policy_updates() {
         Custom(WalletError::UnknownSigner as u32),
     );
 
-    // verify it's not allowed to add a config approver who isn't a signer.
+    // verify it's not allowed to add a config approver if signer in slot does not match signer.
     assert_instruction_error(
         utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
             &assistant_account,
             &WalletConfigPolicyUpdate {
-                approvals_required_for_config: Some(2),
-                approval_timeout_for_config: Some(Duration::from_secs(3200)),
-                add_config_approvers: vec![(SlotId::new(0), signers[2])],
-                remove_config_approvers: vec![],
+                approvals_required_for_config: 2,
+                approval_timeout_for_config: Duration::from_secs(3200),
+                config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+                signers_hash: hash_signers(&vec![signers[0], signers[2]]),
             },
         )
         .await,
         1,
-        Custom(WalletError::UnknownSigner as u32),
-    );
-    // verify it's not allowed to remove a config approver when provided slot value does not match the stored one
-    assert_instruction_error(
-        utils::init_wallet_config_policy_update(
-            &mut context,
-            wallet_account.pubkey(),
-            &assistant_account,
-            &WalletConfigPolicyUpdate {
-                approvals_required_for_config: Some(2),
-                approval_timeout_for_config: Some(Duration::from_secs(3200)),
-                add_config_approvers: vec![],
-                remove_config_approvers: vec![(SlotId::new(0), signers[2])],
-            },
-        )
-        .await,
-        1,
-        Custom(WalletError::InvalidSlot as u32),
+        Custom(WalletError::InvalidSignersHash as u32),
     );
 }
 
@@ -439,17 +284,17 @@ async fn wallet_config_policy_update_initiator_approval() {
                 (SlotId::new(1), signers[1]),
                 (SlotId::new(2), signers[2]),
             ],
-            config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1])],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
         },
     )
     .await
     .unwrap();
 
     let update = WalletConfigPolicyUpdate {
-        approvals_required_for_config: Some(1),
-        approval_timeout_for_config: None,
-        add_config_approvers: vec![],
-        remove_config_approvers: vec![(SlotId::new(1), signers[1])],
+        approvals_required_for_config: 1,
+        approval_timeout_for_config: Duration::from_secs(3600),
+        config_approvers: vec![SlotId::new(0)],
+        signers_hash: hash_signers(&vec![signers[0]]),
     };
 
     let multisig_op_account = utils::init_wallet_config_policy_update(
@@ -497,10 +342,10 @@ async fn wallet_config_policy_update_initiator_approval() {
         wallet_account.pubkey(),
         &approvers[0],
         &WalletConfigPolicyUpdate {
-            approvals_required_for_config: None,
-            approval_timeout_for_config: Some(Duration::from_secs(7200)),
-            add_config_approvers: vec![],
-            remove_config_approvers: vec![],
+            approvals_required_for_config: 1,
+            approval_timeout_for_config: Duration::from_secs(7200),
+            config_approvers: vec![SlotId::new(0)],
+            signers_hash: hash_signers(&vec![signers[0]]),
         },
     )
     .await

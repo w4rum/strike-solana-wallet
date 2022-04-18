@@ -89,6 +89,15 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
         return true;
     }
 
+    pub fn contains_slots(&self, items: &Vec<SlotId<A>>) -> bool {
+        for id in items {
+            if id.value >= SIZE || self[*id] == None {
+                return false;
+            }
+        }
+        return true;
+    }
+
     pub fn remove(&mut self, id: SlotId<A>, item: A) {
         for slot_item in self[id] {
             if slot_item != item {
@@ -211,6 +220,10 @@ impl<A, const STORAGE_SIZE: usize> SlotFlags<A, STORAGE_SIZE> {
 
     pub fn disable(&mut self, id: &SlotId<A>) {
         self.bit_arr.set(id.value, false);
+    }
+
+    pub fn disable_all(&mut self) {
+        self.bit_arr.fill(false);
     }
 
     pub fn is_enabled(&self, id: &SlotId<A>) -> bool {

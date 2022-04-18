@@ -57,7 +57,11 @@ async fn init_wallet() {
             approvals_required_for_config: approvals_required_for_config.clone(),
             approval_timeout_for_config,
             signers: signers.clone(),
-            config_approvers: config_approvers.clone(),
+            config_approvers: config_approvers
+                .clone()
+                .iter()
+                .map(|signer| signer.0)
+                .collect_vec(),
         },
     )
     .await
@@ -81,7 +85,6 @@ async fn init_wallet() {
                     .collect_vec()
             ),
             balance_accounts: BalanceAccounts::new(),
-            config_policy_update_locked: false,
             dapp_book: DAppBook::from_vec(vec![]),
         }
     );
@@ -116,7 +119,7 @@ async fn invalid_wallet_initialization() {
                 approvals_required_for_config: 3,
                 approval_timeout_for_config: Duration::from_secs(3600),
                 signers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1]),],
-                config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1]),],
+                config_approvers: vec![SlotId::new(0), SlotId::new(1)],
             }
         )
         .await
@@ -138,7 +141,7 @@ async fn invalid_wallet_initialization() {
                 approvals_required_for_config: 1,
                 approval_timeout_for_config: Duration::from_secs(3600),
                 signers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[1]),],
-                config_approvers: vec![(SlotId::new(0), signers[0]), (SlotId::new(1), signers[2]),],
+                config_approvers: vec![SlotId::new(0), SlotId::new(2)],
             }
         )
         .await

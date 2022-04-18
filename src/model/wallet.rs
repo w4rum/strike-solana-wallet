@@ -16,6 +16,7 @@ use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use itertools::Itertools;
 use solana_program::account_info::AccountInfo;
 use solana_program::entrypoint::ProgramResult;
+use solana_program::hash::{hash, Hash};
 use solana_program::msg;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{IsInitialized, Pack, Sealed};
@@ -38,7 +39,6 @@ pub struct Wallet {
     pub approval_timeout_for_config: Duration,
     pub config_approvers: Approvers,
     pub balance_accounts: BalanceAccounts,
-    pub config_policy_update_locked: bool,
     pub dapp_book: DAppBook,
 }
 
@@ -223,7 +223,7 @@ impl Wallet {
         }
 
         self.add_signers(&initial_config.signers)?;
-        self.enable_config_approvers(&initial_config.config_approvers)?;
+        self.enable_config_approvers_by_slots(&initial_config.config_approvers)?;
 
         let approvers_count_after_update = self.config_approvers.count_enabled();
         if usize::from(initial_config.approvals_required_for_config) > approvers_count_after_update
@@ -283,30 +283,14 @@ impl Wallet {
         self_clone.update_config_policy(update)
     }
 
-    pub fn lock_config_policy_updates(&mut self) -> ProgramResult {
-        if self.config_policy_update_locked {
-            msg!("Only one pending config policy update is allowed at a time");
-            return Err(WalletError::ConcurrentOperationsNotAllowed.into());
-        }
-        self.config_policy_update_locked = true;
-        Ok(())
-    }
-
-    pub fn unlock_config_policy_updates(&mut self) {
-        self.config_policy_update_locked = false;
-    }
-
     pub fn update_config_policy(&mut self, update: &WalletConfigPolicyUpdate) -> ProgramResult {
-        if let Some(approval_timeout_for_config) = update.approval_timeout_for_config {
-            Wallet::validate_approval_timeout(&approval_timeout_for_config)?;
-            self.approval_timeout_for_config = approval_timeout_for_config;
-        }
-        if let Some(approvals_required_for_config) = update.approvals_required_for_config {
-            self.approvals_required_for_config = approvals_required_for_config;
-        }
+        Wallet::validate_approval_timeout(&update.approval_timeout_for_config)?;
+        self.approval_timeout_for_config = update.approval_timeout_for_config;
+        self.approvals_required_for_config = update.approvals_required_for_config;
 
-        self.disable_config_approvers(&update.remove_config_approvers)?;
-        self.enable_config_approvers(&update.add_config_approvers)?;
+        self.config_approvers.disable_all();
+        self.enable_config_approvers_by_slots(&update.config_approvers)?;
+        self.validate_signers_hash(&update.config_approvers, &update.signers_hash)?;
 
         if self.approvals_required_for_config == 0 {
             msg!("Approvals required for config can't be 0");
@@ -380,9 +364,16 @@ impl Wallet {
             allowed_destinations: AllowedDestinations::zero(),
             whitelist_enabled: creation_params.whitelist_enabled,
             dapps_enabled: creation_params.dapps_enabled,
-            policy_update_locked: false,
         };
-        self.enable_transfer_approvers(&mut balance_account, &creation_params.transfer_approvers)?;
+        self.enable_transfer_approvers_by_slot(
+            &mut balance_account,
+            &creation_params.transfer_approvers,
+        )?;
+
+        self.validate_signers_hash(
+            &creation_params.transfer_approvers,
+            &creation_params.signers_hash,
+        )?;
 
         self.balance_accounts
             .insert(creation_params.slot_id, balance_account);
@@ -462,33 +453,6 @@ impl Wallet {
         Ok(())
     }
 
-    pub fn lock_balance_account_policy_updates(
-        &mut self,
-        account_guid_hash: &BalanceAccountGuidHash,
-    ) -> ProgramResult {
-        let (slot_id, mut balance_account) =
-            self.get_balance_account_with_slot_id(account_guid_hash)?;
-
-        if balance_account.policy_update_locked {
-            msg!("Only one pending policy update is allowed at a time per balance account");
-            return Err(WalletError::ConcurrentOperationsNotAllowed.into());
-        }
-        balance_account.policy_update_locked = true;
-        self.balance_accounts.replace(slot_id, balance_account);
-        Ok(())
-    }
-
-    pub fn unlock_balance_account_policy_updates(
-        &mut self,
-        account_guid_hash: &BalanceAccountGuidHash,
-    ) -> ProgramResult {
-        let (slot_id, mut balance_account) =
-            self.get_balance_account_with_slot_id(account_guid_hash)?;
-        balance_account.policy_update_locked = false;
-        self.balance_accounts.replace(slot_id, balance_account);
-        Ok(())
-    }
-
     pub fn update_balance_account_policy(
         &mut self,
         account_guid_hash: &BalanceAccountGuidHash,
@@ -497,16 +461,14 @@ impl Wallet {
         let (slot_id, mut balance_account) =
             self.get_balance_account_with_slot_id(account_guid_hash)?;
 
-        self.disable_transfer_approvers(&mut balance_account, &update.remove_transfer_approvers)?;
-        self.enable_transfer_approvers(&mut balance_account, &update.add_transfer_approvers)?;
+        balance_account.transfer_approvers.disable_all();
+        self.enable_transfer_approvers_by_slot(&mut balance_account, &update.transfer_approvers)?;
 
-        if let Some(approval_timeout_for_transfer) = update.approval_timeout_for_transfer {
-            Wallet::validate_approval_timeout(&approval_timeout_for_transfer)?;
-            balance_account.approval_timeout_for_transfer = approval_timeout_for_transfer;
-        }
-        if let Some(approvals_required_for_transfer) = update.approvals_required_for_transfer {
-            balance_account.approvals_required_for_transfer = approvals_required_for_transfer;
-        }
+        Wallet::validate_approval_timeout(&update.approval_timeout_for_transfer)?;
+        balance_account.approval_timeout_for_transfer = update.approval_timeout_for_transfer;
+        balance_account.approvals_required_for_transfer = update.approvals_required_for_transfer;
+
+        self.validate_signers_hash(&update.transfer_approvers, &update.signers_hash)?;
 
         let approvers_count_after_update = balance_account.transfer_approvers.count_enabled();
         if usize::from(balance_account.approvals_required_for_transfer)
@@ -622,61 +584,31 @@ impl Wallet {
         Ok(())
     }
 
-    fn enable_config_approvers(
+    fn enable_config_approvers_by_slots(
         &mut self,
-        approvers: &Vec<(SlotId<Signer>, Signer)>,
+        signer_slots: &Vec<SlotId<Signer>>,
     ) -> ProgramResult {
-        if !self.signers.contains(approvers) {
-            msg!("Failed to enable config approvers: one of the given config approvers is not configured as signer");
+        if !self.signers.contains_slots(signer_slots) {
+            msg!("One of the specified config approver slots is not a signer slot");
             return Err(WalletError::UnknownSigner.into());
         }
-        self.config_approvers.enable_many(&approvers.slot_ids());
+        self.config_approvers
+            .enable_many(&signer_slots.iter().map(|signer| signer).collect_vec());
         Ok(())
     }
 
-    fn disable_config_approvers(
-        &mut self,
-        approvers: &Vec<(SlotId<Signer>, Signer)>,
-    ) -> ProgramResult {
-        for (id, signer) in approvers {
-            if self.signers[*id] == Some(*signer) || self.signers[*id] == None {
-                self.config_approvers.disable(id);
-            } else {
-                msg!("Failed to disable config approvers: unexpected slot value");
-                return Err(WalletError::InvalidSlot.into());
-            }
-        }
-        Ok(())
-    }
-
-    fn enable_transfer_approvers(
+    fn enable_transfer_approvers_by_slot(
         &mut self,
         balance_account: &mut BalanceAccount,
-        approvers: &Vec<(SlotId<Signer>, Signer)>,
+        signer_slots: &Vec<SlotId<Signer>>,
     ) -> ProgramResult {
-        if !self.signers.contains(approvers) {
+        if !self.signers.contains_slots(signer_slots) {
             msg!("Failed to enable transfer approvers: one of the given transfer approvers is not configured as signer");
             return Err(WalletError::UnknownSigner.into());
         }
         balance_account
             .transfer_approvers
-            .enable_many(&approvers.slot_ids());
-        Ok(())
-    }
-
-    fn disable_transfer_approvers(
-        &mut self,
-        balance_account: &mut BalanceAccount,
-        approvers: &Vec<(SlotId<Signer>, Signer)>,
-    ) -> ProgramResult {
-        for (id, signer) in approvers {
-            if self.signers[*id] == Some(*signer) || self.signers[*id] == None {
-                balance_account.transfer_approvers.disable(id);
-            } else {
-                msg!("Failed to disable transfer approvers: unexpected slot value");
-                return Err(WalletError::InvalidSlot.into());
-            }
-        }
+            .enable_many(&signer_slots.iter().map(|signer| signer).collect_vec());
         Ok(())
     }
 
@@ -715,6 +647,26 @@ impl Wallet {
         }
         Ok(())
     }
+
+    fn validate_signers_hash(
+        &self,
+        signer_slots: &Vec<SlotId<Signer>>,
+        provided_hash: &Hash,
+    ) -> ProgramResult {
+        let mut bytes: Vec<u8> = Vec::new();
+        for id in signer_slots {
+            if let Some(signer) = self.signers[*id] {
+                bytes.extend_from_slice(signer.key.as_ref());
+            } else {
+                return Err(WalletError::UnknownSigner.into());
+            }
+        }
+        if hash(&bytes) != *provided_hash {
+            msg!("Signers hash did not match");
+            return Err(WalletError::InvalidSignersHash.into());
+        }
+        Ok(())
+    }
 }
 
 impl Pack for Wallet {
@@ -727,7 +679,6 @@ impl Pack for Wallet {
         1 + // approvals_required_for_config
         8 + // approval_timeout_for_config
         Approvers::STORAGE_SIZE + // config approvers
-        1 + // config_policy_update_locked
         DAppBook::LEN +
         BalanceAccounts::LEN;
 
@@ -743,7 +694,6 @@ impl Pack for Wallet {
             approvals_required_for_config_dst,
             approval_timeout_for_config_dst,
             config_approvers_dst,
-            config_policy_update_locked_dst,
             dapp_book_dst,
             balance_accounts_dst,
         ) = mut_array_refs![
@@ -757,7 +707,6 @@ impl Pack for Wallet {
             1,
             8,
             Approvers::STORAGE_SIZE,
-            1,
             DAppBook::LEN,
             BalanceAccounts::LEN
         ];
@@ -771,7 +720,6 @@ impl Pack for Wallet {
         approvals_required_for_config_dst[0] = self.approvals_required_for_config;
         *approval_timeout_for_config_dst = self.approval_timeout_for_config.as_secs().to_le_bytes();
         config_approvers_dst.copy_from_slice(self.config_approvers.as_bytes());
-        config_policy_update_locked_dst[0] = self.config_policy_update_locked as u8;
         self.dapp_book.pack_into_slice(dapp_book_dst);
         self.balance_accounts.pack_into_slice(balance_accounts_dst);
     }
@@ -788,7 +736,6 @@ impl Pack for Wallet {
             approvals_required_for_config,
             approval_timeout_for_config,
             config_approvers_src,
-            config_policy_update_locked_src,
             dapp_book_src,
             balance_accounts_src,
         ) = array_refs![
@@ -802,7 +749,6 @@ impl Pack for Wallet {
             1,
             8,
             Approvers::STORAGE_SIZE,
-            1,
             DAppBook::LEN,
             BalanceAccounts::LEN
         ];
@@ -824,11 +770,6 @@ impl Pack for Wallet {
             )),
             config_approvers: Approvers::new(*config_approvers_src),
             balance_accounts: BalanceAccounts::unpack_from_slice(balance_accounts_src)?,
-            config_policy_update_locked: match config_policy_update_locked_src {
-                [0] => false,
-                [1] => true,
-                _ => return Err(ProgramError::InvalidAccountData),
-            },
             dapp_book: DAppBook::unpack_from_slice(dapp_book_src)?,
         })
     }

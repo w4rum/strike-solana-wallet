@@ -59,7 +59,6 @@ pub struct BalanceAccount {
     pub allowed_destinations: AllowedDestinations,
     pub whitelist_enabled: BooleanSetting,
     pub dapps_enabled: BooleanSetting,
-    pub policy_update_locked: bool,
 }
 
 impl Sealed for BalanceAccount {}
@@ -71,8 +70,7 @@ impl Pack for BalanceAccount {
         8 + // approval_timeout_for_transfer
         Approvers::STORAGE_SIZE + // transfer approvers
         AllowedDestinations::STORAGE_SIZE +  // allowed destinations
-        1 + // boolean settings
-        1; // policy_update_locked flag
+        1; // boolean settings
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, BalanceAccount::LEN];
@@ -84,7 +82,6 @@ impl Pack for BalanceAccount {
             approvers_dst,
             allowed_destinations_dst,
             boolean_settings_dst,
-            policy_update_locked_dst,
         ) = mut_array_refs![
             dst,
             HASH_LEN,
@@ -93,7 +90,6 @@ impl Pack for BalanceAccount {
             8,
             Approvers::STORAGE_SIZE,
             AllowedDestinations::STORAGE_SIZE,
-            1,
             1
         ];
 
@@ -108,7 +104,6 @@ impl Pack for BalanceAccount {
         allowed_destinations_dst.copy_from_slice(self.allowed_destinations.as_bytes());
         boolean_settings_dst[0] |= self.whitelist_enabled.to_u8() << WHITELIST_SETTING_BIT;
         boolean_settings_dst[0] |= self.dapps_enabled.to_u8() << DAPPS_SETTING_BIT;
-        policy_update_locked_dst[0] = if self.policy_update_locked { 1 } else { 0 }
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -121,7 +116,6 @@ impl Pack for BalanceAccount {
             approvers_src,
             allowed_destinations_src,
             boolean_settings_src,
-            policy_update_locked_src,
         ) = array_refs![
             src,
             HASH_LEN,
@@ -130,7 +124,6 @@ impl Pack for BalanceAccount {
             8,
             Approvers::STORAGE_SIZE,
             AllowedDestinations::STORAGE_SIZE,
-            1,
             1
         ];
 
@@ -149,11 +142,6 @@ impl Pack for BalanceAccount {
             dapps_enabled: BooleanSetting::from_u8(
                 boolean_settings_src[0] & (1 << DAPPS_SETTING_BIT),
             ),
-            policy_update_locked: if policy_update_locked_src[0] == 1 {
-                true
-            } else {
-                false
-            },
         })
     }
 }
