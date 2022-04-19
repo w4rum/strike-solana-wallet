@@ -56,6 +56,7 @@ pub const TAG_FINALIZE_BALANCE_ACCOUNT_POLICY_UPDATE: u8 = 27;
 pub const TAG_SUPPLY_DAPP_INSTRUCTIONS: u8 = 28;
 pub const TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 29;
 pub const TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 30;
+pub const TAG_MIGRATE: u8 = 31;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -325,6 +326,11 @@ pub enum ProgramInstruction {
         payer_account_guid_hash: BalanceAccountGuidHash,
         account_guid_hashes: Vec<BalanceAccountGuidHash>,
     },
+
+    /// 0. `[writable]` The source account to migrate from
+    /// 1. `[writable]` The destination account to migrate to
+    /// 2. `[signer]` The rent return account
+    Migrate {},
 }
 
 impl ProgramInstruction {
@@ -563,6 +569,9 @@ impl ProgramInstruction {
                 buf.extend_from_slice(payer_account_guid_hash.to_bytes());
                 pack_balance_account_guid_hash_vec(account_guid_hashes, &mut buf);
             }
+            &ProgramInstruction::Migrate {} => {
+                buf.push(TAG_MIGRATE);
+            }
         }
         buf
     }
@@ -646,6 +655,7 @@ impl ProgramInstruction {
             TAG_SUPPLY_DAPP_INSTRUCTIONS => {
                 Self::unpack_supply_dapp_instructions_instruction(rest)?
             }
+            TAG_MIGRATE => Self::Migrate {},
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }

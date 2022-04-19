@@ -12,6 +12,7 @@ use crate::{
 use arrayref::array_ref;
 use itertools::Itertools;
 use sha2::{Digest, Sha256};
+use solana_program::bpf_loader_upgradeable::{create_buffer, write};
 use solana_program::hash::hash;
 use solana_program::instruction::{Instruction, InstructionError};
 use solana_program::rent::Rent;
@@ -2559,4 +2560,57 @@ pub async fn create_balance_account(
     }
 
     (balance_account_guid_hash, (pda, bump))
+}
+
+pub async fn create_program_buffer(
+    pt_context: &mut ProgramTestContext,
+    buffer_account: &Keypair,
+    data: Vec<u8>,
+) {
+    let rent = pt_context.banks_client.get_rent().await.unwrap();
+    let buffer_rent = rent.minimum_balance(data.len() + 37);
+    pt_context
+        .banks_client
+        .process_transaction(Transaction::new_signed_with_payer(
+            &create_buffer(
+                &pt_context.payer.pubkey(),
+                &buffer_account.pubkey(),
+                &pt_context.payer.pubkey(),
+                buffer_rent,
+                data.len(),
+            )
+            .unwrap(),
+            Some(&pt_context.payer.pubkey()),
+            &[&pt_context.payer, &buffer_account],
+            pt_context.last_blockhash,
+        ))
+        .await
+        .unwrap();
+
+    let chunk_size = 1280 - 40 - 8 - 300;
+    let transactions = data
+        .chunks(chunk_size)
+        .enumerate()
+        .map(|(i, chunk)| {
+            Transaction::new_signed_with_payer(
+                &[write(
+                    &buffer_account.pubkey(),
+                    &pt_context.payer.pubkey(),
+                    (i * chunk_size) as u32,
+                    chunk.to_vec(),
+                )],
+                Some(&pt_context.payer.pubkey()),
+                &[&pt_context.payer],
+                pt_context.last_blockhash,
+            )
+        })
+        .collect::<Vec<Transaction>>();
+
+    for transaction in transactions {
+        pt_context
+            .banks_client
+            .process_transaction(transaction.clone())
+            .await
+            .unwrap()
+    }
 }

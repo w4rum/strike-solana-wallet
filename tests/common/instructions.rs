@@ -5,6 +5,7 @@ use solana_program::pubkey::Pubkey;
 use solana_program::{system_program, sysvar};
 use std::borrow::Borrow;
 use std::time::Duration;
+use strike_wallet::instruction::ProgramInstruction::Migrate;
 use strike_wallet::instruction::{
     pack_supply_dapp_transaction_instructions, BalanceAccountCreation, BalanceAccountPolicyUpdate,
 };
@@ -877,6 +878,27 @@ pub fn finalize_balance_account_enable_spl_token(
             .map(|pubkey| AccountMeta::new(*pubkey, false))
             .collect(),
     );
+
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    }
+}
+
+pub fn migrate_account(
+    program_id: &Pubkey,
+    source_account: &Pubkey,
+    destination_account: &Pubkey,
+    rent_return_account: &Pubkey,
+) -> Instruction {
+    let accounts = vec![
+        AccountMeta::new(*source_account, false),
+        AccountMeta::new(*destination_account, false),
+        AccountMeta::new_readonly(*rent_return_account, true),
+    ];
+
+    let data = Migrate {}.borrow().pack();
 
     Instruction {
         program_id: *program_id,

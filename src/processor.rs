@@ -2,7 +2,7 @@ use crate::handlers::{
     address_book_update_handler, approval_disposition_handler, balance_account_creation_handler,
     balance_account_name_update_handler, balance_account_policy_update_handler,
     balance_account_settings_update_handler, dapp_book_update_handler, dapp_transaction_handler,
-    init_wallet_handler, spl_token_accounts_creation_handler, transfer_handler,
+    init_wallet_handler, migrate_handler, spl_token_accounts_creation_handler, transfer_handler,
     update_signer_handler, wallet_config_policy_update_handler, wrap_unwrap_handler,
 };
 use crate::instruction::ProgramInstruction;
@@ -264,6 +264,8 @@ impl Processor {
                 &payer_account_guid_hash,
                 &account_guid_hashes,
             ),
+
+            ProgramInstruction::Migrate {} => migrate_handler::handle(program_id, accounts),
         }
     }
 }

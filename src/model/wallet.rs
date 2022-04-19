@@ -12,6 +12,7 @@ use crate::model::balance_account::{
 use crate::model::multisig_op::BooleanSetting;
 use crate::model::signer::Signer;
 use crate::utils::{GetSlotIds, SlotFlags, SlotId, Slots};
+use crate::version::Versioned;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use itertools::Itertools;
 use solana_program::account_info::AccountInfo;
@@ -648,6 +649,10 @@ impl Wallet {
         Ok(())
     }
 
+    pub fn get_is_initialized(src: &[u8]) -> bool {
+        return src.len() > 0 && src[0] == 1;
+    }
+
     fn validate_signers_hash(
         &self,
         signer_slots: &Vec<SlotId<Signer>>,
@@ -666,6 +671,21 @@ impl Wallet {
             return Err(WalletError::InvalidSignersHash.into());
         }
         Ok(())
+    }
+}
+
+impl Versioned for Wallet {
+    fn version_from_slice(src: &[u8]) -> Result<u32, ProgramError> {
+        if src.len() >= 5 {
+            if src[0] == 1 {
+                let buf = array_ref!(src, 1, 4);
+                Ok(u32::from_le_bytes(*buf))
+            } else {
+                Err(ProgramError::UninitializedAccount)
+            }
+        } else {
+            Err(ProgramError::InvalidAccountData)
+        }
     }
 }
 
@@ -772,17 +792,5 @@ impl Pack for Wallet {
             balance_accounts: BalanceAccounts::unpack_from_slice(balance_accounts_src)?,
             dapp_book: DAppBook::unpack_from_slice(dapp_book_src)?,
         })
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::model::wallet::Wallet;
-    use solana_program::program_pack::Pack;
-
-    #[test]
-    fn test_wallet_data_size() {
-        // plan is to convert wallet account to PDA, which has a data limit of 10K
-        assert!(Wallet::LEN < 10 * 1024)
     }
 }

@@ -33,13 +33,19 @@ clean:
 format:
 	cargo fmt
 
-test:
+test: build_migration_test_version
 	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf ${tests} -- ${test-modifiers}
 
 deploy_and_test: build deploy test
 
 version:
 	@grep 'static VERSION' ./src/version.rs | sed 's/pub static VERSION: u32 = \(.*\);/\1/'
+
+build_migration_test_version:
+	./override_version_for_migration_test.sh
+	make build
+	cp target/deploy/strike_wallet.so target/deploy/strike_wallet_version_0.so
+	./revert_version_for_migration_test.sh
 
 test-balance-account-update:
 	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=balance_account_update_tests
@@ -70,3 +76,6 @@ test-dapp-book-update:
 
 test-init-wallet:
 	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=init_wallet_tests
+
+test-migrate: build_migration_test_version
+	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=migrate_tests

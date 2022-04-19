@@ -124,6 +124,14 @@ pub enum WalletError {
     /// The specified signers hash did not match the programs calculated hash.
     #[error("Invalid Signers Hash")]
     InvalidSignersHash,
+
+    // 35
+    /// An incorrect account version is being used
+    #[error("Account Version Mismatch")]
+    AccountVersionMismatch,
+    /// Attempt to migrate from an unknown or unsupported version
+    #[error("Unknown Version")]
+    UnknownVersion,
 }
 
 impl From<WalletError> for ProgramError {
