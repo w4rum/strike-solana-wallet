@@ -1620,14 +1620,29 @@ pub async fn modify_address_book_and_whitelist(
     let initiator_account =
         Keypair::from_base58_string(&context.initiator_account.to_base58_string());
 
+    let mut whitelist_entries: Vec<BalanceAccountWhitelistUpdate> = vec![];
+    if !whitelist_destinations_to_add.is_empty() || !whitelist_destinations_to_remove.is_empty() {
+        whitelist_entries.push(BalanceAccountWhitelistUpdate {
+            guid_hash: context.balance_account_guid_hash.clone(),
+            add_allowed_destinations: whitelist_destinations_to_add
+                .iter()
+                .map(|destination| destination.0)
+                .collect_vec(),
+            remove_allowed_destinations: whitelist_destinations_to_remove
+                .iter()
+                .map(|destination| destination.0)
+                .collect_vec(),
+            destinations_hash: hash_allowed_destination(
+                &whitelist_destinations_to_add.clone(),
+                &whitelist_destinations_to_remove.clone(),
+            ),
+        })
+    }
+
     let update = AddressBookUpdate {
         add_address_book_entries: entries_to_add.clone(),
         remove_address_book_entries: entries_to_remove.clone(),
-        balance_account_whitelist_updates: vec![BalanceAccountWhitelistUpdate {
-            guid_hash: context.balance_account_guid_hash.clone(),
-            add_allowed_destinations: whitelist_destinations_to_add.clone(),
-            remove_allowed_destinations: whitelist_destinations_to_remove.clone(),
-        }],
+        balance_account_whitelist_updates: whitelist_entries,
     };
 
     let init_result = init_address_book_update(context, &initiator_account, update.clone()).await;
@@ -2318,6 +2333,22 @@ pub fn hash_signers(signers: &Vec<Signer>) -> Hash {
     let mut bytes: Vec<u8> = Vec::new();
     for signer in signers {
         bytes.extend_from_slice(signer.key.as_ref());
+    }
+    hash(&bytes)
+}
+
+/// Hash vector of signer keys
+pub fn hash_allowed_destination(
+    destinations_to_add: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    destinations_to_remove: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+) -> Hash {
+    let mut bytes: Vec<u8> = Vec::new();
+    for (_, entry) in destinations_to_add {
+        bytes.extend_from_slice(entry.name_hash.to_bytes());
+    }
+    bytes.push(1);
+    for (_, entry) in destinations_to_remove {
+        bytes.extend_from_slice(entry.name_hash.to_bytes());
     }
     hash(&bytes)
 }

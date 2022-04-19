@@ -189,7 +189,21 @@ async fn test_address_book_failures() {
         vec![],
         vec![wallet.address_book.filled_slots()[0]],
         vec![],
-        Some(Custom(WalletError::InvalidSlot as u32)),
+        Some(Custom(WalletError::UnknownAddressBookEntry as u32)),
+    )
+    .await;
+
+    // now try to unwhitelist but give a different name than in slot so name hash does not match
+    modify_address_book_and_whitelist(
+        &mut context,
+        vec![],
+        vec![],
+        vec![(
+            wallet.address_book.filled_slots()[1].0,
+            wallet.address_book.filled_slots()[0].1,
+        )],
+        vec![],
+        Some(Custom(WalletError::InvalidAddressBookEntriesHash as u32)),
     )
     .await;
 }

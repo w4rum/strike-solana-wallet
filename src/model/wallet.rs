@@ -262,11 +262,16 @@ impl Wallet {
         for balance_account_whitelist_update in update.balance_account_whitelist_updates.clone() {
             let (slot_id, mut balance_account) =
                 self.get_balance_account_with_slot_id(&balance_account_whitelist_update.guid_hash)?;
-            self.disable_transfer_destinations(
+            self.validate_allowed_destinations_hash(
+                &balance_account_whitelist_update.add_allowed_destinations,
+                &balance_account_whitelist_update.remove_allowed_destinations,
+                &balance_account_whitelist_update.destinations_hash,
+            )?;
+            self.disable_transfer_destinations_by_slot(
                 &mut balance_account,
                 &balance_account_whitelist_update.remove_allowed_destinations,
             )?;
-            self.enable_transfer_destinations(
+            self.enable_transfer_destinations_by_slot(
                 &mut balance_account,
                 &balance_account_whitelist_update.add_allowed_destinations,
             )?;
@@ -613,33 +618,32 @@ impl Wallet {
         Ok(())
     }
 
-    fn enable_transfer_destinations(
+    fn enable_transfer_destinations_by_slot(
         &mut self,
         balance_account: &mut BalanceAccount,
-        destinations: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+        destination_slots: &Vec<SlotId<AddressBookEntry>>,
     ) -> ProgramResult {
-        if !self.address_book.contains(destinations) {
+        if !self.address_book.contains_slots(destination_slots) {
             msg!("Failed to enable transfer destinations: address book does not contain one of the given destinations");
-            return Err(WalletError::InvalidSlot.into());
+            return Err(WalletError::UnknownAddressBookEntry.into());
         }
-        if !destinations.is_empty() && balance_account.is_whitelist_disabled() {
+        if !destination_slots.is_empty() && balance_account.is_whitelist_disabled() {
             msg!("Cannot add destinations when whitelisting status is Off");
             return Err(WalletError::WhitelistDisabled.into());
         }
         balance_account
             .allowed_destinations
-            .enable_many(&destinations.slot_ids());
+            .enable_many(&destination_slots.iter().map(|signer| signer).collect_vec());
         Ok(())
     }
 
-    fn disable_transfer_destinations(
+    fn disable_transfer_destinations_by_slot(
         &mut self,
         balance_account: &mut BalanceAccount,
-        destinations: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+        destination_slots: &Vec<SlotId<AddressBookEntry>>,
     ) -> ProgramResult {
-        for (id, address_book_entry) in destinations {
-            if self.address_book[*id] == Some(*address_book_entry) || self.address_book[*id] == None
-            {
+        for id in destination_slots {
+            if self.address_book[*id] != None {
                 balance_account.allowed_destinations.disable(id);
             } else {
                 msg!("Failed to disable transfer destinations: unexpected slot value");
@@ -669,6 +673,38 @@ impl Wallet {
         if hash(&bytes) != *provided_hash {
             msg!("Signers hash did not match");
             return Err(WalletError::InvalidSignersHash.into());
+        }
+        Ok(())
+    }
+
+    fn validate_allowed_destinations_hash(
+        &self,
+        add_destination_slots: &Vec<SlotId<AddressBookEntry>>,
+        remove_destination_slots: &Vec<SlotId<AddressBookEntry>>,
+        provided_hash: &Hash,
+    ) -> ProgramResult {
+        let mut bytes: Vec<u8> = Vec::new();
+        self.add_destination_bytes(add_destination_slots, &mut bytes)?;
+        bytes.push(1);
+        self.add_destination_bytes(remove_destination_slots, &mut bytes)?;
+        if hash(&bytes) != *provided_hash {
+            msg!("Address Book entries hash did not match");
+            return Err(WalletError::InvalidAddressBookEntriesHash.into());
+        }
+        Ok(())
+    }
+
+    fn add_destination_bytes(
+        &self,
+        destination_slots: &Vec<SlotId<AddressBookEntry>>,
+        bytes: &mut Vec<u8>,
+    ) -> ProgramResult {
+        for id in destination_slots {
+            if let Some(address_book_entry) = self.address_book[*id] {
+                bytes.extend_from_slice(address_book_entry.name_hash.to_bytes());
+            } else {
+                return Err(WalletError::UnknownAddressBookEntry.into());
+            }
         }
         Ok(())
     }

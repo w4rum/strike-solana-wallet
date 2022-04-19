@@ -132,6 +132,12 @@ pub enum WalletError {
     /// Attempt to migrate from an unknown or unsupported version
     #[error("Unknown Version")]
     UnknownVersion,
+    /// DApp Instruction already supplied
+    #[error("Unknown Address Book Entry")]
+    UnknownAddressBookEntry,
+    /// Operation not initialized
+    #[error("Invalid Address Book Entries Hash")]
+    InvalidAddressBookEntriesHash,
 }
 
 impl From<WalletError> for ProgramError {

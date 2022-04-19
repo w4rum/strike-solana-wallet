@@ -1077,8 +1077,9 @@ impl InitialWalletConfig {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct BalanceAccountWhitelistUpdate {
     pub guid_hash: BalanceAccountGuidHash,
-    pub add_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    pub remove_allowed_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    pub add_allowed_destinations: Vec<SlotId<AddressBookEntry>>,
+    pub remove_allowed_destinations: Vec<SlotId<AddressBookEntry>>,
+    pub destinations_hash: Hash,
 }
 
 impl BalanceAccountWhitelistUpdate {
@@ -1089,15 +1090,19 @@ impl BalanceAccountWhitelistUpdate {
             guid_hash: unpack_account_guid_hash(
                 read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?,
             )?,
-            add_allowed_destinations: read_address_book_entries(iter)?,
-            remove_allowed_destinations: read_address_book_entries(iter)?,
+            add_allowed_destinations: read_address_book_entries_slots(iter)?,
+            remove_allowed_destinations: read_address_book_entries_slots(iter)?,
+            destinations_hash: Hash::new_from_array(
+                *read_fixed_size_array(iter).ok_or(ProgramError::InvalidInstructionData)?,
+            ),
         })
     }
 
     pub fn pack_into_slice(&self, dst: &mut Vec<u8>) {
         dst.extend_from_slice(&self.guid_hash.to_bytes());
-        append_address_book_entries(&self.add_allowed_destinations, dst);
-        append_address_book_entries(&self.remove_allowed_destinations, dst);
+        append_address_book_entries_slots(&self.add_allowed_destinations, dst);
+        append_address_book_entries_slots(&self.remove_allowed_destinations, dst);
+        dst.extend_from_slice(self.destinations_hash.as_ref());
     }
 }
 
@@ -1474,6 +1479,26 @@ fn append_address_book_entries(
         buf[0] = slot_id.value as u8;
         entry.pack_into_slice(&mut buf[1..1 + AddressBookEntry::LEN]);
         dst.extend_from_slice(buf.as_slice());
+    }
+}
+
+fn read_address_book_entries_slots(
+    iter: &mut Iter<u8>,
+) -> Result<Vec<SlotId<AddressBookEntry>>, ProgramError> {
+    let entries_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)? as usize;
+    let mut slots: Vec<SlotId<AddressBookEntry>> = Vec::with_capacity(entries_count);
+    for _ in 0..entries_count {
+        slots.push(SlotId::new(usize::from(
+            *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?,
+        )))
+    }
+    Ok(slots)
+}
+
+fn append_address_book_entries_slots(entries: &Vec<SlotId<AddressBookEntry>>, dst: &mut Vec<u8>) {
+    dst.push(entries.len() as u8);
+    for slot_id in entries.iter() {
+        dst.push(slot_id.value as u8);
     }
 }
 

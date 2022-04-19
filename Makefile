@@ -74,6 +74,9 @@ test-dapp-transactions:
 test-dapp-book-update:
 	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=dapp_book_update_tests
 
+test-address-book-update:
+	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=address_book_update_tests
+
 test-init-wallet:
 	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=init_wallet_tests
 
