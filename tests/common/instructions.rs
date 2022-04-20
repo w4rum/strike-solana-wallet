@@ -5,7 +5,7 @@ use solana_program::pubkey::Pubkey;
 use solana_program::{system_program, sysvar};
 use std::borrow::Borrow;
 use std::time::Duration;
-use strike_wallet::instruction::ProgramInstruction::Migrate;
+use strike_wallet::instruction::ProgramInstruction::{Cleanup, Migrate};
 use strike_wallet::instruction::{
     pack_supply_dapp_transaction_instructions, BalanceAccountCreation, BalanceAccountPolicyUpdate,
 };
@@ -899,6 +899,27 @@ pub fn migrate_account(
     ];
 
     let data = Migrate {}.borrow().pack();
+
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    }
+}
+
+pub fn cleanup_account(
+    program_id: &Pubkey,
+    wallet_account: &Pubkey,
+    cleanup_account: &Pubkey,
+    rent_return_account: &Pubkey,
+) -> Instruction {
+    let accounts = vec![
+        AccountMeta::new_readonly(*wallet_account, false),
+        AccountMeta::new(*cleanup_account, false),
+        AccountMeta::new(*rent_return_account, false),
+    ];
+
+    let data = Cleanup {}.borrow().pack();
 
     Instruction {
         program_id: *program_id,

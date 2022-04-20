@@ -57,6 +57,7 @@ pub const TAG_SUPPLY_DAPP_INSTRUCTIONS: u8 = 28;
 pub const TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 29;
 pub const TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 30;
 pub const TAG_MIGRATE: u8 = 31;
+pub const TAG_CLEANUP: u8 = 32;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -331,6 +332,11 @@ pub enum ProgramInstruction {
     /// 1. `[writable]` The destination account to migrate to
     /// 2. `[signer]` The rent return account
     Migrate {},
+
+    /// 0. `[]` The current wallet account
+    /// 1. `[writable]` The wallet account to clean up
+    /// 2. `[writable]` The rent return address
+    Cleanup {},
 }
 
 impl ProgramInstruction {
@@ -572,6 +578,9 @@ impl ProgramInstruction {
             &ProgramInstruction::Migrate {} => {
                 buf.push(TAG_MIGRATE);
             }
+            &ProgramInstruction::Cleanup {} => {
+                buf.push(TAG_CLEANUP);
+            }
         }
         buf
     }
@@ -656,6 +665,7 @@ impl ProgramInstruction {
                 Self::unpack_supply_dapp_instructions_instruction(rest)?
             }
             TAG_MIGRATE => Self::Migrate {},
+            TAG_CLEANUP => Self::Cleanup {},
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }

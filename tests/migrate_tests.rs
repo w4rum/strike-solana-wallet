@@ -6,7 +6,7 @@ use itertools::Itertools;
 use solana_program::bpf_loader_upgradeable::{deploy_with_max_program_len, upgrade};
 use solana_program::hash::Hash;
 use solana_program::instruction::InstructionError;
-use solana_program::instruction::InstructionError::Custom;
+use solana_program::instruction::InstructionError::{Custom, UninitializedAccount};
 use solana_program::program_pack::Pack;
 use solana_program::system_instruction;
 use solana_program_test::{find_file, processor, read_file, BanksClientError, ProgramTestContext};
@@ -187,6 +187,51 @@ async fn migrate_account() {
             dapp_book: DAppBook::from_vec(vec![]),
         }
     );
+
+    let fee_payer_starting_balance = pt_context
+        .banks_client
+        .get_balance(pt_context.payer.pubkey())
+        .await
+        .unwrap();
+    let wallet_account_balance = pt_context
+        .banks_client
+        .get_balance(wallet_account.pubkey())
+        .await
+        .unwrap();
+
+    // cleanup the source wallet account
+    pt_context
+        .banks_client
+        .process_transaction(Transaction::new_signed_with_payer(
+            &[cleanup_account(
+                &program_id,
+                &upgraded_wallet_account.pubkey(),
+                &wallet_account.pubkey(),
+                &pt_context.payer.pubkey(),
+            )],
+            Some(&pt_context.payer.pubkey()),
+            &[&pt_context.payer],
+            pt_context.last_blockhash,
+        ))
+        .await
+        .unwrap();
+
+    assert!(pt_context
+        .banks_client
+        .get_account(wallet_account.pubkey())
+        .await
+        .unwrap()
+        .is_none());
+
+    let fee_payer_ending_balance = pt_context
+        .banks_client
+        .get_balance(pt_context.payer.pubkey())
+        .await
+        .unwrap();
+    assert_eq!(
+        fee_payer_ending_balance,
+        fee_payer_starting_balance + wallet_account_balance - 5000
+    )
 }
 
 #[tokio::test]
@@ -325,6 +370,140 @@ async fn test_migrate_errors() {
         .unwrap_err()
         .unwrap(),
         TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized)
+    );
+}
+
+#[tokio::test]
+async fn test_cleanup_errors() {
+    let approvals_required_for_config = 1;
+    let approval_timeout_for_config = Duration::from_secs(3600);
+    let signers = vec![(SlotId::new(0), Signer::new(Pubkey::new_unique()))];
+    let config_approvers = signers.clone();
+
+    let program_id = Keypair::new().pubkey();
+    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
+    pt.set_compute_max_units(25_000);
+    let mut pt_context = pt.start_with_context().await;
+    let wallet_account = Keypair::new();
+    let assistant_account = Keypair::new();
+
+    utils::init_wallet(
+        &mut pt_context.banks_client,
+        &pt_context.payer,
+        pt_context.last_blockhash,
+        &program_id,
+        &wallet_account,
+        &assistant_account,
+        InitialWalletConfig {
+            approvals_required_for_config: approvals_required_for_config.clone(),
+            approval_timeout_for_config,
+            signers: signers.clone(),
+            config_approvers: config_approvers
+                .clone()
+                .iter()
+                .map(|signer| signer.0)
+                .collect_vec(),
+        },
+    )
+    .await
+    .unwrap();
+
+    // cannot clean up a wallet account for the current program version
+    assert_eq!(
+        pt_context
+            .banks_client
+            .process_transaction(Transaction::new_signed_with_payer(
+                &[cleanup_account(
+                    &program_id,
+                    &wallet_account.pubkey(),
+                    &wallet_account.pubkey(),
+                    &pt_context.payer.pubkey(),
+                )],
+                Some(&pt_context.payer.pubkey()),
+                &[&pt_context.payer],
+                pt_context.last_blockhash,
+            ))
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(0, Custom(WalletError::AccountVersionMismatch as u32))
+    );
+
+    // cannot cleanup an uninitialized account
+    let uninitialized_account = Keypair::new();
+    let rent = pt_context.banks_client.get_rent().await.unwrap();
+    let wallet_account_rent = rent.minimum_balance(Wallet::LEN);
+
+    pt_context
+        .banks_client
+        .process_transaction(Transaction::new_signed_with_payer(
+            &[system_instruction::create_account(
+                &pt_context.payer.pubkey(),
+                &uninitialized_account.pubkey(),
+                wallet_account_rent,
+                Wallet::LEN as u64,
+                &program_id,
+            )],
+            Some(&pt_context.payer.pubkey()),
+            &[&pt_context.payer, &uninitialized_account],
+            pt_context.last_blockhash,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        pt_context
+            .banks_client
+            .process_transaction(Transaction::new_signed_with_payer(
+                &[cleanup_account(
+                    &program_id,
+                    &wallet_account.pubkey(),
+                    &uninitialized_account.pubkey(),
+                    &pt_context.payer.pubkey(),
+                )],
+                Some(&pt_context.payer.pubkey()),
+                &[&pt_context.payer],
+                pt_context.last_blockhash,
+            ))
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(0, UninitializedAccount)
+    );
+
+    // must pass correct rent return account
+    // (need modify uninitialized account to be initialized so we can get past previous error)
+    let mut wallet_account_shared_data = AccountSharedData::from(
+        pt_context
+            .banks_client
+            .get_account(uninitialized_account.pubkey())
+            .await
+            .unwrap()
+            .unwrap(),
+    );
+    wallet_account_shared_data.data_as_mut_slice()[0] = 1;
+    pt_context.set_account(&uninitialized_account.pubkey(), &wallet_account_shared_data);
+
+    let blockhash = wait_for_new_blockhash(&mut pt_context).await;
+
+    assert_eq!(
+        pt_context
+            .banks_client
+            .process_transaction(Transaction::new_signed_with_payer(
+                &[cleanup_account(
+                    &program_id,
+                    &wallet_account.pubkey(),
+                    &uninitialized_account.pubkey(),
+                    &pt_context.payer.pubkey(),
+                )],
+                Some(&pt_context.payer.pubkey()),
+                &[&pt_context.payer],
+                blockhash,
+            ))
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(0, Custom(WalletError::AccountNotRecognized as u32))
     );
 }
 

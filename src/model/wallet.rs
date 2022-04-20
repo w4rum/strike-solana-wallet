@@ -657,6 +657,19 @@ impl Wallet {
         return src.len() > 0 && src[0] == 1;
     }
 
+    pub fn get_rent_return(src: &[u8]) -> Result<Pubkey, ProgramError> {
+        if src.len() >= 1 + 4 + PUBKEY_BYTES {
+            if src[0] == 1 {
+                let buf = array_ref!(src, 5, PUBKEY_BYTES);
+                Ok(Pubkey::new_from_array(*buf))
+            } else {
+                Err(ProgramError::UninitializedAccount)
+            }
+        } else {
+            Err(ProgramError::InvalidAccountData)
+        }
+    }
+
     fn validate_signers_hash(
         &self,
         signer_slots: &Vec<SlotId<Signer>>,

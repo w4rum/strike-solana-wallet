@@ -4,6 +4,7 @@ pub mod balance_account_creation_handler;
 pub mod balance_account_name_update_handler;
 pub mod balance_account_policy_update_handler;
 pub mod balance_account_settings_update_handler;
+pub mod cleanup_handler;
 pub mod dapp_book_update_handler;
 pub mod dapp_transaction_handler;
 pub mod init_wallet_handler;
