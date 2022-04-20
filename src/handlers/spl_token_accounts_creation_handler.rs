@@ -1,3 +1,4 @@
+use crate::handlers::utils::next_wallet_account_info;
 use crate::{
     error::WalletError,
     handlers::utils::{
@@ -39,7 +40,7 @@ pub fn init(
     let accounts_iter = &mut accounts.iter();
 
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
     let token_mint_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
@@ -128,7 +129,7 @@ pub fn finalize(
 
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let rent_collector_account_info = next_account_info(accounts_iter)?;
     let token_mint_account_info = next_account_info(accounts_iter)?;
     let payer_balance_account_info = next_account_info(accounts_iter)?;

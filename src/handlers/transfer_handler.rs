@@ -2,8 +2,8 @@ use crate::constants::PUBKEY_BYTES;
 use crate::error::WalletError;
 use crate::handlers::utils::{
     create_associated_token_account_instruction, finalize_multisig_op, get_clock_from_next_account,
-    next_program_account_info, start_multisig_transfer_op, transfer_sol_checked,
-    validate_balance_account_and_get_seed,
+    next_program_account_info, next_wallet_account_info, start_multisig_transfer_op,
+    transfer_sol_checked, validate_balance_account_and_get_seed,
 };
 use crate::model::address_book::AddressBookEntryNameHash;
 use crate::model::balance_account::BalanceAccountGuidHash;
@@ -33,7 +33,7 @@ pub fn init(
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let source_account = next_account_info(accounts_iter)?;
     let destination_account = next_account_info(accounts_iter)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
@@ -131,7 +131,7 @@ pub fn finalize(
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let source_account = next_account_info(accounts_iter)?;
     let destination_account = next_account_info(accounts_iter)?;
     let system_program_account = next_account_info(accounts_iter)?;

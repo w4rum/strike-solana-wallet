@@ -1,6 +1,6 @@
 use crate::handlers::utils::{
     finalize_multisig_op, get_clock_from_next_account, next_program_account_info,
-    start_multisig_config_op,
+    next_wallet_account_info, start_multisig_config_op,
 };
 use crate::instruction::WalletConfigPolicyUpdate;
 use crate::model::multisig_op::MultisigOpParams;
@@ -17,7 +17,7 @@ pub fn init(
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
 
@@ -47,7 +47,7 @@ pub fn finalize(
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let account_to_return_rent_to = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
 

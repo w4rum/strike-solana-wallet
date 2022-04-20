@@ -13,7 +13,7 @@ use spl_token::state::Account as SPLAccount;
 use crate::error::WalletError;
 use crate::handlers::utils::{
     calculate_expires, collect_remaining_balance, get_clock_from_next_account, log_op_disposition,
-    next_program_account_info, validate_balance_account_and_get_seed,
+    next_program_account_info, next_wallet_account_info, validate_balance_account_and_get_seed,
 };
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::BalanceAccountGuidHash;
@@ -32,7 +32,7 @@ pub fn init(
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
     let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
 

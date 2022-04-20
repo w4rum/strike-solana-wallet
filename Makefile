@@ -82,3 +82,6 @@ test-init-wallet:
 
 test-migrate: build_migration_test_version
 	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=migrate_tests
+
+test-wallet-account-version:
+	RUST_BACKTRACE=${rust-backtrace} cargo test-bpf --test=wallet_account_version_tests

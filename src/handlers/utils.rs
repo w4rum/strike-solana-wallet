@@ -47,6 +47,18 @@ pub fn next_program_account_info<'a, 'b, I: Iterator<Item = &'a AccountInfo<'b>>
     Ok(account_info)
 }
 
+pub fn next_wallet_account_info<'a, 'b, I: Iterator<Item = &'a AccountInfo<'b>>>(
+    iter: &mut I,
+    program_id: &Pubkey,
+) -> Result<I::Item, ProgramError> {
+    let account_info = next_program_account_info(iter, program_id)?;
+    if Wallet::version_from_slice(&**account_info.data.borrow())? != VERSION {
+        Err(WalletError::AccountVersionMismatch.into())
+    } else {
+        Ok(account_info)
+    }
+}
+
 pub fn get_clock_from_next_account(iter: &mut Iter<AccountInfo>) -> Result<Clock, ProgramError> {
     let account_info = next_account_info(iter)?;
     if solana_program::sysvar::clock::id() != *account_info.key {
