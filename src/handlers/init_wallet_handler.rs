@@ -1,7 +1,7 @@
 use crate::handlers::utils::next_program_account_info;
 use crate::instruction::InitialWalletConfig;
 use crate::model::signer::Signer;
-use crate::model::wallet::Wallet;
+use crate::model::wallet::{Wallet, WalletGuidHash};
 use crate::version::VERSION;
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
@@ -12,7 +12,8 @@ use solana_program::pubkey::Pubkey;
 pub fn handle(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
-    update: &InitialWalletConfig,
+    wallet_guid_hash: &WalletGuidHash,
+    initial_config: &InitialWalletConfig,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
@@ -31,10 +32,11 @@ pub fn handle(
     wallet.is_initialized = true;
     wallet.version = VERSION;
     wallet.rent_return = *rent_return_account_info.key;
+    wallet.wallet_guid_hash = *wallet_guid_hash;
     wallet.assistant = Signer {
         key: *assistant_account_info.key,
     };
-    wallet.initialize(update)?;
+    wallet.initialize(initial_config)?;
     Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
 
     Ok(())

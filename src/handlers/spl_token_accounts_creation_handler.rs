@@ -86,7 +86,8 @@ pub fn init(
             return Err(ProgramError::AccountAlreadyInitialized);
         }
         // ensure AT addr is correctly derived from BalanceAccount address
-        let (balance_account_pda, _) = BalanceAccount::find_address(account_guid_hash, program_id);
+        let (balance_account_pda, _) =
+            BalanceAccount::find_address(&wallet.wallet_guid_hash, account_guid_hash, program_id);
         if get_associated_token_address(&balance_account_pda, &token_mint_account_info.key)
             != *associated_token_account_info.key
         {
@@ -196,9 +197,13 @@ pub fn finalize(
         .get(index..offset)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
 
+    let wallet_guid_hash =
+        &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
+
     // get bump seed of payer BalanceAccount
     let payer_bump_seed = validate_balance_account_and_get_seed(
         payer_balance_account_info,
+        wallet_guid_hash,
         payer_account_guid_hash,
         program_id,
     )?;
@@ -256,7 +261,11 @@ pub fn finalize(
                         token_mint_account_info,
                     ),
                     accounts,
-                    &[&[&payer_account_guid_hash.to_bytes(), &[payer_bump_seed]]],
+                    &[&[
+                        wallet_guid_hash.to_bytes(),
+                        payer_account_guid_hash.to_bytes(),
+                        &[payer_bump_seed],
+                    ]],
                 )?;
             }
             Ok(())

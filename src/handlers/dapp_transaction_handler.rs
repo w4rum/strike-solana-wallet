@@ -249,7 +249,7 @@ pub fn finalize(
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
     let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let _wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
     let balance_account = next_account_info(accounts_iter)?;
     let rent_collector_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
@@ -272,8 +272,15 @@ pub fn finalize(
             }
         };
 
-        let bump_seed =
-            validate_balance_account_and_get_seed(balance_account, account_guid_hash, program_id)?;
+        let wallet_guid_hash =
+            &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
+
+        let bump_seed = validate_balance_account_and_get_seed(
+            balance_account,
+            wallet_guid_hash,
+            account_guid_hash,
+            program_id,
+        )?;
 
         let starting_balances: Vec<u64> = if is_final {
             Vec::new()
@@ -293,7 +300,11 @@ pub fn finalize(
                 invoke_signed(
                     &instruction,
                     &accounts,
-                    &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
+                    &[&[
+                        wallet_guid_hash.to_bytes(),
+                        account_guid_hash.to_bytes(),
+                        &[bump_seed],
+                    ]],
                 )?;
             }
         }

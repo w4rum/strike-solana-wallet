@@ -138,6 +138,9 @@ pub enum WalletError {
     /// Operation not initialized
     #[error("Invalid Address Book Entries Hash")]
     InvalidAddressBookEntriesHash,
+    /// Wallet Guid Hash did not match
+    #[error("Wallet Guid Hash Mismatch")]
+    WalletGuidHashMismatch,
 }
 
 impl From<WalletError> for ProgramError {

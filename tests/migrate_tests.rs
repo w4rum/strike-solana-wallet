@@ -8,10 +8,12 @@ use solana_program::hash::Hash;
 use solana_program::instruction::InstructionError;
 use solana_program::instruction::InstructionError::{Custom, UninitializedAccount};
 use solana_program::program_pack::Pack;
+use solana_program::pubkey::PUBKEY_BYTES;
 use solana_program::system_instruction;
 use solana_program_test::{find_file, processor, read_file, BanksClientError, ProgramTestContext};
 use solana_sdk::account::{AccountSharedData, ReadableAccount, WritableAccount};
 use solana_sdk::transaction::{Transaction, TransactionError};
+use uuid::Uuid;
 
 pub use common::instructions::*;
 pub use common::utils::*;
@@ -19,7 +21,7 @@ use strike_wallet::error::WalletError;
 use strike_wallet::instruction::InitialWalletConfig;
 use strike_wallet::model::address_book::{AddressBook, DAppBook};
 use strike_wallet::model::signer::Signer;
-use strike_wallet::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet};
+use strike_wallet::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet, WalletGuidHash};
 use strike_wallet::utils::SlotId;
 use {
     solana_program_test::{tokio, ProgramTest},
@@ -85,7 +87,7 @@ async fn migrate_account() {
         ))
         .await
         .unwrap();
-
+    let wallet_guid_hash = WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes()));
     utils::init_wallet(
         &mut pt_context.banks_client,
         &pt_context.payer,
@@ -93,6 +95,7 @@ async fn migrate_account() {
         &program_id,
         &wallet_account,
         &assistant_account,
+        wallet_guid_hash,
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
             approval_timeout_for_config,
@@ -172,6 +175,7 @@ async fn migrate_account() {
             is_initialized: true,
             version: 0,
             rent_return: pt_context.payer.pubkey().clone(),
+            wallet_guid_hash,
             signers: Signers::from_vec(signers),
             assistant: assistant_account.pubkey_as_signer(),
             address_book: AddressBook::new(),
@@ -259,6 +263,7 @@ async fn test_migrate_errors() {
         &program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
             approval_timeout_for_config,
@@ -394,6 +399,7 @@ async fn test_cleanup_errors() {
         &program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
             approval_timeout_for_config,
@@ -472,8 +478,8 @@ async fn test_cleanup_errors() {
     );
 
     // must pass correct rent return account
-    // (need modify uninitialized account to be initialized so we can get past previous error)
-    let mut wallet_account_shared_data = AccountSharedData::from(
+    // (need to modify uninitialized account to be initialized so we can get past previous error)
+    let mut uninitialized_wallet_account_shared_data = AccountSharedData::from(
         pt_context
             .banks_client
             .get_account(uninitialized_account.pubkey())
@@ -481,8 +487,11 @@ async fn test_cleanup_errors() {
             .unwrap()
             .unwrap(),
     );
-    wallet_account_shared_data.data_as_mut_slice()[0] = 1;
-    pt_context.set_account(&uninitialized_account.pubkey(), &wallet_account_shared_data);
+    uninitialized_wallet_account_shared_data.data_as_mut_slice()[0] = 1;
+    pt_context.set_account(
+        &uninitialized_account.pubkey(),
+        &uninitialized_wallet_account_shared_data,
+    );
 
     let blockhash = wait_for_new_blockhash(&mut pt_context).await;
 
@@ -504,6 +513,38 @@ async fn test_cleanup_errors() {
             .unwrap_err()
             .unwrap(),
         TransactionError::InstructionError(0, Custom(WalletError::AccountNotRecognized as u32))
+    );
+
+    // cleanup account must have same wallet guid hash as the wallet account
+    // first we modify it so it has the correct rent_return address
+    uninitialized_wallet_account_shared_data.data_as_mut_slice()[5..5 + PUBKEY_BYTES]
+        .copy_from_slice(pt_context.payer.pubkey().as_ref());
+
+    pt_context.set_account(
+        &uninitialized_account.pubkey(),
+        &uninitialized_wallet_account_shared_data,
+    );
+
+    let blockhash = wait_for_new_blockhash(&mut pt_context).await;
+
+    assert_eq!(
+        pt_context
+            .banks_client
+            .process_transaction(Transaction::new_signed_with_payer(
+                &[cleanup_account(
+                    &program_id,
+                    &wallet_account.pubkey(),
+                    &uninitialized_account.pubkey(),
+                    &pt_context.payer.pubkey(),
+                )],
+                Some(&pt_context.payer.pubkey()),
+                &[&pt_context.payer],
+                blockhash,
+            ))
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(0, Custom(WalletError::WalletGuidHashMismatch as u32))
     );
 }
 

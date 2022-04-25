@@ -39,7 +39,7 @@ use strike_wallet::model::multisig_op::{
     OperationDisposition, SlotUpdateType, WrapDirection,
 };
 use strike_wallet::model::signer::Signer;
-use strike_wallet::model::wallet::Signers;
+use strike_wallet::model::wallet::{Signers, WalletGuidHash};
 use strike_wallet::utils::SlotId;
 use strike_wallet::version::VERSION;
 use uuid::Uuid;
@@ -296,6 +296,7 @@ pub async fn init_wallet(
     program_id: &Pubkey,
     wallet_account: &Keypair,
     assistant_account: &Keypair,
+    wallet_guid_hash: WalletGuidHash,
     initial_config: InitialWalletConfig,
 ) -> Result<(), BanksClientError> {
     let rent = banks_client.get_rent().await.unwrap();
@@ -315,6 +316,7 @@ pub async fn init_wallet(
                 &wallet_account.pubkey(),
                 &assistant_account.pubkey(),
                 &payer.pubkey(),
+                wallet_guid_hash,
                 initial_config,
             ),
         ],
@@ -334,6 +336,7 @@ pub struct WalletTestContext {
     pub wallet_account: Keypair,
     pub assistant_account: Keypair,
     pub recent_blockhash: Hash,
+    pub wallet_guid_hash: WalletGuidHash,
 }
 
 pub async fn setup_wallet_test(
@@ -354,6 +357,7 @@ pub async fn setup_wallet_test(
         recent_blockhash,
         wallet_account: Keypair::new(),
         assistant_account: Keypair::new(),
+        wallet_guid_hash: WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
     };
 
     init_wallet(
@@ -363,6 +367,7 @@ pub async fn setup_wallet_test(
         &context.program_id,
         &context.wallet_account,
         &context.assistant_account,
+        context.wallet_guid_hash,
         InitialWalletConfig {
             approvals_required_for_config: initial_config.approvals_required_for_config,
             approval_timeout_for_config: initial_config.approval_timeout_for_config,
@@ -991,6 +996,7 @@ pub struct BalanceAccountTestContext {
     pub pt_context: ProgramTestContext,
     pub rent: Rent,
     pub wallet_account: Keypair,
+    pub wallet_guid_hash: WalletGuidHash,
     pub multisig_op_account: Keypair,
     pub assistant_account: Keypair,
     pub initiator_account: Keypair,
@@ -1092,6 +1098,8 @@ pub async fn setup_balance_account_tests(
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
     };
 
+    let wallet_guid_hash = WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes()));
+
     // first initialize the wallet
     init_wallet(
         &mut pt_context.banks_client,
@@ -1100,6 +1108,7 @@ pub async fn setup_balance_account_tests(
         &program_id,
         &wallet_account,
         &assistant_account,
+        wallet_guid_hash,
         InitialWalletConfig {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(3600),
@@ -1131,8 +1140,13 @@ pub async fn setup_balance_account_tests(
     }
 
     let slot_for_balance_account_address = SlotId::new(32);
-    let (source_account_pda, _) =
-        Pubkey::find_program_address(&[&balance_account_guid_hash.to_bytes()], &program_id);
+    let (source_account_pda, _) = Pubkey::find_program_address(
+        &[
+            wallet_guid_hash.to_bytes(),
+            balance_account_guid_hash.to_bytes(),
+        ],
+        &program_id,
+    );
 
     let init_transaction = Transaction::new_signed_with_payer(
         &[
@@ -1245,6 +1259,7 @@ pub async fn setup_balance_account_tests(
         pt_context,
         rent,
         wallet_account,
+        wallet_guid_hash,
         multisig_op_account,
         assistant_account,
         initiator_account: Keypair::from_base58_string(&approvers[2].to_base58_string()),
@@ -1320,6 +1335,7 @@ pub async fn setup_create_balance_account_failure_tests(
         &program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 1,
             approval_timeout_for_config: Duration::from_secs(3600),
@@ -1424,7 +1440,10 @@ pub async fn setup_balance_account_tests_and_finalize(
 
     finalize_balance_account_creation(context.borrow_mut()).await;
     let (source_account, _) = Pubkey::find_program_address(
-        &[&context.balance_account_guid_hash.to_bytes()],
+        &[
+            context.wallet_guid_hash.to_bytes(),
+            context.balance_account_guid_hash.to_bytes(),
+        ],
         &context.program_id,
     );
 
@@ -2355,12 +2374,13 @@ pub fn hash_allowed_destination(
 
 /// Derive BalanceAccount account PDAs from their GUID hashes.
 pub fn find_balance_account_addresses(
+    wallet_guid_hash: &WalletGuidHash,
     hashes: &Vec<BalanceAccountGuidHash>,
     program_id: &Pubkey,
 ) -> Vec<Pubkey> {
     hashes
         .iter()
-        .map(|hash| BalanceAccount::find_address(hash, &program_id).0)
+        .map(|hash| BalanceAccount::find_address(wallet_guid_hash, hash, &program_id).0)
         .collect()
 }
 
@@ -2384,6 +2404,7 @@ pub fn get_associated_token_account_addresses(
 pub async fn create_wallet(
     context: &mut TestContext,
     wallet_keypair: &Keypair,
+    wallet_guid_hash: &WalletGuidHash,
     assistant_keypair: &Keypair,
     signer_keypairs: &Vec<Keypair>,
 ) {
@@ -2394,6 +2415,7 @@ pub async fn create_wallet(
         &context.program_id,
         &wallet_keypair,
         &assistant_keypair,
+        *wallet_guid_hash,
         InitialWalletConfig {
             approvals_required_for_config: 1,
             approval_timeout_for_config: Duration::from_secs(3600),
@@ -2419,6 +2441,7 @@ pub async fn create_wallet(
 pub async fn create_balance_accounts(
     context: &mut TestContext,
     wallet_address: &Pubkey,
+    wallet_guid_hash: &WalletGuidHash,
     assistant_keypair: &Keypair,
     approver_keypairs: &Vec<Keypair>,
     count: u8,
@@ -2436,6 +2459,7 @@ pub async fn create_balance_accounts(
                 context,
                 slot_id,
                 wallet_address,
+                wallet_guid_hash,
                 assistant_keypair,
                 approver_keypairs,
                 1,
@@ -2455,6 +2479,7 @@ pub async fn create_balance_account(
     context: &mut TestContext,
     slot_id: SlotId<BalanceAccount>,
     wallet_address: &Pubkey,
+    wallet_guid_hash: &WalletGuidHash,
     assistant_keypair: &Keypair,
     approver_keypairs: &Vec<Keypair>,
     approvals_required_for_transfer: u8,
@@ -2570,7 +2595,11 @@ pub async fn create_balance_account(
         .unwrap();
 
     // derive PDA of BalanceAccount from its GUID hash
-    let (pda, bump) = BalanceAccount::find_address(&balance_account_guid_hash, &context.program_id);
+    let (pda, bump) = BalanceAccount::find_address(
+        wallet_guid_hash,
+        &balance_account_guid_hash,
+        &context.program_id,
+    );
 
     // fund the account
     if let Some(lamports) = some_lamports {

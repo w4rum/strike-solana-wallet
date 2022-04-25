@@ -1,7 +1,7 @@
 use crate::constants::HASH_LEN;
 use crate::model::address_book::{AddressBook, AddressBookEntry};
 use crate::model::multisig_op::BooleanSetting;
-use crate::model::wallet::Approvers;
+use crate::model::wallet::{Approvers, WalletGuidHash};
 use crate::utils::SlotFlags;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::program_error::ProgramError;
@@ -159,8 +159,15 @@ impl BalanceAccount {
         return self.allowed_destinations.count_enabled() > 0;
     }
 
-    /// Derive the PDA and "bump seed" of a BalanceAccount, given its GUID hash.
-    pub fn find_address(guid_hash: &BalanceAccountGuidHash, program_id: &Pubkey) -> (Pubkey, u8) {
-        Pubkey::find_program_address(&[&guid_hash.to_bytes()], program_id)
+    /// Derive the PDA and "bump seed" of a BalanceAccount, given its GUID hash and the wallet guid hash.
+    pub fn find_address(
+        wallet_guid_hash: &WalletGuidHash,
+        guid_hash: &BalanceAccountGuidHash,
+        program_id: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[wallet_guid_hash.to_bytes(), guid_hash.to_bytes()],
+            program_id,
+        )
     }
 }

@@ -10,6 +10,7 @@ use strike_wallet::instruction::{
     pack_supply_dapp_transaction_instructions, BalanceAccountCreation, BalanceAccountPolicyUpdate,
 };
 use strike_wallet::model::balance_account::BalanceAccount;
+use strike_wallet::model::wallet::WalletGuidHash;
 use strike_wallet::{
     instruction::{
         AddressBookUpdate, BalanceAccountWhitelistUpdate, DAppBookUpdate, InitialWalletConfig,
@@ -30,6 +31,7 @@ pub fn init_wallet(
     wallet_account: &Pubkey,
     assistant_account: &Pubkey,
     rent_return_account: &Pubkey,
+    wallet_guid_hash: WalletGuidHash,
     initial_config: InitialWalletConfig,
 ) -> Instruction {
     let accounts = vec![
@@ -41,9 +43,12 @@ pub fn init_wallet(
     Instruction {
         program_id: *program_id,
         accounts,
-        data: ProgramInstruction::InitWallet { initial_config }
-            .borrow()
-            .pack(),
+        data: ProgramInstruction::InitWallet {
+            wallet_guid_hash,
+            initial_config,
+        }
+        .borrow()
+        .pack(),
     }
 }
 

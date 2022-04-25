@@ -8,13 +8,14 @@ use solana_program_test::{processor, tokio, ProgramTest};
 use solana_sdk::account::{AccountSharedData, ReadableAccount, WritableAccount};
 use solana_sdk::signature::{Keypair, Signer};
 use solana_sdk::transaction::TransactionError;
+use uuid::Uuid;
 
 pub use common::instructions::*;
 pub use common::utils;
 pub use common::utils::*;
 use strike_wallet::error::WalletError;
 use strike_wallet::instruction::{InitialWalletConfig, WalletConfigPolicyUpdate};
-use strike_wallet::model::wallet::Wallet;
+use strike_wallet::model::wallet::{Wallet, WalletGuidHash};
 use strike_wallet::processor::Processor;
 use strike_wallet::utils::SlotId;
 
@@ -41,6 +42,7 @@ async fn test_wallet_account_version_mismatch() {
         &program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 1,
             approval_timeout_for_config: Duration::from_secs(3600),

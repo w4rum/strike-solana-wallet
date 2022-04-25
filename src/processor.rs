@@ -21,8 +21,14 @@ impl Processor {
 
         match instruction {
             ProgramInstruction::InitWallet {
-                initial_config: update,
-            } => init_wallet_handler::handle(program_id, accounts, &update),
+                wallet_guid_hash,
+                initial_config,
+            } => init_wallet_handler::handle(
+                program_id,
+                accounts,
+                &wallet_guid_hash,
+                &initial_config,
+            ),
 
             ProgramInstruction::InitWalletConfigPolicyUpdate { update } => {
                 wallet_config_policy_update_handler::init(program_id, accounts, &update)

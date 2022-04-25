@@ -16,9 +16,10 @@ use strike_wallet::error::WalletError;
 use strike_wallet::instruction::InitialWalletConfig;
 use strike_wallet::model::address_book::{AddressBook, DAppBook};
 use strike_wallet::model::signer::Signer;
-use strike_wallet::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet};
+use strike_wallet::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet, WalletGuidHash};
 use strike_wallet::utils::SlotId;
 use strike_wallet::version::VERSION;
+use uuid::Uuid;
 use {
     solana_program_test::{processor, tokio, ProgramTest},
     solana_sdk::{
@@ -46,6 +47,8 @@ async fn init_wallet() {
     let wallet_account = Keypair::new();
     let assistant_account = Keypair::new();
 
+    let wallet_guid_hash = WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes()));
+
     utils::init_wallet(
         &mut banks_client,
         &payer,
@@ -53,6 +56,7 @@ async fn init_wallet() {
         &program_id,
         &wallet_account,
         &assistant_account,
+        wallet_guid_hash,
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
             approval_timeout_for_config,
@@ -73,6 +77,7 @@ async fn init_wallet() {
             is_initialized: true,
             version: VERSION,
             rent_return: payer.pubkey().clone(),
+            wallet_guid_hash,
             signers: Signers::from_vec(signers),
             assistant: assistant_account.pubkey_as_signer(),
             address_book: AddressBook::new(),
@@ -115,6 +120,7 @@ async fn invalid_wallet_initialization() {
             &program_id,
             &wallet_account,
             &assistant_account,
+            WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
             InitialWalletConfig {
                 approvals_required_for_config: 3,
                 approval_timeout_for_config: Duration::from_secs(3600),
@@ -137,6 +143,7 @@ async fn invalid_wallet_initialization() {
             &program_id,
             &wallet_account,
             &assistant_account,
+            WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
             InitialWalletConfig {
                 approvals_required_for_config: 1,
                 approval_timeout_for_config: Duration::from_secs(3600),

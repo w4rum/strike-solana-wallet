@@ -3,7 +3,7 @@ use crate::model::balance_account::{BalanceAccount, BalanceAccountGuidHash};
 use crate::model::multisig_op::{
     ApprovalDisposition, MultisigOp, MultisigOpParams, OperationDisposition,
 };
-use crate::model::wallet::Wallet;
+use crate::model::wallet::{Wallet, WalletGuidHash};
 use crate::version::{Versioned, VERSION};
 use solana_program::rent::Rent;
 use solana_program::{
@@ -80,10 +80,11 @@ pub fn calculate_expires(start: i64, duration: Duration) -> Result<i64, ProgramE
 /// validate the PDA of a BalanceAccount and return its bump seed.
 pub fn validate_balance_account_and_get_seed(
     balance_account_info: &AccountInfo,
+    wallet_guid_hash: &WalletGuidHash,
     account_guid_hash: &BalanceAccountGuidHash,
     program_id: &Pubkey,
 ) -> Result<u8, ProgramError> {
-    let seeds = &[account_guid_hash.to_bytes()];
+    let seeds = &[wallet_guid_hash.to_bytes(), account_guid_hash.to_bytes()];
     match verify_pda(program_id, seeds, balance_account_info.key, None) {
         Ok((_pda, bump_seed)) => Ok(bump_seed),
         Err(_error) => Err(WalletError::InvalidPDA.into()),
@@ -172,6 +173,7 @@ where
 }
 
 pub fn transfer_sol_checked<'a>(
+    wallet_guid_hash: &WalletGuidHash,
     balance_account: AccountInfo<'a>,
     account_guid_hash: &BalanceAccountGuidHash,
     bump_seed: u8,
@@ -200,7 +202,11 @@ pub fn transfer_sol_checked<'a>(
     invoke_signed(
         instruction,
         &[balance_account, to, system_program_account],
-        &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
+        &[&[
+            wallet_guid_hash.to_bytes(),
+            account_guid_hash.to_bytes(),
+            &[bump_seed],
+        ]],
     )
 }
 

@@ -19,6 +19,7 @@ use crate::model::multisig_op::{
     ApprovalDisposition, BooleanSetting, SlotUpdateType, WrapDirection,
 };
 use crate::model::signer::Signer;
+use crate::model::wallet::WalletGuidHash;
 use crate::serialization_utils::{
     append_duration, pack_option, read_duration, read_fixed_size_array, read_slice, read_u16,
     read_u8, unpack_option,
@@ -64,7 +65,10 @@ pub enum ProgramInstruction {
     /// 0. `[writable]` The wallet account
     /// 1. `[signer]` The transaction assistant account
     /// 2. `[signer]` The rent return account
-    InitWallet { initial_config: InitialWalletConfig },
+    InitWallet {
+        wallet_guid_hash: WalletGuidHash,
+        initial_config: InitialWalletConfig,
+    },
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[]` The wallet account
@@ -345,12 +349,14 @@ impl ProgramInstruction {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
             &ProgramInstruction::InitWallet {
-                initial_config: ref update,
+                wallet_guid_hash,
+                ref initial_config,
             } => {
-                let mut update_bytes: Vec<u8> = Vec::new();
-                update.pack(&mut update_bytes);
+                let mut initial_config_bytes: Vec<u8> = Vec::new();
+                initial_config.pack(&mut initial_config_bytes);
                 buf.push(TAG_INIT_WALLET);
-                buf.extend_from_slice(&update_bytes);
+                buf.extend_from_slice(wallet_guid_hash.to_bytes());
+                buf.extend_from_slice(&initial_config_bytes);
             }
             &ProgramInstruction::InitBalanceAccountCreation {
                 ref account_guid_hash,
@@ -672,7 +678,12 @@ impl ProgramInstruction {
 
     fn unpack_init_wallet_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
         Ok(Self::InitWallet {
-            initial_config: InitialWalletConfig::unpack(bytes)?,
+            wallet_guid_hash: unpack_wallet_guid_hash(bytes)?,
+            initial_config: InitialWalletConfig::unpack(
+                bytes
+                    .get(HASH_LEN..)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            )?,
         })
     }
 
@@ -1517,6 +1528,18 @@ pub fn unpack_account_guid_hash_vec(
 ) -> Result<Vec<BalanceAccountGuidHash>, ProgramError> {
     let iter = &mut bytes.iter();
     read_account_guid_vec(iter)
+}
+
+fn unpack_wallet_guid_hash(bytes: &[u8]) -> Result<WalletGuidHash, ProgramError> {
+    bytes
+        .get(..HASH_LEN)
+        .and_then(|slice| {
+            slice
+                .try_into()
+                .ok()
+                .map(|bytes| WalletGuidHash::new(bytes))
+        })
+        .ok_or(ProgramError::InvalidInstructionData)
 }
 
 fn unpack_account_guid_hash(bytes: &[u8]) -> Result<BalanceAccountGuidHash, ProgramError> {

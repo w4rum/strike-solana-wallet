@@ -51,6 +51,7 @@ pub fn init(
         // they have enough to create this account (if they don't, it will just fail)
         let bump_seed = validate_balance_account_and_get_seed(
             balance_account_info,
+            &wallet.wallet_guid_hash,
             account_guid_hash,
             program_id,
         )?;
@@ -62,7 +63,11 @@ pub fn init(
                 native_mint_account_info,
             ),
             accounts,
-            &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
+            &[&[
+                wallet.wallet_guid_hash.to_bytes(),
+                account_guid_hash.to_bytes(),
+                &[bump_seed],
+            ]],
         )?;
     }
 
@@ -101,6 +106,9 @@ pub fn finalize(
         return Err(WalletError::AccountNotRecognized.into());
     }
 
+    let wallet_guid_hash =
+        &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
+
     finalize_multisig_op(
         &multisig_op_account_info,
         &rent_collector_account_info,
@@ -114,6 +122,7 @@ pub fn finalize(
         || -> ProgramResult {
             let bump_seed = validate_balance_account_and_get_seed(
                 balance_account_info,
+                wallet_guid_hash,
                 account_guid_hash,
                 program_id,
             )?;
@@ -128,6 +137,7 @@ pub fn finalize(
 
             if direction == WrapDirection::WRAP {
                 transfer_sol_checked(
+                    wallet_guid_hash,
                     balance_account_info.clone(),
                     account_guid_hash,
                     bump_seed,
@@ -166,10 +176,15 @@ pub fn finalize(
                         wrapped_sol_account_info.clone(),
                         balance_account_info.clone(),
                     ],
-                    &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
+                    &[&[
+                        wallet_guid_hash.to_bytes(),
+                        account_guid_hash.to_bytes(),
+                        &[bump_seed],
+                    ]],
                 )?;
 
                 transfer_sol_checked(
+                    wallet_guid_hash,
                     balance_account_info.clone(),
                     account_guid_hash,
                     bump_seed,

@@ -16,8 +16,9 @@ use strike_wallet::instruction::{InitialWalletConfig, WalletConfigPolicyUpdate};
 use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, MultisigOpParams, OperationDisposition,
 };
-use strike_wallet::model::wallet::Approvers;
+use strike_wallet::model::wallet::{Approvers, WalletGuidHash};
 use strike_wallet::utils::SlotId;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn wallet_config_policy_update() {
@@ -41,6 +42,7 @@ async fn wallet_config_policy_update() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(3600),
@@ -190,6 +192,7 @@ async fn invalid_wallet_config_policy_updates() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(3600),
@@ -276,6 +279,7 @@ async fn wallet_config_policy_update_initiator_approval() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(3600),

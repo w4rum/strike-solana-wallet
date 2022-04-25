@@ -66,6 +66,7 @@ pub fn init(
         if rent.is_exempt(source_account.lamports(), SPLAccount::LEN) {
             match validate_balance_account_and_get_seed(
                 source_account,
+                &wallet.wallet_guid_hash,
                 account_guid_hash,
                 program_id,
             ) {
@@ -79,7 +80,11 @@ pub fn init(
                             token_mint,
                         ),
                         accounts,
-                        &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
+                        &[&[
+                            wallet.wallet_guid_hash.to_bytes(),
+                            account_guid_hash.to_bytes(),
+                            &[bump_seed],
+                        ]],
                     )?;
                 }
                 Err(error) => {
@@ -144,6 +149,9 @@ pub fn finalize(
         return Err(WalletError::AccountNotRecognized.into());
     }
 
+    let wallet_guid_hash =
+        &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
+
     finalize_multisig_op(
         &multisig_op_account_info,
         &rent_collector_account_info,
@@ -158,6 +166,7 @@ pub fn finalize(
         || -> ProgramResult {
             let bump_seed = validate_balance_account_and_get_seed(
                 source_account,
+                wallet_guid_hash,
                 account_guid_hash,
                 program_id,
             )?;
@@ -205,7 +214,12 @@ pub fn finalize(
                         token_mint_authority.clone(),
                         spl_token_program.clone(),
                     ],
-                    &[&[&account_guid_hash.to_bytes(), &[bump_seed]]],
+                    &[&[
+                        Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?
+                            .to_bytes(),
+                        account_guid_hash.to_bytes(),
+                        &[bump_seed],
+                    ]],
                 )?;
             } else {
                 if source_account.lamports() < amount {
@@ -218,6 +232,7 @@ pub fn finalize(
                 }
 
                 transfer_sol_checked(
+                    wallet_guid_hash,
                     source_account.clone(),
                     account_guid_hash,
                     bump_seed,

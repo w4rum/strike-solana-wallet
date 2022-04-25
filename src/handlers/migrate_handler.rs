@@ -21,6 +21,7 @@ fn migration_test(source: &AccountInfo, destination: &mut [u8], rent_return: &Pu
         is_initialized: true,
         version: 0,
         rent_return: *rent_return,
+        wallet_guid_hash: source_account.wallet_guid_hash,
         signers: source_account.signers,
         assistant: source_account.assistant,
         address_book: source_account.address_book,
@@ -48,7 +49,7 @@ pub fn handle(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
         return Err(WalletError::AccountVersionMismatch.into());
     }
 
-    if Wallet::get_is_initialized(&destination_account_info.data.borrow()) {
+    if Wallet::is_initialized_from_slice(&destination_account_info.data.borrow()) {
         return Err(ProgramError::AccountAlreadyInitialized);
     }
 

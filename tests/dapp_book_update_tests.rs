@@ -13,7 +13,9 @@ use strike_wallet::model::address_book::{DAppBookEntry, DAppBookEntryNameHash};
 use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, MultisigOpParams, OperationDisposition,
 };
+use strike_wallet::model::wallet::WalletGuidHash;
 use strike_wallet::utils::{SlotId, Slots};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn test_dapp_book_update() {
@@ -36,6 +38,7 @@ async fn test_dapp_book_update() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 1,
             approval_timeout_for_config: Duration::from_secs(3600),
@@ -171,6 +174,7 @@ async fn test_dapp_book_update_initiator_approval() {
         &context.program_id,
         &wallet_account,
         &assistant_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(3600),
