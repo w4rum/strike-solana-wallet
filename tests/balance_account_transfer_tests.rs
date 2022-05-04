@@ -251,10 +251,9 @@ async fn test_transfer_wrong_destination_name_hash() {
 
     account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
     let destination_to_add = context.allowed_destination;
-    modify_whitelist(
+    modify_address_book_whitelist(
         &mut context,
         vec![(SlotId::new(0), destination_to_add)],
-        vec![],
         None,
     )
     .await;

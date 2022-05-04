@@ -7,7 +7,8 @@ use std::borrow::Borrow;
 use std::time::Duration;
 use strike_wallet::instruction::ProgramInstruction::{Cleanup, Migrate};
 use strike_wallet::instruction::{
-    pack_supply_dapp_transaction_instructions, BalanceAccountCreation, BalanceAccountPolicyUpdate,
+    pack_supply_dapp_transaction_instructions, AddressBookWhitelistUpdate, BalanceAccountCreation,
+    BalanceAccountPolicyUpdate,
 };
 use strike_wallet::model::balance_account::BalanceAccount;
 use strike_wallet::model::wallet::WalletGuidHash;
@@ -930,5 +931,57 @@ pub fn cleanup_account(
         program_id: *program_id,
         accounts,
         data,
+    }
+}
+
+pub fn init_address_book_whitelist_update_instruction(
+    program_id: &Pubkey,
+    wallet_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    initiator_account: &Pubkey,
+    account_guid_hash: BalanceAccountGuidHash,
+    update: AddressBookWhitelistUpdate,
+) -> Instruction {
+    Instruction {
+        program_id: *program_id,
+        accounts: vec![
+            AccountMeta::new(*multisig_op_account, false),
+            AccountMeta::new(*wallet_account, false),
+            AccountMeta::new_readonly(*initiator_account, true),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+        ],
+        data: ProgramInstruction::InitAddressBookWhitelistUpdate {
+            account_guid_hash,
+            update: update.clone(),
+        }
+        .borrow()
+        .pack(),
+    }
+}
+
+pub fn finalize_address_book_whitelist_update_instruction(
+    program_id: &Pubkey,
+    wallet_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    rent_collector_account: &Pubkey,
+    account_guid_hash: BalanceAccountGuidHash,
+    update: AddressBookWhitelistUpdate,
+) -> Instruction {
+    let accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new(*wallet_account, false),
+        AccountMeta::new_readonly(*rent_collector_account, true),
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
+    ];
+
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data: ProgramInstruction::FinalizeAddressBookWhitelistUpdate {
+            account_guid_hash,
+            update,
+        }
+        .borrow()
+        .pack(),
     }
 }

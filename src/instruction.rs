@@ -59,6 +59,8 @@ pub const TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 29;
 pub const TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 30;
 pub const TAG_MIGRATE: u8 = 31;
 pub const TAG_CLEANUP: u8 = 32;
+pub const TAG_FINALIZE_ADDRESS_BOOK_WHITELIST_UPDATE: u8 = 33;
+pub const TAG_INIT_ADDRESS_BOOK_WHITELIST_UPDATE: u8 = 34;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -341,6 +343,24 @@ pub enum ProgramInstruction {
     /// 1. `[writable]` The wallet account to clean up
     /// 2. `[writable]` The rent return address
     Cleanup {},
+
+    /// 0. `[writable]` The multisig operation account
+    /// 1. `[writable]` The wallet account
+    /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
+    /// 3. `[]` The sysvar clock account
+    InitAddressBookWhitelistUpdate {
+        account_guid_hash: BalanceAccountGuidHash,
+        update: AddressBookWhitelistUpdate,
+    },
+
+    /// 0. `[writable]` The multisig operation account
+    /// 1. `[writable]` The wallet account
+    /// 2. `[signer]` The rent collector account
+    /// 3. `[]` The sysvar clock account
+    FinalizeAddressBookWhitelistUpdate {
+        account_guid_hash: BalanceAccountGuidHash,
+        update: AddressBookWhitelistUpdate,
+    },
 }
 
 impl ProgramInstruction {
@@ -587,6 +607,26 @@ impl ProgramInstruction {
             &ProgramInstruction::Cleanup {} => {
                 buf.push(TAG_CLEANUP);
             }
+            &ProgramInstruction::InitAddressBookWhitelistUpdate {
+                ref account_guid_hash,
+                ref update,
+            } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
+                buf.push(TAG_INIT_ADDRESS_BOOK_WHITELIST_UPDATE);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
+                buf.extend_from_slice(&update_bytes);
+            }
+            &ProgramInstruction::FinalizeAddressBookWhitelistUpdate {
+                ref account_guid_hash,
+                ref update,
+            } => {
+                let mut update_bytes: Vec<u8> = Vec::new();
+                update.pack(&mut update_bytes);
+                buf.push(TAG_FINALIZE_ADDRESS_BOOK_WHITELIST_UPDATE);
+                buf.extend_from_slice(account_guid_hash.to_bytes());
+                buf.extend_from_slice(&update_bytes);
+            }
         }
         buf
     }
@@ -672,6 +712,12 @@ impl ProgramInstruction {
             }
             TAG_MIGRATE => Self::Migrate {},
             TAG_CLEANUP => Self::Cleanup {},
+            TAG_INIT_ADDRESS_BOOK_WHITELIST_UPDATE => {
+                Self::unpack_init_address_book_whitelist_update_instruction(rest)?
+            }
+            TAG_FINALIZE_ADDRESS_BOOK_WHITELIST_UPDATE => {
+                Self::unpack_finalize_address_book_whitelist_update_instruction(rest)?
+            }
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }
@@ -1043,6 +1089,32 @@ impl ProgramInstruction {
             instructions: read_instructions(iter)?,
         })
     }
+
+    fn unpack_init_address_book_whitelist_update_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        Ok(Self::InitAddressBookWhitelistUpdate {
+            account_guid_hash: unpack_account_guid_hash(bytes)?,
+            update: AddressBookWhitelistUpdate::unpack(
+                bytes
+                    .get(HASH_LEN..)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            )?,
+        })
+    }
+
+    fn unpack_finalize_address_book_whitelist_update_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        Ok(Self::FinalizeAddressBookWhitelistUpdate {
+            account_guid_hash: unpack_account_guid_hash(bytes)?,
+            update: AddressBookWhitelistUpdate::unpack(
+                bytes
+                    .get(HASH_LEN..)
+                    .ok_or(ProgramError::InvalidInstructionData)?,
+            )?,
+        })
+    }
 }
 
 pub fn pack_supply_dapp_transaction_instructions(
@@ -1123,6 +1195,28 @@ impl BalanceAccountWhitelistUpdate {
         dst.extend_from_slice(&self.guid_hash.to_bytes());
         append_address_book_entries_slots(&self.add_allowed_destinations, dst);
         append_address_book_entries_slots(&self.remove_allowed_destinations, dst);
+        dst.extend_from_slice(self.destinations_hash.as_ref());
+    }
+}
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct AddressBookWhitelistUpdate {
+    pub allowed_destinations: Vec<SlotId<AddressBookEntry>>,
+    pub destinations_hash: Hash,
+}
+
+impl AddressBookWhitelistUpdate {
+    pub fn unpack(bytes: &[u8]) -> Result<AddressBookWhitelistUpdate, ProgramError> {
+        let mut iter = bytes.iter();
+        Ok(AddressBookWhitelistUpdate {
+            allowed_destinations: read_address_book_entries_slots(&mut iter)?,
+            destinations_hash: Hash::new_from_array(
+                *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?,
+            ),
+        })
+    }
+
+    pub fn pack(&self, dst: &mut Vec<u8>) {
+        append_address_book_entries_slots(&self.allowed_destinations, dst);
         dst.extend_from_slice(self.destinations_hash.as_ref());
     }
 }

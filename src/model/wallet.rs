@@ -1,8 +1,8 @@
 use crate::constants::{HASH_LEN, VERSION_LEN};
 use crate::error::WalletError;
 use crate::instruction::{
-    AddressBookUpdate, BalanceAccountCreation, BalanceAccountPolicyUpdate, DAppBookUpdate,
-    InitialWalletConfig, WalletConfigPolicyUpdate,
+    AddressBookUpdate, AddressBookWhitelistUpdate, BalanceAccountCreation,
+    BalanceAccountPolicyUpdate, DAppBookUpdate, InitialWalletConfig, WalletConfigPolicyUpdate,
 };
 use crate::model::address_book::{
     AddressBook, AddressBookEntry, AddressBookEntryNameHash, DAppBook, DAppBookEntry,
@@ -297,6 +297,31 @@ impl Wallet {
             self.balance_accounts.replace(slot_id, balance_account);
         }
         self.remove_address_book_entries(&update.remove_address_book_entries)?;
+        Ok(())
+    }
+    pub fn validate_address_book_whitelist_update(
+        &self,
+        account_guid_hash: &BalanceAccountGuidHash,
+        update: &AddressBookWhitelistUpdate,
+    ) -> ProgramResult {
+        let mut self_clone = self.clone();
+        self_clone.update_address_book_whitelist(account_guid_hash, update)
+    }
+
+    pub fn update_address_book_whitelist(
+        &mut self,
+        account_guid_hash: &BalanceAccountGuidHash,
+        update: &AddressBookWhitelistUpdate,
+    ) -> ProgramResult {
+        let (slot_id, mut balance_account) =
+            self.get_balance_account_with_slot_id(&account_guid_hash)?;
+        self.validate_destinations_hash(&update.allowed_destinations, &update.destinations_hash)?;
+        self.disable_all_destinations(&mut balance_account)?;
+        self.enable_transfer_destinations_by_slot(
+            &mut balance_account,
+            &update.allowed_destinations,
+        )?;
+        self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
     }
 
@@ -677,6 +702,11 @@ impl Wallet {
         Ok(())
     }
 
+    fn disable_all_destinations(&mut self, balance_account: &mut BalanceAccount) -> ProgramResult {
+        balance_account.allowed_destinations.disable_all();
+        Ok(())
+    }
+
     pub fn is_initialized_from_slice(src: &[u8]) -> bool {
         return src.len() > 0 && src[0] == 1;
     }
@@ -737,6 +767,20 @@ impl Wallet {
         self.add_destination_bytes(add_destination_slots, &mut bytes)?;
         bytes.push(1);
         self.add_destination_bytes(remove_destination_slots, &mut bytes)?;
+        if hash(&bytes) != *provided_hash {
+            msg!("Address Book entries hash did not match");
+            return Err(WalletError::InvalidAddressBookEntriesHash.into());
+        }
+        Ok(())
+    }
+
+    fn validate_destinations_hash(
+        &self,
+        destination_slots: &Vec<SlotId<AddressBookEntry>>,
+        provided_hash: &Hash,
+    ) -> ProgramResult {
+        let mut bytes: Vec<u8> = Vec::new();
+        self.add_destination_bytes(destination_slots, &mut bytes)?;
         if hash(&bytes) != *provided_hash {
             msg!("Address Book entries hash did not match");
             return Err(WalletError::InvalidAddressBookEntriesHash.into());

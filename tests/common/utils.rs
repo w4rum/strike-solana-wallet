@@ -6,8 +6,9 @@ use crate::common::instructions::{
     init_wallet_config_policy_update_instruction, set_approval_disposition,
 };
 use crate::{
-    finalize_address_book_update, finalize_balance_account_policy_update_instruction,
-    init_address_book_update_instruction, init_balance_account_policy_update_instruction,
+    finalize_address_book_update, finalize_address_book_whitelist_update_instruction,
+    finalize_balance_account_policy_update_instruction, init_address_book_update_instruction,
+    init_address_book_whitelist_update_instruction, init_balance_account_policy_update_instruction,
 };
 use arrayref::array_ref;
 use itertools::Itertools;
@@ -25,8 +26,8 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use strike_wallet::instruction::{
-    AddressBookUpdate, BalanceAccountCreation, BalanceAccountPolicyUpdate,
-    BalanceAccountWhitelistUpdate, DAppBookUpdate, InitialWalletConfig, WalletConfigPolicyUpdate,
+    AddressBookUpdate, AddressBookWhitelistUpdate, BalanceAccountCreation,
+    BalanceAccountPolicyUpdate, DAppBookUpdate, InitialWalletConfig, WalletConfigPolicyUpdate,
 };
 use strike_wallet::model::address_book::{
     AddressBookEntry, AddressBookEntryNameHash, DAppBookEntry, DAppBookEntryNameHash,
@@ -1448,7 +1449,7 @@ pub async fn setup_balance_account_tests_and_finalize(
     );
 
     let allowed_destination = context.allowed_destination.clone();
-    modify_address_book_and_whitelist(
+    modify_address_book(
         &mut context,
         vec![
             (SlotId::new(0), allowed_destination),
@@ -1460,8 +1461,6 @@ pub async fn setup_balance_account_tests_and_finalize(
                 },
             ),
         ],
-        vec![],
-        vec![],
         vec![],
         None,
     )
@@ -1564,23 +1563,6 @@ pub async fn setup_transfer_test(
     (multisig_op_account, result)
 }
 
-pub async fn modify_whitelist(
-    context: &mut BalanceAccountTestContext,
-    destinations_to_add: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    destinations_to_remove: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    expected_error: Option<InstructionError>,
-) {
-    modify_address_book_and_whitelist(
-        context,
-        vec![],
-        vec![],
-        destinations_to_add,
-        destinations_to_remove,
-        expected_error,
-    )
-    .await;
-}
-
 pub async fn init_address_book_update(
     context: &mut BalanceAccountTestContext,
     initiator_account: &Keypair,
@@ -1627,41 +1609,65 @@ pub async fn init_address_book_update(
         .map(|_| multisig_op_pubkey)
 }
 
-pub async fn modify_address_book_and_whitelist(
+pub async fn init_address_book_whitelist_update(
+    context: &mut BalanceAccountTestContext,
+    initiator_account: &Keypair,
+    update: AddressBookWhitelistUpdate,
+) -> Result<Pubkey, BanksClientError> {
+    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
+    let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
+    let multisig_op_account = Keypair::new();
+    let multisig_op_pubkey = multisig_op_account.pubkey();
+
+    let init_update_tx = Transaction::new_signed_with_payer(
+        &[
+            system_instruction::create_account(
+                &context.pt_context.payer.pubkey(),
+                &multisig_op_pubkey,
+                multisig_op_rent,
+                MultisigOp::LEN as u64,
+                &context.program_id,
+            ),
+            init_address_book_whitelist_update_instruction(
+                &context.program_id,
+                &context.wallet_account.pubkey(),
+                &multisig_op_account.pubkey(),
+                &initiator_account.pubkey(),
+                context.balance_account_guid_hash,
+                update,
+            ),
+        ],
+        Some(&context.pt_context.payer.pubkey()),
+        &[
+            &context.pt_context.payer,
+            &multisig_op_account,
+            &initiator_account,
+        ],
+        context.pt_context.last_blockhash,
+    );
+
+    context
+        .pt_context
+        .banks_client
+        .process_transaction(init_update_tx)
+        .await
+        .map(|_| multisig_op_pubkey)
+}
+
+pub async fn modify_address_book(
     context: &mut BalanceAccountTestContext,
     entries_to_add: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     entries_to_remove: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    whitelist_destinations_to_add: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
-    whitelist_destinations_to_remove: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     expected_error: Option<InstructionError>,
 ) {
     // add a whitelisted destination
     let initiator_account =
         Keypair::from_base58_string(&context.initiator_account.to_base58_string());
 
-    let mut whitelist_entries: Vec<BalanceAccountWhitelistUpdate> = vec![];
-    if !whitelist_destinations_to_add.is_empty() || !whitelist_destinations_to_remove.is_empty() {
-        whitelist_entries.push(BalanceAccountWhitelistUpdate {
-            guid_hash: context.balance_account_guid_hash.clone(),
-            add_allowed_destinations: whitelist_destinations_to_add
-                .iter()
-                .map(|destination| destination.0)
-                .collect_vec(),
-            remove_allowed_destinations: whitelist_destinations_to_remove
-                .iter()
-                .map(|destination| destination.0)
-                .collect_vec(),
-            destinations_hash: hash_allowed_destination(
-                &whitelist_destinations_to_add.clone(),
-                &whitelist_destinations_to_remove.clone(),
-            ),
-        })
-    }
-
     let update = AddressBookUpdate {
         add_address_book_entries: entries_to_add.clone(),
         remove_address_book_entries: entries_to_remove.clone(),
-        balance_account_whitelist_updates: whitelist_entries,
+        balance_account_whitelist_updates: vec![],
     };
 
     let init_result = init_address_book_update(context, &initiator_account, update.clone()).await;
@@ -1696,6 +1702,71 @@ pub async fn modify_address_book_and_whitelist(
             &context.wallet_account.pubkey(),
             &multisig_op_account,
             &context.pt_context.payer.pubkey(),
+            update,
+        )],
+        Some(&context.pt_context.payer.pubkey()),
+        &[&context.pt_context.payer],
+        context.pt_context.last_blockhash,
+    );
+    context
+        .pt_context
+        .banks_client
+        .process_transaction(finalize_update)
+        .await
+        .unwrap();
+}
+
+pub async fn modify_address_book_whitelist(
+    context: &mut BalanceAccountTestContext,
+    whitelist_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+    expected_error: Option<InstructionError>,
+) {
+    // add a whitelisted destination
+    let initiator_account =
+        Keypair::from_base58_string(&context.initiator_account.to_base58_string());
+
+    let update = AddressBookWhitelistUpdate {
+        allowed_destinations: whitelist_destinations
+            .iter()
+            .map(|destination| destination.0)
+            .collect_vec(),
+        destinations_hash: hash_allowed_destinations(&whitelist_destinations),
+    };
+
+    let init_result =
+        init_address_book_whitelist_update(context, &initiator_account, update.clone()).await;
+
+    let multisig_op_account = match expected_error {
+        None => init_result.unwrap(),
+        Some(error) => {
+            assert_eq!(
+                init_result.unwrap_err().unwrap(),
+                TransactionError::InstructionError(1, error),
+            );
+            return;
+        }
+    };
+
+    approve_or_deny_n_of_n_multisig_op(
+        context.pt_context.banks_client.borrow_mut(),
+        &context.program_id,
+        &multisig_op_account,
+        vec![&context.approvers[0], &context.approvers[1]],
+        &context.pt_context.payer,
+        context.pt_context.last_blockhash,
+        ApprovalDisposition::APPROVE,
+        OperationDisposition::APPROVED,
+    )
+    .await;
+
+    // finalize the config update
+    let finalize_update = Transaction::new_signed_with_payer(
+        &[finalize_address_book_whitelist_update_instruction(
+            &context.program_id,
+            &context.wallet_account.pubkey(),
+            &multisig_op_account,
+            &context.pt_context.payer.pubkey(),
+            context.balance_account_guid_hash,
             update,
         )],
         Some(&context.pt_context.payer.pubkey()),
@@ -2367,6 +2438,17 @@ pub fn hash_allowed_destination(
     }
     bytes.push(1);
     for (_, entry) in destinations_to_remove {
+        bytes.extend_from_slice(entry.name_hash.to_bytes());
+    }
+    hash(&bytes)
+}
+
+/// Hash vector of signer keys
+pub fn hash_allowed_destinations(
+    destinations: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
+) -> Hash {
+    let mut bytes: Vec<u8> = Vec::new();
+    for (_, entry) in destinations {
         bytes.extend_from_slice(entry.name_hash.to_bytes());
     }
     hash(&bytes)

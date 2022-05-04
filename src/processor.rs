@@ -1,5 +1,6 @@
 use crate::handlers::{
-    address_book_update_handler, approval_disposition_handler, balance_account_creation_handler,
+    address_book_update_handler, address_book_whitelist_update_handler,
+    approval_disposition_handler, balance_account_creation_handler,
     balance_account_name_update_handler, balance_account_policy_update_handler,
     balance_account_settings_update_handler, cleanup_handler, dapp_book_update_handler,
     dapp_transaction_handler, init_wallet_handler, migrate_handler,
@@ -274,6 +275,26 @@ impl Processor {
 
             ProgramInstruction::Migrate {} => migrate_handler::handle(program_id, accounts),
             ProgramInstruction::Cleanup {} => cleanup_handler::handle(program_id, accounts),
+
+            ProgramInstruction::InitAddressBookWhitelistUpdate {
+                account_guid_hash,
+                update,
+            } => address_book_whitelist_update_handler::init(
+                program_id,
+                accounts,
+                &account_guid_hash,
+                &update,
+            ),
+
+            ProgramInstruction::FinalizeAddressBookWhitelistUpdate {
+                account_guid_hash,
+                update,
+            } => address_book_whitelist_update_handler::finalize(
+                program_id,
+                accounts,
+                &account_guid_hash,
+                &update,
+            ),
         }
     }
 }
