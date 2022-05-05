@@ -6,9 +6,10 @@ use crate::common::instructions::{
     init_wallet_config_policy_update_instruction, set_approval_disposition,
 };
 use crate::{
-    finalize_address_book_update, finalize_address_book_whitelist_update_instruction,
+    finalize_address_book_update, finalize_balance_account_address_whitelist_update_instruction,
     finalize_balance_account_policy_update_instruction, init_address_book_update_instruction,
-    init_address_book_whitelist_update_instruction, init_balance_account_policy_update_instruction,
+    init_balance_account_address_whitelist_update_instruction,
+    init_balance_account_policy_update_instruction,
 };
 use arrayref::array_ref;
 use itertools::Itertools;
@@ -26,7 +27,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use strike_wallet::instruction::{
-    AddressBookUpdate, AddressBookWhitelistUpdate, BalanceAccountCreation,
+    AddressBookUpdate, BalanceAccountAddressWhitelistUpdate, BalanceAccountCreation,
     BalanceAccountPolicyUpdate, DAppBookUpdate, InitialWalletConfig, WalletConfigPolicyUpdate,
 };
 use strike_wallet::model::address_book::{
@@ -1609,10 +1610,10 @@ pub async fn init_address_book_update(
         .map(|_| multisig_op_pubkey)
 }
 
-pub async fn init_address_book_whitelist_update(
+pub async fn init_balance_account_address_whitelist_update(
     context: &mut BalanceAccountTestContext,
     initiator_account: &Keypair,
-    update: AddressBookWhitelistUpdate,
+    update: BalanceAccountAddressWhitelistUpdate,
 ) -> Result<Pubkey, BanksClientError> {
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
@@ -1628,7 +1629,7 @@ pub async fn init_address_book_whitelist_update(
                 MultisigOp::LEN as u64,
                 &context.program_id,
             ),
-            init_address_book_whitelist_update_instruction(
+            init_balance_account_address_whitelist_update_instruction(
                 &context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
@@ -1716,7 +1717,7 @@ pub async fn modify_address_book(
         .unwrap();
 }
 
-pub async fn modify_address_book_whitelist(
+pub async fn modify_balance_account_address_whitelist(
     context: &mut BalanceAccountTestContext,
     whitelist_destinations: Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
     expected_error: Option<InstructionError>,
@@ -1725,7 +1726,7 @@ pub async fn modify_address_book_whitelist(
     let initiator_account =
         Keypair::from_base58_string(&context.initiator_account.to_base58_string());
 
-    let update = AddressBookWhitelistUpdate {
+    let update = BalanceAccountAddressWhitelistUpdate {
         allowed_destinations: whitelist_destinations
             .iter()
             .map(|destination| destination.0)
@@ -1734,7 +1735,8 @@ pub async fn modify_address_book_whitelist(
     };
 
     let init_result =
-        init_address_book_whitelist_update(context, &initiator_account, update.clone()).await;
+        init_balance_account_address_whitelist_update(context, &initiator_account, update.clone())
+            .await;
 
     let multisig_op_account = match expected_error {
         None => init_result.unwrap(),
@@ -1761,14 +1763,16 @@ pub async fn modify_address_book_whitelist(
 
     // finalize the config update
     let finalize_update = Transaction::new_signed_with_payer(
-        &[finalize_address_book_whitelist_update_instruction(
-            &context.program_id,
-            &context.wallet_account.pubkey(),
-            &multisig_op_account,
-            &context.pt_context.payer.pubkey(),
-            context.balance_account_guid_hash,
-            update,
-        )],
+        &[
+            finalize_balance_account_address_whitelist_update_instruction(
+                &context.program_id,
+                &context.wallet_account.pubkey(),
+                &multisig_op_account,
+                &context.pt_context.payer.pubkey(),
+                context.balance_account_guid_hash,
+                update,
+            ),
+        ],
         Some(&context.pt_context.payer.pubkey()),
         &[&context.pt_context.payer],
         context.pt_context.last_blockhash,

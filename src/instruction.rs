@@ -59,8 +59,8 @@ pub const TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 29;
 pub const TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 30;
 pub const TAG_MIGRATE: u8 = 31;
 pub const TAG_CLEANUP: u8 = 32;
-pub const TAG_FINALIZE_ADDRESS_BOOK_WHITELIST_UPDATE: u8 = 33;
-pub const TAG_INIT_ADDRESS_BOOK_WHITELIST_UPDATE: u8 = 34;
+pub const TAG_INIT_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE: u8 = 33;
+pub const TAG_FINALIZE_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE: u8 = 34;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -348,18 +348,18 @@ pub enum ProgramInstruction {
     /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account (either the transaction assistant or an approver)
     /// 3. `[]` The sysvar clock account
-    InitAddressBookWhitelistUpdate {
+    InitBalanceAccountAddressWhitelistUpdate {
         account_guid_hash: BalanceAccountGuidHash,
-        update: AddressBookWhitelistUpdate,
+        update: BalanceAccountAddressWhitelistUpdate,
     },
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The rent collector account
     /// 3. `[]` The sysvar clock account
-    FinalizeAddressBookWhitelistUpdate {
+    FinalizeBalanceAccountAddressWhitelistUpdate {
         account_guid_hash: BalanceAccountGuidHash,
-        update: AddressBookWhitelistUpdate,
+        update: BalanceAccountAddressWhitelistUpdate,
     },
 }
 
@@ -607,23 +607,23 @@ impl ProgramInstruction {
             &ProgramInstruction::Cleanup {} => {
                 buf.push(TAG_CLEANUP);
             }
-            &ProgramInstruction::InitAddressBookWhitelistUpdate {
+            &ProgramInstruction::InitBalanceAccountAddressWhitelistUpdate {
                 ref account_guid_hash,
                 ref update,
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(TAG_INIT_ADDRESS_BOOK_WHITELIST_UPDATE);
+                buf.push(TAG_INIT_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
-            &ProgramInstruction::FinalizeAddressBookWhitelistUpdate {
+            &ProgramInstruction::FinalizeBalanceAccountAddressWhitelistUpdate {
                 ref account_guid_hash,
                 ref update,
             } => {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
-                buf.push(TAG_FINALIZE_ADDRESS_BOOK_WHITELIST_UPDATE);
+                buf.push(TAG_FINALIZE_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE);
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
@@ -712,11 +712,11 @@ impl ProgramInstruction {
             }
             TAG_MIGRATE => Self::Migrate {},
             TAG_CLEANUP => Self::Cleanup {},
-            TAG_INIT_ADDRESS_BOOK_WHITELIST_UPDATE => {
-                Self::unpack_init_address_book_whitelist_update_instruction(rest)?
+            TAG_INIT_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE => {
+                Self::unpack_init_balance_account_address_whitelist_update_instruction(rest)?
             }
-            TAG_FINALIZE_ADDRESS_BOOK_WHITELIST_UPDATE => {
-                Self::unpack_finalize_address_book_whitelist_update_instruction(rest)?
+            TAG_FINALIZE_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE => {
+                Self::unpack_finalize_balance_account_address_whitelist_update_instruction(rest)?
             }
             _ => return Err(ProgramError::InvalidInstructionData),
         })
@@ -1090,12 +1090,12 @@ impl ProgramInstruction {
         })
     }
 
-    fn unpack_init_address_book_whitelist_update_instruction(
+    fn unpack_init_balance_account_address_whitelist_update_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::InitAddressBookWhitelistUpdate {
+        Ok(Self::InitBalanceAccountAddressWhitelistUpdate {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
-            update: AddressBookWhitelistUpdate::unpack(
+            update: BalanceAccountAddressWhitelistUpdate::unpack(
                 bytes
                     .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -1103,12 +1103,12 @@ impl ProgramInstruction {
         })
     }
 
-    fn unpack_finalize_address_book_whitelist_update_instruction(
+    fn unpack_finalize_balance_account_address_whitelist_update_instruction(
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::FinalizeAddressBookWhitelistUpdate {
+        Ok(Self::FinalizeBalanceAccountAddressWhitelistUpdate {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
-            update: AddressBookWhitelistUpdate::unpack(
+            update: BalanceAccountAddressWhitelistUpdate::unpack(
                 bytes
                     .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
@@ -1199,15 +1199,15 @@ impl BalanceAccountWhitelistUpdate {
     }
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct AddressBookWhitelistUpdate {
+pub struct BalanceAccountAddressWhitelistUpdate {
     pub allowed_destinations: Vec<SlotId<AddressBookEntry>>,
     pub destinations_hash: Hash,
 }
 
-impl AddressBookWhitelistUpdate {
-    pub fn unpack(bytes: &[u8]) -> Result<AddressBookWhitelistUpdate, ProgramError> {
+impl BalanceAccountAddressWhitelistUpdate {
+    pub fn unpack(bytes: &[u8]) -> Result<BalanceAccountAddressWhitelistUpdate, ProgramError> {
         let mut iter = bytes.iter();
-        Ok(AddressBookWhitelistUpdate {
+        Ok(BalanceAccountAddressWhitelistUpdate {
             allowed_destinations: read_address_book_entries_slots(&mut iter)?,
             destinations_hash: Hash::new_from_array(
                 *read_fixed_size_array(&mut iter).ok_or(ProgramError::InvalidInstructionData)?,

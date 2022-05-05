@@ -44,7 +44,7 @@ async fn test_address_book_update() {
     // add 2 entries back and also whitelist
     modify_address_book(&mut context, initial_entries.clone(), vec![], None).await;
 
-    modify_address_book_whitelist(&mut context, initial_entries.clone(), None).await;
+    modify_balance_account_address_whitelist(&mut context, initial_entries.clone(), None).await;
 
     verify_address_book(
         &mut context,
@@ -59,7 +59,7 @@ async fn test_address_book_update() {
 
     // remove from whitelist and address book
 
-    modify_address_book_whitelist(&mut context, vec![], None).await;
+    modify_balance_account_address_whitelist(&mut context, vec![], None).await;
     modify_address_book(&mut context, vec![], initial_entries.clone(), None).await;
 
     verify_address_book(&mut context, vec![], vec![]).await;
@@ -67,7 +67,7 @@ async fn test_address_book_update() {
     // add 1 entry back and also whitelist
     modify_address_book(&mut context, vec![initial_entries[0]], vec![], None).await;
 
-    modify_address_book_whitelist(&mut context, vec![initial_entries[0]], None).await;
+    modify_balance_account_address_whitelist(&mut context, vec![initial_entries[0]], None).await;
 
     verify_address_book(
         &mut context,
@@ -77,7 +77,7 @@ async fn test_address_book_update() {
     .await;
 
     // add and remove
-    modify_address_book_whitelist(&mut context, vec![], None).await;
+    modify_balance_account_address_whitelist(&mut context, vec![], None).await;
     modify_address_book(
         &mut context,
         vec![initial_entries[1]],
@@ -85,7 +85,7 @@ async fn test_address_book_update() {
         None,
     )
     .await;
-    modify_address_book_whitelist(&mut context, vec![initial_entries[1]], None).await;
+    modify_balance_account_address_whitelist(&mut context, vec![initial_entries[1]], None).await;
     verify_address_book(
         &mut context,
         vec![initial_entries[1]],
@@ -105,7 +105,7 @@ async fn test_address_book_failures() {
     .await;
 
     // whitelist both entries, but whitelisting not on
-    modify_address_book_whitelist(
+    modify_balance_account_address_whitelist(
         &mut context,
         wallet.address_book.filled_slots(),
         Some(Custom(WalletError::WhitelistDisabled as u32)),
@@ -114,7 +114,12 @@ async fn test_address_book_failures() {
 
     // turn on whitelisting and add the 2 entries
     account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
-    modify_address_book_whitelist(&mut context, wallet.address_book.filled_slots(), None).await;
+    modify_balance_account_address_whitelist(
+        &mut context,
+        wallet.address_book.filled_slots(),
+        None,
+    )
+    .await;
 
     // try to remove a address book entry - will fail since its whitelisted
     modify_address_book(
@@ -138,7 +143,7 @@ async fn test_address_book_failures() {
     .await;
 
     // unwhitelist and remove first entry
-    modify_address_book_whitelist(
+    modify_balance_account_address_whitelist(
         &mut context,
         vec![wallet.address_book.filled_slots()[1]],
         None,
@@ -153,7 +158,7 @@ async fn test_address_book_failures() {
     .await;
 
     // now try to whitelist - but its not in address book
-    modify_address_book_whitelist(
+    modify_balance_account_address_whitelist(
         &mut context,
         vec![wallet.address_book.filled_slots()[0]],
         Some(Custom(WalletError::UnknownAddressBookEntry as u32)),
@@ -161,7 +166,7 @@ async fn test_address_book_failures() {
     .await;
 
     // now try to unwhitelist but give a different name than in slot so name hash does not match
-    modify_address_book_whitelist(
+    modify_balance_account_address_whitelist(
         &mut context,
         vec![(
             wallet.address_book.filled_slots()[1].0,

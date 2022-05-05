@@ -1,7 +1,7 @@
 use crate::constants::{HASH_LEN, VERSION_LEN};
 use crate::error::WalletError;
 use crate::instruction::{
-    AddressBookUpdate, AddressBookWhitelistUpdate, BalanceAccountCreation,
+    AddressBookUpdate, BalanceAccountAddressWhitelistUpdate, BalanceAccountCreation,
     BalanceAccountPolicyUpdate, DAppBookUpdate, InitialWalletConfig, WalletConfigPolicyUpdate,
 };
 use crate::model::address_book::{
@@ -299,19 +299,19 @@ impl Wallet {
         self.remove_address_book_entries(&update.remove_address_book_entries)?;
         Ok(())
     }
-    pub fn validate_address_book_whitelist_update(
+    pub fn validate_balance_account_address_whitelist_update(
         &self,
         account_guid_hash: &BalanceAccountGuidHash,
-        update: &AddressBookWhitelistUpdate,
+        update: &BalanceAccountAddressWhitelistUpdate,
     ) -> ProgramResult {
         let mut self_clone = self.clone();
-        self_clone.update_address_book_whitelist(account_guid_hash, update)
+        self_clone.update_balance_account_address_whitelist(account_guid_hash, update)
     }
 
-    pub fn update_address_book_whitelist(
+    pub fn update_balance_account_address_whitelist(
         &mut self,
         account_guid_hash: &BalanceAccountGuidHash,
-        update: &AddressBookWhitelistUpdate,
+        update: &BalanceAccountAddressWhitelistUpdate,
     ) -> ProgramResult {
         let (slot_id, mut balance_account) =
             self.get_balance_account_with_slot_id(&account_guid_hash)?;

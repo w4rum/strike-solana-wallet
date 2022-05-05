@@ -2,8 +2,8 @@ use crate::constants::{HASH_LEN, PUBKEY_BYTES};
 use crate::error::WalletError;
 use crate::handlers::utils::log_op_disposition;
 use crate::instruction::{
-    append_instruction, AddressBookUpdate, AddressBookWhitelistUpdate, BalanceAccountCreation,
-    BalanceAccountPolicyUpdate, DAppBookUpdate, WalletConfigPolicyUpdate,
+    append_instruction, AddressBookUpdate, BalanceAccountAddressWhitelistUpdate,
+    BalanceAccountCreation, BalanceAccountPolicyUpdate, DAppBookUpdate, WalletConfigPolicyUpdate,
 };
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
@@ -39,7 +39,7 @@ pub enum MultisigOpCode {
     UpdateBalanceAccountName,
     UpdateBalanceAccountPolicy,
     CreateSPLTokenAccounts,
-    UpdateAddressBookWhitelist,
+    UpdateBalanceAccountAddressWhitelist,
 }
 
 impl From<MultisigOpCode> for u8 {
@@ -57,7 +57,7 @@ impl From<MultisigOpCode> for u8 {
             MultisigOpCode::UpdateBalanceAccountName => 11,
             MultisigOpCode::UpdateBalanceAccountPolicy => 12,
             MultisigOpCode::CreateSPLTokenAccounts => 13,
-            MultisigOpCode::UpdateAddressBookWhitelist => 14,
+            MultisigOpCode::UpdateBalanceAccountAddressWhitelist => 14,
         }
     }
 }
@@ -610,10 +610,10 @@ pub enum MultisigOpParams {
         account_guid_hashes: Vec<BalanceAccountGuidHash>,
         token_mint: Pubkey,
     },
-    UpdateAddressBookWhitelist {
+    UpdateBalanceAccountAddressWhitelist {
         wallet_address: Pubkey,
         account_guid_hash: BalanceAccountGuidHash,
-        update: AddressBookWhitelistUpdate,
+        update: BalanceAccountAddressWhitelistUpdate,
     },
 }
 
@@ -853,7 +853,7 @@ impl MultisigOpParams {
                 bytes.extend_from_slice(&token_mint.to_bytes());
                 hash(&bytes)
             }
-            MultisigOpParams::UpdateAddressBookWhitelist {
+            MultisigOpParams::UpdateBalanceAccountAddressWhitelist {
                 wallet_address,
                 account_guid_hash,
                 update,
@@ -861,7 +861,7 @@ impl MultisigOpParams {
                 let mut update_bytes: Vec<u8> = Vec::new();
                 update.pack(&mut update_bytes);
                 Self::hash_balance_account_update_op(
-                    MultisigOpCode::UpdateBalanceAccountPolicy.into(),
+                    MultisigOpCode::UpdateBalanceAccountAddressWhitelist.into(),
                     wallet_address,
                     account_guid_hash,
                     update_bytes,

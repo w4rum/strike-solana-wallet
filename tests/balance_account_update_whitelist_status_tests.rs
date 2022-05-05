@@ -29,7 +29,7 @@ async fn test_whitelist_status() {
 
     // add a whitelisted destination, should fail since whitelisting on
     let destination_to_add = context.allowed_destination;
-    modify_address_book_whitelist(
+    modify_balance_account_address_whitelist(
         &mut context,
         vec![(SlotId::new(0), destination_to_add)],
         Some(Custom(WalletError::WhitelistDisabled as u32)),
@@ -39,7 +39,7 @@ async fn test_whitelist_status() {
     // turn whitelisting on should be able to add destination now
     account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
     verify_whitelist_status(&mut context, BooleanSetting::On, 0).await;
-    modify_address_book_whitelist(
+    modify_balance_account_address_whitelist(
         &mut context,
         vec![(SlotId::new(0), destination_to_add)],
         None,
@@ -56,7 +56,7 @@ async fn test_whitelist_status() {
     .await;
 
     // remove a whitelisted destination, status should still be On even though whitelist is empty
-    modify_address_book_whitelist(&mut context, vec![], None).await;
+    modify_balance_account_address_whitelist(&mut context, vec![], None).await;
 
     verify_whitelist_status(&mut context, BooleanSetting::On, 0).await;
 
@@ -96,7 +96,7 @@ async fn test_modify_whitelist_when_account_guid_invalid() {
 
     // add a whitelisted destination, should fail due to invalid account guid.
     let destination_to_add = context.allowed_destination;
-    modify_address_book_whitelist(
+    modify_balance_account_address_whitelist(
         &mut context,
         vec![(SlotId::new(0), destination_to_add)],
         Some(Custom(WalletError::BalanceAccountNotFound as u32)),

@@ -2,7 +2,7 @@ use crate::handlers::utils::{
     finalize_multisig_op, get_clock_from_next_account, next_program_account_info,
     next_wallet_account_info, start_multisig_config_op,
 };
-use crate::instruction::AddressBookWhitelistUpdate;
+use crate::instruction::BalanceAccountAddressWhitelistUpdate;
 use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::multisig_op::MultisigOpParams;
 use crate::model::wallet::Wallet;
@@ -15,7 +15,7 @@ pub fn init(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     account_guid_hash: &BalanceAccountGuidHash,
-    update: &AddressBookWhitelistUpdate,
+    update: &BalanceAccountAddressWhitelistUpdate,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
@@ -25,13 +25,13 @@ pub fn init(
 
     let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
     wallet.validate_config_initiator(initiator_account_info)?;
-    wallet.validate_address_book_whitelist_update(account_guid_hash, update)?;
+    wallet.validate_balance_account_address_whitelist_update(account_guid_hash, update)?;
 
     start_multisig_config_op(
         &multisig_op_account_info,
         &wallet,
         clock,
-        MultisigOpParams::UpdateAddressBookWhitelist {
+        MultisigOpParams::UpdateBalanceAccountAddressWhitelist {
             wallet_address: *wallet_account_info.key,
             account_guid_hash: *account_guid_hash,
             update: update.clone(),
@@ -46,7 +46,7 @@ pub fn finalize(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     account_guid_hash: &BalanceAccountGuidHash,
-    update: &AddressBookWhitelistUpdate,
+    update: &BalanceAccountAddressWhitelistUpdate,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
@@ -58,14 +58,14 @@ pub fn finalize(
         &multisig_op_account_info,
         &rent_collector_account_info,
         clock,
-        MultisigOpParams::UpdateAddressBookWhitelist {
+        MultisigOpParams::UpdateBalanceAccountAddressWhitelist {
             account_guid_hash: *account_guid_hash,
             wallet_address: *wallet_account_info.key,
             update: update.clone(),
         },
         || -> ProgramResult {
             let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow_mut())?;
-            wallet.update_address_book_whitelist(account_guid_hash, update)?;
+            wallet.update_balance_account_address_whitelist(account_guid_hash, update)?;
             Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
             Ok(())
         },
