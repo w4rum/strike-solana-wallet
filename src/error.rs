@@ -132,7 +132,7 @@ pub enum WalletError {
     /// Attempt to migrate from an unknown or unsupported version
     #[error("Unknown Version")]
     UnknownVersion,
-    /// DApp Instruction already supplied
+    /// Unknown address book entry
     #[error("Unknown Address Book Entry")]
     UnknownAddressBookEntry,
     /// Operation not initialized

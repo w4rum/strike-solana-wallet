@@ -27,6 +27,11 @@ pub fn init(
     // ensure GUID references valid account for this wallet
     wallet.validate_balance_account_guid_hash(account_guid_hash)?;
     wallet.validate_config_initiator(initiator_account_info)?;
+    wallet.validate_balance_account_name_update(
+        account_guid_hash,
+        account_name_hash,
+        program_id,
+    )?;
 
     start_multisig_config_op(
         &multisig_op_account_info,
@@ -68,7 +73,11 @@ pub fn finalize(
         },
         || -> ProgramResult {
             let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
-            wallet.update_balance_account_name_hash(account_guid_hash, account_name_hash)?;
+            wallet.update_balance_account_name_hash(
+                account_guid_hash,
+                account_name_hash,
+                program_id,
+            )?;
             Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
             Ok(())
         },

@@ -834,6 +834,22 @@ pub async fn verify_balance_account_name_hash(
         .unwrap();
 
     assert_eq!(account.name_hash, *expected_name_hash);
+
+    // make sure address book entry has the new name
+    let (source_account, _) = Pubkey::find_program_address(
+        &[
+            context.wallet_guid_hash.to_bytes(),
+            context.balance_account_guid_hash.to_bytes(),
+        ],
+        &context.program_id,
+    );
+    let entry = wallet
+        .get_address_book_entry_with_slot_id(&source_account)
+        .unwrap();
+    assert_eq!(
+        entry.1.name_hash,
+        AddressBookEntryNameHash::new(expected_name_hash.to_bytes())
+    )
 }
 
 pub async fn approve_or_deny_n_of_n_multisig_op(

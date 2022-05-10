@@ -496,16 +496,62 @@ impl Wallet {
         Ok(())
     }
 
+    pub fn validate_balance_account_name_update(
+        &self,
+        account_guid_hash: &BalanceAccountGuidHash,
+        account_name_hash: &BalanceAccountNameHash,
+        program_id: &Pubkey,
+    ) -> ProgramResult {
+        let mut self_clone = self.clone();
+        self_clone.update_balance_account_name_hash(
+            account_guid_hash,
+            account_name_hash,
+            program_id,
+        )
+    }
+
     pub fn update_balance_account_name_hash(
         &mut self,
         account_guid_hash: &BalanceAccountGuidHash,
         account_name_hash: &BalanceAccountNameHash,
+        program_id: &Pubkey,
     ) -> ProgramResult {
         let (slot_id, mut balance_account) =
             self.get_balance_account_with_slot_id(account_guid_hash)?;
+        self.update_address_book_name_hash(account_guid_hash, account_name_hash, program_id)?;
         balance_account.name_hash = account_name_hash.clone();
         self.balance_accounts.replace(slot_id, balance_account);
         Ok(())
+    }
+
+    pub fn update_address_book_name_hash(
+        &mut self,
+        account_guid_hash: &BalanceAccountGuidHash,
+        account_name_hash: &BalanceAccountNameHash,
+        program_id: &Pubkey,
+    ) -> ProgramResult {
+        let (source_account_pda, _) = Pubkey::find_program_address(
+            &[
+                self.wallet_guid_hash.to_bytes(),
+                account_guid_hash.to_bytes(),
+            ],
+            program_id,
+        );
+        let (slot_id, mut address_book_entry) =
+            self.get_address_book_entry_with_slot_id(&source_account_pda)?;
+        address_book_entry.name_hash =
+            AddressBookEntryNameHash::new(account_name_hash.clone().to_bytes());
+        self.address_book.replace(slot_id, address_book_entry);
+        Ok(())
+    }
+
+    pub fn get_address_book_entry_with_slot_id(
+        &self,
+        address: &Pubkey,
+    ) -> Result<(SlotId<AddressBookEntry>, AddressBookEntry), ProgramError> {
+        self.address_book
+            .find_by(|it| it.address == *address)
+            .ok_or(WalletError::UnknownAddressBookEntry.into())
     }
 
     pub fn update_balance_account_policy(
