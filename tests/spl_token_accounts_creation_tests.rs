@@ -121,6 +121,8 @@ async fn enable_spl_token(
 
     // finalize MultisigOp, triggering creation of AT accounts.
     if finalize {
+        let payer_funds_required = context.rent.minimum_balance(0)
+            + rent_required_for_token_accounts(context, balance_account_guid_hashes.len());
         finalize_enable_spl_token(
             context,
             wallet_keypair,
@@ -131,7 +133,7 @@ async fn enable_spl_token(
             associated_token_addresses,
             payer_balance_account_guid_hash,
             balance_account_guid_hashes,
-            true, // add funds to payer account
+            payer_funds_required,
             expected_finalize_error,
         )
         .await;
@@ -168,6 +170,19 @@ pub async fn transfer_lamports(
         .unwrap();
 }
 
+async fn get_payer_balance_account_balance(context: &mut TestContext, fixtures: &Fixtures) -> u64 {
+    let (payer_pda, _) = BalanceAccount::find_address(
+        &fixtures.wallet_guid_hash,
+        &fixtures.payer_balance_account_guid_hash,
+        &context.program_id,
+    );
+    return context.banks_client.get_balance(payer_pda).await.unwrap();
+}
+
+fn rent_required_for_token_accounts(context: &TestContext, accounts_count: usize) -> u64 {
+    return accounts_count as u64 * context.rent.minimum_balance(spl_token::state::Account::LEN);
+}
+
 /// Perform finalize. The `enable_spl_token` fn does this automatically if its
 /// `finalize` param is set. Otherwise, this can be used to when specifically
 /// targetting the finalize method for tests.
@@ -181,21 +196,16 @@ pub async fn finalize_enable_spl_token(
     associated_token_addresses: &Vec<Pubkey>,
     payer_balance_account_guid_hash: &BalanceAccountGuidHash,
     balance_account_guid_hashes: &Vec<BalanceAccountGuidHash>,
-    add_funds_to_payer_account: bool,
+    add_funds_to_payer_account: u64,
     expected_error: Option<InstructionError>,
 ) {
-    if add_funds_to_payer_account {
-        // calculate cumulative rent for all associated token accounts that we
-        // are about to create in finalize...
+    if add_funds_to_payer_account > 0 {
         let (payer_pda, _) = BalanceAccount::find_address(
             wallet_guid_hash,
             payer_balance_account_guid_hash,
             &context.program_id,
         );
-        let cumulative_rent_required = balance_account_guid_hashes.len() as u64
-            * context.rent.minimum_balance(spl_token::state::Account::LEN);
-        // now add funds to payer account
-        transfer_lamports(context, None, &payer_pda, cumulative_rent_required).await;
+        transfer_lamports(context, None, &payer_pda, add_funds_to_payer_account).await;
     }
 
     let tx_finalize = Transaction::new_signed_with_payer(
@@ -317,6 +327,11 @@ async fn test_enable_spl_token_happy_path() {
         None,
     )
     .await;
+
+    assert_eq!(
+        get_payer_balance_account_balance(&mut ctx, &fixtures).await,
+        ctx.rent.minimum_balance(0)
+    );
 }
 
 #[tokio::test]
@@ -486,7 +501,7 @@ async fn test_enable_spl_token_with_insufficient_account_keys_in_finalize() {
 }
 
 #[tokio::test]
-async fn test_enable_spl_token_with_invalid_balance_account_address_in_finalize() {
+async fn test_enable_spl_token_with_insufficient_funds_in_finalize() {
     let mut ctx = common::utils::setup_test(100_000).await;
     let fixtures = setup_handler_test(&mut ctx, 2).await;
     let expected_error = InstructionError::InsufficientFunds;
@@ -508,6 +523,9 @@ async fn test_enable_spl_token_with_invalid_balance_account_address_in_finalize(
     )
     .await;
 
+    let payer_funds_required = ctx.rent.minimum_balance(0)
+        + rent_required_for_token_accounts(&ctx, fixtures.balance_account_guid_hashes.len())
+        - 1;
     finalize_enable_spl_token(
         &mut ctx,
         &fixtures.wallet_keypair,
@@ -518,7 +536,7 @@ async fn test_enable_spl_token_with_invalid_balance_account_address_in_finalize(
         &fixtures.associated_token_addresses,
         &fixtures.payer_balance_account_guid_hash,
         &fixtures.balance_account_guid_hashes,
-        false, // do not fund the payer account to trigger expected error
+        payer_funds_required,
         Some(expected_error),
     )
     .await;

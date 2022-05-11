@@ -372,6 +372,10 @@ async fn test_approval_fails_if_incorrect_params_hash() {
 async fn test_transfer_insufficient_balance() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+
+    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
+    let balance_account_rent = rent.minimum_balance(0);
+
     let (multisig_op_account, result) = setup_transfer_test(
         context.borrow_mut(),
         &initiator,
@@ -393,6 +397,51 @@ async fn test_transfer_insufficient_balance() {
         OperationDisposition::APPROVED,
     )
     .await;
+
+    // can't go to zero
+    assert_eq!(
+        context
+            .pt_context
+            .banks_client
+            .process_transaction(Transaction::new_signed_with_payer(
+                &[finalize_transfer(
+                    &context.program_id,
+                    &multisig_op_account.pubkey(),
+                    &context.wallet_account.pubkey(),
+                    &balance_account,
+                    &context.destination.pubkey(),
+                    &context.pt_context.payer.pubkey(),
+                    context.balance_account_guid_hash,
+                    123,
+                    &system_program::id(),
+                    None,
+                )],
+                Some(&context.pt_context.payer.pubkey()),
+                &[&context.pt_context.payer],
+                context.pt_context.last_blockhash,
+            ))
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(0, Custom(WalletError::InsufficientBalance as u32)),
+    );
+
+    // fund balance account with amount that does not cover the transfer amount + rent exempt amount that has to remain
+    context
+        .pt_context
+        .banks_client
+        .process_transaction(Transaction::new_signed_with_payer(
+            &[system_instruction::transfer(
+                &context.pt_context.payer.pubkey(),
+                &balance_account,
+                balance_account_rent + 122,
+            )],
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer],
+            context.pt_context.last_blockhash,
+        ))
+        .await
+        .unwrap();
 
     assert_eq!(
         context

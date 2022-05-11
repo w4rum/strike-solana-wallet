@@ -221,17 +221,9 @@ pub fn finalize(
                         &[bump_seed],
                     ]],
                 )?;
+                Ok(())
             } else {
-                if source_account.lamports() < amount {
-                    msg!(
-                        "Source account only has {} lamports of {} requested",
-                        source_account.lamports(),
-                        amount
-                    );
-                    return Err(WalletError::InsufficientBalance.into());
-                }
-
-                transfer_sol_checked(
+                return transfer_sol_checked(
                     wallet_guid_hash,
                     source_account.clone(),
                     account_guid_hash,
@@ -239,9 +231,8 @@ pub fn finalize(
                     system_program_account.clone(),
                     destination_account.clone(),
                     amount,
-                )?;
+                );
             }
-            Ok(())
         },
     )
 }

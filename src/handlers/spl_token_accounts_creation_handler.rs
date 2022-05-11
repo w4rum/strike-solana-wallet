@@ -223,12 +223,13 @@ pub fn finalize(
     // ensure that the payer BalanceAccount has sufficient funds to cover the
     // creation of the new associated token accounts.
     let rent = Rent::get()?;
-    let required_lamports = rent.minimum_balance(
-        SPLAccount::LEN
-            .checked_mul(new_associated_token_account_indices.len())
-            .ok_or(WalletError::AmountOverflow)?,
-    );
-    if payer_balance_account_info.lamports() < required_lamports {
+    let required_lamports = rent
+        .minimum_balance(SPLAccount::LEN)
+        .checked_mul(new_associated_token_account_indices.len() as u64)
+        .ok_or(WalletError::AmountOverflow)?;
+    let balance_floor = rent.minimum_balance(0); // we don't want balance account lamports to go below min rent exempt amount
+
+    if payer_balance_account_info.lamports() < balance_floor + required_lamports {
         msg!(
             "BalanceAccount {} has insufficient lamports to create associated token accounts",
             payer_balance_account_info.key

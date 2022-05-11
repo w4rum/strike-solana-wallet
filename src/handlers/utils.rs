@@ -182,18 +182,11 @@ pub fn transfer_sol_checked<'a>(
     lamports: u64,
 ) -> ProgramResult {
     let balance_account_rent = Rent::get().unwrap().minimum_balance(0);
-    let remaining_balance = balance_account.lamports().checked_sub(lamports).unwrap();
-    if balance_account.lamports() < lamports {
+    if balance_account.lamports() < lamports + balance_account_rent {
         msg!(
-            "Account only has {} lamports of {} requested",
+            "Account only has {} lamports of {} requested while having to keep {} lamports for rent exemption",
             balance_account.lamports(),
-            lamports
-        );
-        return Err(WalletError::InsufficientBalance.into());
-    } else if remaining_balance > 0 && remaining_balance < balance_account_rent {
-        msg!(
-            "Account would be left with {} lamports of {} required for rent exemption",
-            balance_account.lamports().checked_sub(lamports).unwrap(),
+            lamports,
             balance_account_rent
         );
         return Err(WalletError::InsufficientBalance.into());
