@@ -228,8 +228,11 @@ pub fn finalize(
         .checked_mul(new_associated_token_account_indices.len() as u64)
         .ok_or(WalletError::AmountOverflow)?;
     let balance_floor = rent.minimum_balance(0); // we don't want balance account lamports to go below min rent exempt amount
+    let required_lamports_plus_balance_floor = balance_floor
+        .checked_add(required_lamports)
+        .ok_or(WalletError::AmountOverflow)?;
 
-    if payer_balance_account_info.lamports() < balance_floor + required_lamports {
+    if payer_balance_account_info.lamports() < required_lamports_plus_balance_floor {
         msg!(
             "BalanceAccount {} has insufficient lamports to create associated token accounts",
             payer_balance_account_info.key

@@ -182,7 +182,11 @@ pub fn transfer_sol_checked<'a>(
     lamports: u64,
 ) -> ProgramResult {
     let balance_account_rent = Rent::get().unwrap().minimum_balance(0);
-    if balance_account.lamports() < lamports + balance_account_rent {
+    let lamports_plus_rent = lamports
+        .checked_add(balance_account_rent)
+        .ok_or(WalletError::AmountOverflow)?;
+
+    if balance_account.lamports() < lamports_plus_rent {
         msg!(
             "Account only has {} lamports of {} requested while having to keep {} lamports for rent exemption",
             balance_account.lamports(),
