@@ -2,6 +2,7 @@ use crate::error::WalletError;
 use crate::instruction::{append_instruction, read_instruction_from_slice};
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::BalanceAccountGuidHash;
+use crate::model::multisig_op::{common_data, MultisigOp};
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use bitvec::macros::internal::funty::Fundamental;
 use bytes::BufMut;
@@ -82,9 +83,10 @@ impl DAppMultisigData {
         })
     }
 
-    pub fn hash(&self) -> Result<Hash, ProgramError> {
+    pub fn hash(&self, multisig_op: &MultisigOp) -> Result<Hash, ProgramError> {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.push(7);
+        bytes.extend_from_slice(common_data(multisig_op).as_slice());
         bytes.extend_from_slice(&self.wallet_address.to_bytes());
         bytes.extend_from_slice(&self.account_guid_hash.to_bytes());
         let mut buf = vec![0; DAppBookEntry::LEN];

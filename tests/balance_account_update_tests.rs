@@ -278,6 +278,7 @@ async fn test_balance_account_policy_update_is_denied() {
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.initiator_account.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 context.balance_account_guid_hash,
                 update.clone(),
             ),
@@ -330,6 +331,7 @@ async fn test_balance_account_policy_update_is_denied() {
             &context.pt_context.payer.pubkey(),
             context.balance_account_guid_hash,
             update,
+            None,
         )],
         Some(&context.pt_context.payer.pubkey()),
         &[&context.pt_context.payer],
@@ -427,6 +429,7 @@ async fn invalid_balance_account_policy_updates() {
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.initiator_account.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 wrong_balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
                     approvals_required_for_transfer: 1,
@@ -453,6 +456,7 @@ async fn invalid_balance_account_policy_updates() {
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.initiator_account.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 context.balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
                     approvals_required_for_transfer: 3,
@@ -479,6 +483,7 @@ async fn invalid_balance_account_policy_updates() {
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.initiator_account.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 context.balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
                     approvals_required_for_transfer: 1,
@@ -505,6 +510,7 @@ async fn invalid_balance_account_policy_updates() {
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &context.initiator_account.pubkey(),
+                &context.pt_context.payer.pubkey(),
                 context.balance_account_guid_hash,
                 BalanceAccountPolicyUpdate {
                     approvals_required_for_transfer: 1,

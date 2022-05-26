@@ -4,6 +4,7 @@ mod common;
 
 pub use common::instructions::*;
 pub use common::utils::*;
+use std::option::Option::None;
 
 use solana_program::instruction::InstructionError::Custom;
 use solana_program_test::tokio;
@@ -39,7 +40,16 @@ async fn test_address_book_update() {
     verify_address_book(&mut context, vec![], vec![]).await;
 
     // turn white list on
-    account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
 
     // add 2 entries back and also whitelist
     modify_address_book(&mut context, initial_entries.clone(), vec![], None).await;
@@ -113,7 +123,16 @@ async fn test_address_book_failures() {
     .await;
 
     // turn on whitelisting and add the 2 entries
-    account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
     modify_balance_account_address_whitelist(
         &mut context,
         wallet.address_book.filled_slots(),

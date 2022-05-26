@@ -13,7 +13,8 @@ use spl_token::state::Account as SPLAccount;
 use crate::error::WalletError;
 use crate::handlers::utils::{
     calculate_expires, collect_remaining_balance, get_clock_from_next_account, log_op_disposition,
-    next_program_account_info, next_wallet_account_info, validate_balance_account_and_get_seed,
+    next_program_account_info, next_signer_account_info, next_wallet_account_info,
+    validate_balance_account_and_get_seed,
 };
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::BalanceAccountGuidHash;
@@ -25,6 +26,8 @@ use crate::version::{Versioned, VERSION};
 pub fn init(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
+    fee_amount: u64,
+    fee_account_guid_hash: Option<BalanceAccountGuidHash>,
     account_guid_hash: &BalanceAccountGuidHash,
     dapp: DAppBookEntry,
     instruction_count: u8,
@@ -35,6 +38,7 @@ pub fn init(
     let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
+    let rent_return_account_info = next_signer_account_info(accounts_iter)?;
 
     let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
     let balance_account = wallet.get_balance_account(account_guid_hash)?;
@@ -62,6 +66,9 @@ pub fn init(
             balance_account.approval_timeout_for_transfer,
         )?,
         None,
+        *rent_return_account_info.key,
+        fee_amount,
+        fee_account_guid_hash,
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
@@ -100,7 +107,10 @@ pub fn supply_instructions(
         return Err(WalletError::OperationVersionMismatch.into());
     }
 
-    // TODO - once we are storing the initiator in the multisig op (PRIME-3999), verify that the supplied one matches
+    let mut multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
+    if multisig_op.initiator != *initiator_account_info.key {
+        return Err(WalletError::IncorrectInitiatorAccount.into());
+    }
 
     let params_hash = {
         let mut multisig_data =
@@ -116,7 +126,7 @@ pub fn supply_instructions(
         }
 
         let params_hash = if multisig_data.all_instructions_supplied() {
-            Some(multisig_data.hash()?)
+            Some(multisig_data.hash(&multisig_op)?)
         } else {
             None
         };
@@ -129,10 +139,7 @@ pub fn supply_instructions(
         params_hash
     };
 
-    // separate block so memory from unpacking the data gets reused
     if let Some(_) = params_hash {
-        let mut multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
-
         multisig_op.params_hash = params_hash;
 
         // record approval
@@ -251,12 +258,8 @@ pub fn finalize(
     let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
     let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
     let balance_account = next_account_info(accounts_iter)?;
-    let rent_collector_account_info = next_account_info(accounts_iter)?;
+    let rent_return_account_info = next_signer_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
-
-    if !rent_collector_account_info.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
 
     if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? == VERSION {
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
@@ -265,7 +268,8 @@ pub fn finalize(
         let instructions = multisig_data.instructions()?;
         let (is_approved, is_final) = {
             const NOT_FINAL: u32 = WalletError::TransferDispositionNotFinal as u32;
-            match multisig_op.approved(multisig_data.hash()?, &clock, Some(params_hash)) {
+            match multisig_op.approved(multisig_data.hash(&multisig_op)?, &clock, Some(params_hash))
+            {
                 Ok(a) => (a, true),
                 Err(ProgramError::Custom(NOT_FINAL)) => (false, false),
                 Err(e) => return Err(e),
@@ -281,6 +285,10 @@ pub fn finalize(
             account_guid_hash,
             program_id,
         )?;
+
+        if *rent_return_account_info.key != multisig_op.rent_return {
+            return Err(WalletError::IncorrectRentReturnAccount.into());
+        }
 
         let starting_balances: Vec<u64> = if is_final {
             Vec::new()
@@ -313,7 +321,7 @@ pub fn finalize(
             cleanup(
                 &multisig_op_account_info,
                 &multisig_data_account_info,
-                &rent_collector_account_info,
+                &rent_return_account_info,
             )
         } else {
             msg!(&balance_changes_from_simulation(
@@ -330,7 +338,7 @@ pub fn finalize(
         cleanup(
             &multisig_op_account_info,
             &multisig_data_account_info,
-            &rent_collector_account_info,
+            &rent_return_account_info,
         )
     }
 }
@@ -338,10 +346,10 @@ pub fn finalize(
 fn cleanup(
     multisig_op_account_info: &AccountInfo,
     multisig_data_account_info: &AccountInfo,
-    rent_collector_account_info: &AccountInfo,
+    rent_return_account_info: &AccountInfo,
 ) -> ProgramResult {
-    collect_remaining_balance(multisig_op_account_info, rent_collector_account_info)?;
-    collect_remaining_balance(multisig_data_account_info, rent_collector_account_info)?;
+    collect_remaining_balance(multisig_op_account_info, rent_return_account_info)?;
+    collect_remaining_balance(multisig_data_account_info, rent_return_account_info)?;
 
     Ok(())
 }

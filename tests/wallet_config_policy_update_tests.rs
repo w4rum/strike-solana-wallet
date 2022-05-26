@@ -95,6 +95,8 @@ async fn wallet_config_policy_update() {
             wallet_address: wallet_account.pubkey(),
             update: update.clone(),
         },
+        &approvers[2].pubkey(),
+        &context.payer.pubkey(),
     );
 
     approve_n_of_n_multisig_op(

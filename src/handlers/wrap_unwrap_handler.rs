@@ -1,8 +1,9 @@
 use crate::error::WalletError;
 use crate::handlers::utils::{
     create_associated_token_account_instruction, finalize_multisig_op, get_clock_from_next_account,
-    next_program_account_info, next_wallet_account_info, start_multisig_transfer_op,
-    transfer_sol_checked, validate_balance_account_and_get_seed,
+    next_program_account_info, next_signer_account_info, next_wallet_account_info,
+    start_multisig_transfer_op, transfer_sol_checked, validate_balance_account_and_get_seed,
+    FeeCollectionInfo,
 };
 use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::multisig_op::{MultisigOpParams, WrapDirection};
@@ -21,6 +22,8 @@ use spl_token::state::Account as SPLAccount;
 pub fn init(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
+    fee_amount: u64,
+    fee_account_guid_hash: Option<BalanceAccountGuidHash>,
     account_guid_hash: &BalanceAccountGuidHash,
     amount: u64,
     direction: WrapDirection,
@@ -38,6 +41,7 @@ pub fn init(
 
     let initiator_account = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
+    let rent_return_account_info = next_signer_account_info(accounts_iter)?;
 
     let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
     let balance_account = wallet.get_balance_account(&account_guid_hash)?;
@@ -83,6 +87,9 @@ pub fn init(
             direction,
         },
         *initiator_account.key,
+        *rent_return_account_info.key,
+        fee_amount,
+        fee_account_guid_hash,
     )
 }
 
@@ -98,9 +105,11 @@ pub fn finalize(
     let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let balance_account_info = next_account_info(accounts_iter)?;
     let system_program_account_info = next_account_info(accounts_iter)?;
-    let rent_collector_account_info = next_account_info(accounts_iter)?;
+    let rent_return_account_info = next_signer_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
     let wrapped_sol_account_info = next_account_info(accounts_iter)?;
+    let _spl_token_program_info = next_account_info(accounts_iter)?;
+    let fee_account_info_maybe = accounts_iter.next();
 
     if system_program_account_info.key != &system_program::id() {
         return Err(WalletError::AccountNotRecognized.into());
@@ -111,7 +120,12 @@ pub fn finalize(
 
     finalize_multisig_op(
         &multisig_op_account_info,
-        &rent_collector_account_info,
+        FeeCollectionInfo {
+            rent_return_account_info,
+            fee_account_info_maybe,
+            wallet_guid_hash,
+            program_id,
+        },
         clock,
         MultisigOpParams::Wrap {
             wallet_address: *wallet_account_info.key,

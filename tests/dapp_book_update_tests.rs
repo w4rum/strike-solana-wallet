@@ -87,6 +87,8 @@ async fn test_dapp_book_update() {
             wallet_address: wallet_account.pubkey(),
             update: add_dapp.clone(),
         },
+        &approvers[1].pubkey(),
+        &context.payer.pubkey(),
     );
 
     approve_n_of_n_multisig_op(&mut context, &multisig_op_account, vec![&approvers[0]]).await;
@@ -135,6 +137,8 @@ async fn test_dapp_book_update() {
             wallet_address: wallet_account.pubkey(),
             update: remove_dapp.clone(),
         },
+        &approvers[0].pubkey(),
+        &context.payer.pubkey(),
     );
 
     utils::finalize_dapp_book_update(

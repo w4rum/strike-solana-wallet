@@ -10,6 +10,7 @@ use solana_program_test::tokio;
 use solana_sdk::signature::Keypair;
 use solana_sdk::transaction::TransactionError;
 use std::borrow::BorrowMut;
+use std::option::Option::None;
 use strike_wallet::error::WalletError;
 use strike_wallet::model::{balance_account::BalanceAccountGuidHash, multisig_op::BooleanSetting};
 use strike_wallet::utils::SlotId;
@@ -37,7 +38,16 @@ async fn test_whitelist_status() {
     .await;
 
     // turn whitelisting on should be able to add destination now
-    account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
     verify_whitelist_status(&mut context, BooleanSetting::On, 0).await;
     modify_balance_account_address_whitelist(
         &mut context,
@@ -52,6 +62,9 @@ async fn test_whitelist_status() {
         Some(BooleanSetting::Off),
         None,
         Some(Custom(WalletError::WhitelistedAddressInUse as u32)),
+        None,
+        None,
+        None,
     )
     .await;
 
@@ -70,7 +83,16 @@ async fn test_whitelist_status() {
     );
 
     // explicitly turn it off and verify transfer succeeds
-    account_settings_update(&mut context, Some(BooleanSetting::Off), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::Off),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
     verify_whitelist_status(&mut context, BooleanSetting::Off, 0).await;
 
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
@@ -79,7 +101,16 @@ async fn test_whitelist_status() {
     result.unwrap();
 
     // explicitly turn it on
-    account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
     verify_whitelist_status(&mut context, BooleanSetting::On, 0).await;
 }
 
@@ -88,7 +119,16 @@ async fn test_modify_whitelist_when_account_guid_invalid() {
     let mut context = setup_balance_account_tests_and_finalize(None).await.0;
 
     // status is off by default
-    account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
     verify_whitelist_status(&mut context, BooleanSetting::On, 0).await;
 
     // set invalid GUID hash

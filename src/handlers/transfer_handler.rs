@@ -2,8 +2,9 @@ use crate::constants::PUBKEY_BYTES;
 use crate::error::WalletError;
 use crate::handlers::utils::{
     create_associated_token_account_instruction, finalize_multisig_op, get_clock_from_next_account,
-    next_program_account_info, next_wallet_account_info, start_multisig_transfer_op,
-    transfer_sol_checked, validate_balance_account_and_get_seed,
+    next_program_account_info, next_signer_account_info, next_wallet_account_info,
+    start_multisig_transfer_op, transfer_sol_checked, validate_balance_account_and_get_seed,
+    FeeCollectionInfo,
 };
 use crate::model::address_book::AddressBookEntryNameHash;
 use crate::model::balance_account::BalanceAccountGuidHash;
@@ -27,6 +28,8 @@ use spl_token::state::Account as SPLAccount;
 pub fn init(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
+    fee_amount: u64,
+    fee_account_guid_hash: Option<BalanceAccountGuidHash>,
     account_guid_hash: &BalanceAccountGuidHash,
     amount: u64,
     destination_name_hash: &AddressBookEntryNameHash,
@@ -38,9 +41,9 @@ pub fn init(
     let destination_account = next_account_info(accounts_iter)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
+    let rent_return_account_info = next_signer_account_info(accounts_iter)?;
     let token_mint = next_account_info(accounts_iter)?;
     let destination_token_account = next_account_info(accounts_iter)?;
-    let fee_payer_account = next_account_info(accounts_iter)?;
 
     let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
     let balance_account = wallet.get_balance_account(account_guid_hash)?;
@@ -88,12 +91,12 @@ pub fn init(
                     )?;
                 }
                 Err(error) => {
-                    if error == WalletError::InvalidPDA.into() {
+                    return if error == WalletError::InvalidPDA.into() {
                         msg!("could not find BalanceAccount PDA for source GUID hash");
-                        return Err(WalletError::InvalidSourceAccount.into());
+                        Err(WalletError::InvalidSourceAccount.into())
                     } else {
                         msg!("unhandled error validating source BalanceAccount GUID hash");
-                        return Err(ProgramError::InvalidArgument);
+                        Err(ProgramError::InvalidArgument)
                     }
                 }
             }
@@ -101,7 +104,7 @@ pub fn init(
             // pay for associated token account with fee-payer account.
             invoke(
                 &create_associated_token_account_instruction(
-                    fee_payer_account,
+                    rent_return_account_info,
                     destination_token_account,
                     destination_account,
                     token_mint,
@@ -124,6 +127,9 @@ pub fn init(
             token_mint: *token_mint.key,
         },
         *initiator_account_info.key,
+        *rent_return_account_info.key,
+        fee_amount,
+        fee_account_guid_hash,
     )
 }
 
@@ -140,10 +146,32 @@ pub fn finalize(
     let source_account = next_account_info(accounts_iter)?;
     let destination_account = next_account_info(accounts_iter)?;
     let system_program_account = next_account_info(accounts_iter)?;
-    let rent_collector_account_info = next_account_info(accounts_iter)?;
+    let rent_return_account_info = next_signer_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
 
     let is_spl = token_mint.to_bytes() != [0; PUBKEY_BYTES];
+    let source_token_account = if is_spl {
+        Some(next_account_info(accounts_iter)?)
+    } else {
+        None
+    };
+    let destination_token_account = if is_spl {
+        Some(next_account_info(accounts_iter)?)
+    } else {
+        None
+    };
+    let spl_token_program = if is_spl {
+        Some(next_account_info(accounts_iter)?)
+    } else {
+        None
+    };
+    let token_mint_authority = if is_spl {
+        Some(next_account_info(accounts_iter)?)
+    } else {
+        None
+    };
+
+    let fee_account_info_maybe = accounts_iter.next();
 
     if system_program_account.key != &system_program::id() {
         return Err(WalletError::AccountNotRecognized.into());
@@ -154,7 +182,12 @@ pub fn finalize(
 
     finalize_multisig_op(
         &multisig_op_account_info,
-        &rent_collector_account_info,
+        FeeCollectionInfo {
+            rent_return_account_info,
+            fee_account_info_maybe,
+            wallet_guid_hash,
+            program_id,
+        },
         clock,
         MultisigOpParams::Transfer {
             wallet_address: *wallet_account_info.key,
@@ -171,14 +204,13 @@ pub fn finalize(
                 program_id,
             )?;
             if is_spl {
-                let source_token_account = next_account_info(accounts_iter)?;
                 let source_token_account_key =
                     get_associated_token_address(source_account.key, &token_mint);
-                if *source_token_account.key != source_token_account_key {
+                if *source_token_account.unwrap().key != source_token_account_key {
                     return Err(WalletError::InvalidSourceTokenAccount.into());
                 }
                 let source_token_account_data =
-                    SPLAccount::unpack(&source_token_account.data.borrow())?;
+                    SPLAccount::unpack(&source_token_account.unwrap().data.borrow())?;
                 if source_token_account_data.amount < amount {
                     msg!(
                         "Source token account only has {} tokens of {} requested",
@@ -187,15 +219,11 @@ pub fn finalize(
                     );
                     return Err(WalletError::InsufficientBalance.into());
                 }
-                let destination_token_account = next_account_info(accounts_iter)?;
                 let destination_token_account_key =
                     get_associated_token_address(&destination_account.key, &token_mint);
-                if *destination_token_account.key != destination_token_account_key {
+                if *destination_token_account.unwrap().key != destination_token_account_key {
                     return Err(WalletError::InvalidDestinationTokenAccount.into());
                 }
-
-                let spl_token_program = next_account_info(accounts_iter)?;
-                let token_mint_authority = next_account_info(accounts_iter)?;
 
                 invoke_signed(
                     &spl_instruction::transfer(
@@ -207,12 +235,12 @@ pub fn finalize(
                         amount,
                     )?,
                     &[
-                        source_token_account.clone(),
-                        destination_token_account.clone(),
+                        source_token_account.unwrap().clone(),
+                        destination_token_account.unwrap().clone(),
                         source_account.clone(),
                         destination_account.clone(),
-                        token_mint_authority.clone(),
-                        spl_token_program.clone(),
+                        token_mint_authority.unwrap().clone(),
+                        spl_token_program.unwrap().clone(),
                     ],
                     &[&[
                         Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?

@@ -141,6 +141,14 @@ pub enum WalletError {
     /// Wallet Guid Hash did not match
     #[error("Wallet Guid Hash Mismatch")]
     WalletGuidHashMismatch,
+
+    // 40
+    /// Incorrect Rent Return Account
+    #[error("Incorrect Rent Return Account")]
+    IncorrectRentReturnAccount,
+    /// Incorrect Initiator Account
+    #[error("Incorrect Initiator Account")]
+    IncorrectInitiatorAccount,
 }
 
 impl From<WalletError> for ProgramError {

@@ -6,6 +6,7 @@ pub use common::instructions::*;
 pub use common::utils::*;
 
 use std::borrow::BorrowMut;
+use std::option::Option::None;
 
 use solana_program::hash::Hash;
 use solana_program::instruction::InstructionError::Custom;
@@ -106,6 +107,7 @@ async fn test_transfer_sol() {
                 context.balance_account_guid_hash,
                 balance_account_rent,
                 &system_program::id(),
+                None,
                 None,
             )],
             Some(&context.pt_context.payer.pubkey()),
@@ -215,6 +217,7 @@ async fn test_transfer_sol_denied() {
                 balance_account_rent,
                 &system_program::id(),
                 None,
+                None,
             )],
             Some(&context.pt_context.payer.pubkey()),
             &[&context.pt_context.payer],
@@ -249,7 +252,16 @@ async fn test_transfer_wrong_destination_name_hash() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
-    account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
     let destination_to_add = context.allowed_destination;
     modify_balance_account_address_whitelist(
         &mut context,
@@ -315,6 +327,7 @@ async fn test_transfer_requires_multisig() {
                     context.balance_account_guid_hash,
                     123,
                     &system_program::id(),
+                    None,
                     None,
                 )],
                 Some(&context.pt_context.payer.pubkey()),
@@ -415,6 +428,7 @@ async fn test_transfer_insufficient_balance() {
                     123,
                     &system_program::id(),
                     None,
+                    None,
                 )],
                 Some(&context.pt_context.payer.pubkey()),
                 &[&context.pt_context.payer],
@@ -459,6 +473,7 @@ async fn test_transfer_insufficient_balance() {
                     123,
                     &system_program::id(),
                     None,
+                    None,
                 )],
                 Some(&context.pt_context.payer.pubkey()),
                 &[&context.pt_context.payer],
@@ -475,7 +490,16 @@ async fn test_transfer_insufficient_balance() {
 async fn test_transfer_unwhitelisted_address() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    account_settings_update(&mut context, Some(BooleanSetting::On), None, None).await;
+    account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
 
     let (_, result) = setup_transfer_test(
         context.borrow_mut(),

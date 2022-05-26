@@ -173,6 +173,7 @@ async fn test_balance_account_creation_fails_if_num_approvals_required_not_set()
 async fn test_balance_account_creation_not_signed_by_rent_collector() {
     let mut context = setup_balance_account_tests(None, false).await;
 
+    // first check if it's not signed
     let rent_collector = Keypair::new();
     let mut instruction = finalize_balance_account_creation(
         &context.program_id,
@@ -181,11 +182,12 @@ async fn test_balance_account_creation_not_signed_by_rent_collector() {
         &rent_collector.pubkey(),
         context.balance_account_guid_hash,
         context.expected_creation_params,
+        None,
     );
     instruction.accounts[2].is_signer = false;
 
     let finalize_transaction = Transaction::new_signed_with_payer(
-        &[instruction],
+        &[instruction.clone()],
         Some(&context.pt_context.payer.pubkey()),
         &[&context.pt_context.payer],
         context.pt_context.last_blockhash,
@@ -199,6 +201,28 @@ async fn test_balance_account_creation_not_signed_by_rent_collector() {
             .unwrap_err()
             .unwrap(),
         TransactionError::InstructionError(0, MissingRequiredSignature),
+    );
+
+    // then check if it's signed but is the wrong key
+    instruction.accounts[2].is_signer = true;
+    let finalize_transaction = Transaction::new_signed_with_payer(
+        &[instruction],
+        Some(&context.pt_context.payer.pubkey()),
+        &[&context.pt_context.payer, &rent_collector],
+        context.pt_context.last_blockhash,
+    );
+    assert_eq!(
+        context
+            .pt_context
+            .banks_client
+            .process_transaction(finalize_transaction)
+            .await
+            .unwrap_err()
+            .unwrap(),
+        TransactionError::InstructionError(
+            0,
+            Custom(WalletError::IncorrectRentReturnAccount as u32)
+        ),
     );
 }
 
@@ -216,6 +240,7 @@ async fn test_balance_account_creation_incorrect_hash() {
             &context.pt_context.payer.pubkey(),
             wrong_guid_hash,
             context.expected_creation_params.clone(),
+            None,
         )],
         Some(&context.pt_context.payer.pubkey()),
         &[&context.pt_context.payer],
@@ -243,6 +268,7 @@ async fn test_balance_account_creation_incorrect_hash() {
             &context.pt_context.payer.pubkey(),
             context.balance_account_guid_hash,
             altered_creation_params.clone(),
+            None,
         )],
         Some(&context.pt_context.payer.pubkey()),
         &[&context.pt_context.payer],

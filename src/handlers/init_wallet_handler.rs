@@ -1,4 +1,4 @@
-use crate::handlers::utils::next_program_account_info;
+use crate::handlers::utils::{next_program_account_info, next_signer_account_info};
 use crate::instruction::InitialWalletConfig;
 use crate::model::signer::Signer;
 use crate::model::wallet::{Wallet, WalletGuidHash};
@@ -18,10 +18,7 @@ pub fn handle(
     let accounts_iter = &mut accounts.iter();
     let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
     let assistant_account_info = next_account_info(accounts_iter)?;
-    let rent_return_account_info = next_account_info(accounts_iter)?;
-    if !rent_return_account_info.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
+    let rent_return_account_info = next_signer_account_info(accounts_iter)?;
 
     let mut wallet = Wallet::unpack_unchecked(&wallet_account_info.data.borrow())?;
 

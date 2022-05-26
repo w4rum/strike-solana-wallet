@@ -1,10 +1,7 @@
-use crate::error::WalletError;
-use crate::model::balance_account::{BalanceAccount, BalanceAccountGuidHash};
-use crate::model::multisig_op::{
-    ApprovalDisposition, MultisigOp, MultisigOpParams, OperationDisposition,
-};
-use crate::model::wallet::{Wallet, WalletGuidHash};
-use crate::version::{Versioned, VERSION};
+use std::cmp::max;
+use std::slice::Iter;
+use std::time::Duration;
+
 use solana_program::rent::Rent;
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
@@ -20,8 +17,21 @@ use solana_program::{
     sysvar::Sysvar,
 };
 use spl_associated_token_account;
-use std::slice::Iter;
-use std::time::Duration;
+
+use crate::error::WalletError;
+use crate::model::balance_account::{BalanceAccount, BalanceAccountGuidHash};
+use crate::model::multisig_op::{
+    ApprovalDisposition, MultisigOp, MultisigOpParams, OperationDisposition,
+};
+use crate::model::wallet::{Wallet, WalletGuidHash};
+use crate::version::{Versioned, VERSION};
+
+pub struct FeeCollectionInfo<'a, 'b> {
+    pub rent_return_account_info: &'a AccountInfo<'b>,
+    pub fee_account_info_maybe: Option<&'a AccountInfo<'b>>,
+    pub wallet_guid_hash: &'a WalletGuidHash,
+    pub program_id: &'a Pubkey,
+}
 
 pub fn collect_remaining_balance(from: &AccountInfo, to: &AccountInfo) -> ProgramResult {
     // this moves the lamports back to the fee payer.
@@ -68,6 +78,16 @@ pub fn get_clock_from_next_account(iter: &mut Iter<AccountInfo>) -> Result<Clock
     Clock::from_account_info(&account_info)
 }
 
+pub fn next_signer_account_info<'a, 'b, I: Iterator<Item = &'a AccountInfo<'b>>>(
+    iter: &mut I,
+) -> Result<I::Item, ProgramError> {
+    let account_info = next_account_info(iter)?;
+    if !account_info.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    Ok(account_info)
+}
+
 pub fn calculate_expires(start: i64, duration: Duration) -> Result<i64, ProgramError> {
     let expires_at = start.checked_add(duration.as_secs() as i64);
     if expires_at == None {
@@ -98,6 +118,9 @@ pub fn start_multisig_transfer_op(
     clock: Clock,
     params: MultisigOpParams,
     initiator: Pubkey,
+    rent_return: Pubkey,
+    fee_amount: u64,
+    fee_account_guid_hash: Option<BalanceAccountGuidHash>,
 ) -> ProgramResult {
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
 
@@ -111,6 +134,9 @@ pub fn start_multisig_transfer_op(
             balance_account.approval_timeout_for_transfer,
         )?,
         Some(params),
+        rent_return,
+        fee_amount,
+        fee_account_guid_hash,
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
@@ -123,6 +149,9 @@ pub fn start_multisig_config_op(
     clock: Clock,
     params: MultisigOpParams,
     initiator: Pubkey,
+    rent_return: Pubkey,
+    fee_amount: u64,
+    fee_account_guid_hash: Option<BalanceAccountGuidHash>,
 ) -> ProgramResult {
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
 
@@ -133,6 +162,9 @@ pub fn start_multisig_config_op(
         clock.unix_timestamp,
         calculate_expires(clock.unix_timestamp, wallet.approval_timeout_for_config)?,
         Some(params),
+        rent_return,
+        fee_amount,
+        fee_account_guid_hash,
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
@@ -143,9 +175,9 @@ pub fn log_op_disposition(disposition: OperationDisposition) {
     msg!("OperationDisposition: [{}]", disposition.to_u8());
 }
 
-pub fn finalize_multisig_op<F>(
+pub fn finalize_multisig_op<'a, F>(
     multisig_op_account_info: &AccountInfo,
-    account_to_return_rent_to: &AccountInfo,
+    fee_collection_info: FeeCollectionInfo,
     clock: Clock,
     expected_params: MultisigOpParams,
     mut on_op_approved: F,
@@ -153,21 +185,73 @@ pub fn finalize_multisig_op<F>(
 where
     F: FnMut() -> ProgramResult,
 {
-    if !account_to_return_rent_to.is_signer {
-        return Err(ProgramError::MissingRequiredSignature);
-    }
-
     if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? == VERSION {
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
 
-        if multisig_op.approved(expected_params.hash(), &clock, None)? {
-            on_op_approved()?
+        if *fee_collection_info.rent_return_account_info.key != multisig_op.rent_return {
+            return Err(WalletError::IncorrectRentReturnAccount.into());
+        }
+
+        if multisig_op.approved(expected_params.hash(&multisig_op), &clock, None)? {
+            on_op_approved()?;
+            if multisig_op.fee_amount > 0 {
+                // attempt to collect fees
+                if let Some(guid_hash) = multisig_op.fee_account_guid_hash {
+                    if let Some(fee_account_info) = fee_collection_info.fee_account_info_maybe {
+                        let fee_collection = || -> Result<(), ProgramError> {
+                            let bump_seed = validate_balance_account_and_get_seed(
+                                fee_account_info,
+                                fee_collection_info.wallet_guid_hash,
+                                &guid_hash,
+                                fee_collection_info.program_id,
+                            )?;
+                            // this will transfer as much of the fee as possible without taking the
+                            // fee account below the minimum balance
+                            let rent = Rent::get()?;
+                            let balance_floor = rent.minimum_balance(0);
+                            let final_from_lamports = max(
+                                balance_floor,
+                                fee_account_info
+                                    .lamports()
+                                    .saturating_sub(multisig_op.fee_amount),
+                            );
+                            let amount = fee_account_info
+                                .lamports()
+                                .saturating_sub(final_from_lamports);
+
+                            invoke_signed(
+                                &system_instruction::transfer(
+                                    fee_account_info.key,
+                                    fee_collection_info.rent_return_account_info.key,
+                                    amount,
+                                ),
+                                &[
+                                    fee_account_info.clone(),
+                                    fee_collection_info.rent_return_account_info.clone(),
+                                ],
+                                &[&[
+                                    fee_collection_info.wallet_guid_hash.to_bytes(),
+                                    guid_hash.to_bytes(),
+                                    &[bump_seed],
+                                ]],
+                            )?;
+                            Ok(())
+                        };
+                        if let Err(err) = fee_collection() {
+                            msg!("Unable to collect fees: {:?}", err);
+                        }
+                    }
+                }
+            }
         }
     } else {
         log_op_disposition(OperationDisposition::EXPIRED);
     }
 
-    collect_remaining_balance(&multisig_op_account_info, &account_to_return_rent_to)?;
+    collect_remaining_balance(
+        &multisig_op_account_info,
+        fee_collection_info.rent_return_account_info,
+    )?;
 
     Ok(())
 }

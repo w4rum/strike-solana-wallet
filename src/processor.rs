@@ -31,20 +31,32 @@ impl Processor {
                 &initial_config,
             ),
 
-            ProgramInstruction::InitWalletConfigPolicyUpdate { update } => {
-                wallet_config_policy_update_handler::init(program_id, accounts, &update)
-            }
+            ProgramInstruction::InitWalletConfigPolicyUpdate {
+                fee_amount,
+                fee_account_guid_hash,
+                update,
+            } => wallet_config_policy_update_handler::init(
+                program_id,
+                accounts,
+                fee_amount,
+                fee_account_guid_hash,
+                &update,
+            ),
 
             ProgramInstruction::FinalizeWalletConfigPolicyUpdate { update } => {
                 wallet_config_policy_update_handler::finalize(program_id, accounts, &update)
             }
 
             ProgramInstruction::InitBalanceAccountCreation {
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 creation_params,
             } => balance_account_creation_handler::init(
                 program_id,
                 accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &account_guid_hash,
                 &creation_params,
             ),
@@ -60,11 +72,15 @@ impl Processor {
             ),
 
             ProgramInstruction::InitBalanceAccountNameUpdate {
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 account_name_hash,
             } => balance_account_name_update_handler::init(
                 program_id,
                 accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &account_guid_hash,
                 &account_name_hash,
             ),
@@ -80,11 +96,15 @@ impl Processor {
             ),
 
             ProgramInstruction::InitBalanceAccountPolicyUpdate {
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 update,
             } => balance_account_policy_update_handler::init(
                 program_id,
                 accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &account_guid_hash,
                 &update,
             ),
@@ -100,12 +120,16 @@ impl Processor {
             ),
 
             ProgramInstruction::InitTransfer {
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 amount,
                 destination_name_hash,
             } => transfer_handler::init(
                 program_id,
                 &accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &account_guid_hash,
                 amount,
                 &destination_name_hash,
@@ -134,12 +158,16 @@ impl Processor {
             ),
 
             ProgramInstruction::InitWrapUnwrap {
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 amount,
                 direction,
             } => wrap_unwrap_handler::init(
                 program_id,
                 &accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &account_guid_hash,
                 amount,
                 direction,
@@ -158,12 +186,16 @@ impl Processor {
             ),
 
             ProgramInstruction::InitUpdateSigner {
+                fee_amount,
+                fee_account_guid_hash,
                 slot_update_type,
                 slot_id,
                 signer,
             } => update_signer_handler::init(
                 program_id,
                 &accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 slot_update_type,
                 slot_id,
                 signer,
@@ -182,12 +214,16 @@ impl Processor {
             ),
 
             ProgramInstruction::InitDAppTransaction {
+                fee_amount,
+                fee_account_guid_hash,
                 ref account_guid_hash,
                 dapp,
                 instruction_count,
             } => dapp_transaction_handler::init(
                 program_id,
                 accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 dapp,
                 instruction_count,
@@ -214,12 +250,16 @@ impl Processor {
             ),
 
             ProgramInstruction::InitAccountSettingsUpdate {
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 whitelist_enabled,
                 dapps_enabled,
             } => balance_account_settings_update_handler::init(
                 program_id,
                 &accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &account_guid_hash,
                 whitelist_enabled,
                 dapps_enabled,
@@ -237,28 +277,48 @@ impl Processor {
                 dapps_enabled,
             ),
 
-            ProgramInstruction::InitDAppBookUpdate { update } => {
-                dapp_book_update_handler::init(program_id, &accounts, &update)
-            }
+            ProgramInstruction::InitDAppBookUpdate {
+                fee_amount,
+                fee_account_guid_hash,
+                update,
+            } => dapp_book_update_handler::init(
+                program_id,
+                &accounts,
+                fee_amount,
+                fee_account_guid_hash,
+                &update,
+            ),
 
             ProgramInstruction::FinalizeDAppBookUpdate { update } => {
                 dapp_book_update_handler::finalize(program_id, &accounts, &update)
             }
 
-            ProgramInstruction::InitAddressBookUpdate { update } => {
-                address_book_update_handler::init(program_id, accounts, &update)
-            }
+            ProgramInstruction::InitAddressBookUpdate {
+                fee_amount,
+                fee_account_guid_hash,
+                update,
+            } => address_book_update_handler::init(
+                program_id,
+                accounts,
+                fee_amount,
+                fee_account_guid_hash,
+                &update,
+            ),
 
             ProgramInstruction::FinalizeAddressBookUpdate { update } => {
                 address_book_update_handler::finalize(program_id, accounts, &update)
             }
 
             ProgramInstruction::InitSPLTokenAccountsCreation {
+                fee_amount,
+                fee_account_guid_hash,
                 payer_account_guid_hash,
                 account_guid_hashes,
             } => spl_token_accounts_creation_handler::init(
                 program_id,
                 accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &payer_account_guid_hash,
                 &account_guid_hashes,
             ),
@@ -277,11 +337,15 @@ impl Processor {
             ProgramInstruction::Cleanup {} => cleanup_handler::handle(program_id, accounts),
 
             ProgramInstruction::InitBalanceAccountAddressWhitelistUpdate {
+                fee_amount,
+                fee_account_guid_hash,
                 account_guid_hash,
                 update,
             } => balance_account_address_whitelist_update_handler::init(
                 program_id,
                 accounts,
+                fee_amount,
+                fee_account_guid_hash,
                 &account_guid_hash,
                 &update,
             ),

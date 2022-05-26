@@ -5,7 +5,7 @@ use crate::model::wallet::{Approvers, WalletGuidHash};
 use crate::utils::SlotFlags;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use solana_program::program_error::ProgramError;
-use solana_program::program_pack::{Pack, Sealed};
+use solana_program::program_pack::{IsInitialized, Pack, Sealed};
 use solana_program::pubkey::Pubkey;
 use std::convert::TryFrom;
 use std::time::Duration;
@@ -15,7 +15,7 @@ pub type AllowedDestinations = SlotFlags<AddressBookEntry, { AddressBook::FLAGS_
 const WHITELIST_SETTING_BIT: u8 = 0;
 const DAPPS_SETTING_BIT: u8 = 1;
 
-#[derive(Debug, Clone, Eq, PartialEq, Copy, Ord, PartialOrd)]
+#[derive(Debug, Clone, Eq, PartialEq, Copy, Ord, PartialOrd, Default)]
 pub struct BalanceAccountGuidHash([u8; HASH_LEN]);
 
 impl BalanceAccountGuidHash {
@@ -29,6 +29,30 @@ impl BalanceAccountGuidHash {
 
     pub fn to_bytes(&self) -> &[u8] {
         &self.0[..]
+    }
+}
+
+impl Sealed for BalanceAccountGuidHash {}
+
+impl Pack for BalanceAccountGuidHash {
+    const LEN: usize = HASH_LEN;
+
+    fn pack_into_slice(&self, dst: &mut [u8]) {
+        dst.copy_from_slice(self.to_bytes())
+    }
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        if src.len() == HASH_LEN {
+            Ok(BalanceAccountGuidHash::new(array_ref![src, 0, HASH_LEN]))
+        } else {
+            Err(ProgramError::InvalidInstructionData)
+        }
+    }
+}
+
+impl IsInitialized for BalanceAccountGuidHash {
+    fn is_initialized(&self) -> bool {
+        true
     }
 }
 
@@ -46,6 +70,24 @@ impl BalanceAccountNameHash {
 
     pub fn to_bytes(&self) -> &[u8; HASH_LEN] {
         <&[u8; HASH_LEN]>::try_from(&self.0[..]).unwrap()
+    }
+}
+
+impl Sealed for BalanceAccountNameHash {}
+
+impl Pack for BalanceAccountNameHash {
+    const LEN: usize = HASH_LEN;
+
+    fn pack_into_slice(&self, dst: &mut [u8]) {
+        dst.copy_from_slice(self.to_bytes())
+    }
+
+    fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+        if src.len() == HASH_LEN {
+            Ok(BalanceAccountNameHash::new(array_ref![src, 0, HASH_LEN]))
+        } else {
+            Err(ProgramError::InvalidInstructionData)
+        }
     }
 }
 

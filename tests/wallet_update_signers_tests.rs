@@ -61,6 +61,8 @@ async fn test_add_and_remove_signer() {
         signer_to_add_and_remove,
         Some(expected_signers_after_add),
         None,
+        None,
+        None,
     )
     .await;
 
@@ -71,6 +73,8 @@ async fn test_add_and_remove_signer() {
         2,
         signer_to_add_and_remove,
         Some(expected_signers_after_remove),
+        None,
+        None,
         None,
     )
     .await;
@@ -104,6 +108,8 @@ async fn test_add_and_remove_signer_init_failures() {
         signer2,
         None,
         Some(Custom(WalletError::SlotCannotBeInserted as u32)),
+        None,
+        None,
     )
     .await;
 
@@ -116,6 +122,8 @@ async fn test_add_and_remove_signer_init_failures() {
         signer2,
         None,
         Some(Custom(WalletError::SlotCannotBeRemoved as u32)),
+        None,
+        None,
     )
     .await;
 
@@ -128,6 +136,8 @@ async fn test_add_and_remove_signer_init_failures() {
         signer1,
         None,
         Some(Custom(WalletError::SignerIsConfigApprover as u32)),
+        None,
+        None,
     )
     .await;
 }
@@ -162,9 +172,12 @@ async fn test_remove_signer_fails_for_a_transfer_approver() {
             &context.wallet_account.pubkey(),
             &multisig_op_account.pubkey(),
             &context.assistant_account.pubkey(),
+            &context.pt_context.payer.pubkey(),
             SlotUpdateType::Clear,
             SlotId::new(2),
             context.approvers[2].pubkey_as_signer(),
+            None,
+            None,
         ),
         Custom(WalletError::SignerIsTransferApprover as u32),
     )
@@ -196,6 +209,8 @@ async fn test_signers_update_initiator_approval() {
         SlotUpdateType::SetIfEmpty,
         2,
         signer_to_add_and_remove,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -237,6 +252,8 @@ async fn test_signers_update_initiator_approval() {
         SlotUpdateType::SetIfEmpty,
         2,
         signer_to_add_and_remove,
+        None,
+        None,
     )
     .await
     .unwrap();

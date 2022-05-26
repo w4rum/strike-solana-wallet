@@ -2,6 +2,9 @@ use std::convert::TryInto;
 use std::slice::Iter;
 use std::time::Duration;
 
+use crate::constants::HASH_LEN;
+use crate::model::address_book::AddressBookEntryNameHash;
+use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{IsInitialized, Pack};
 
@@ -72,12 +75,28 @@ pub fn append_optional_u8(maybe_u8: &Option<u8>, dst: &mut Vec<u8>) {
     }
 }
 
-pub fn read_u8<'a>(iter: &'a mut Iter<u8>) -> Option<&'a u8> {
+pub fn read_u8<'a, 'b>(iter: &'a mut Iter<'b, u8>) -> Option<&'b u8> {
     iter.next()
 }
 
 pub fn read_u16(iter: &mut Iter<u8>) -> Option<u16> {
     read_fixed_size_array::<2>(iter).map(|slice| u16::from_le_bytes(*slice))
+}
+
+pub fn read_u64(iter: &mut Iter<u8>) -> Option<u64> {
+    read_fixed_size_array::<8>(iter).map(|slice| u64::from_le_bytes(*slice))
+}
+
+pub fn read_account_guid_hash(iter: &mut Iter<u8>) -> Option<BalanceAccountGuidHash> {
+    read_fixed_size_array::<HASH_LEN>(iter).map(|slice| BalanceAccountGuidHash::new(&*slice))
+}
+
+pub fn read_account_name_hash(iter: &mut Iter<u8>) -> Option<BalanceAccountNameHash> {
+    read_fixed_size_array::<HASH_LEN>(iter).map(|slice| BalanceAccountNameHash::new(&*slice))
+}
+
+pub fn read_address_book_entry_name_hash(iter: &mut Iter<u8>) -> Option<AddressBookEntryNameHash> {
+    read_fixed_size_array::<HASH_LEN>(iter).map(|slice| AddressBookEntryNameHash::new(&*slice))
 }
 
 pub fn read_fixed_size_array<'a, const SIZE: usize>(
