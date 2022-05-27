@@ -327,25 +327,26 @@ async fn test_dapp_transaction() {
         dapp_test.multisig_op_account.pubkey(),
     )
     .await;
-    let approver = &context.approvers[0];
-    let approve_transaction = Transaction::new_signed_with_payer(
-        &[set_approval_disposition(
-            &context.program_id,
-            &dapp_test.multisig_op_account.pubkey(),
-            &approver.pubkey(),
-            ApprovalDisposition::APPROVE,
-            params_hash,
-        )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer, approver],
-        context.pt_context.last_blockhash,
-    );
-    context
-        .pt_context
-        .banks_client
-        .process_transaction(approve_transaction)
-        .await
-        .unwrap();
+    for approver in vec![&context.approvers[0], &context.approvers[1]] {
+        let approve_transaction = Transaction::new_signed_with_payer(
+            &[set_approval_disposition(
+                &context.program_id,
+                &dapp_test.multisig_op_account.pubkey(),
+                &approver.pubkey(),
+                ApprovalDisposition::APPROVE,
+                params_hash,
+            )],
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer, approver],
+            context.pt_context.last_blockhash,
+        );
+        context
+            .pt_context
+            .banks_client
+            .process_transaction(approve_transaction)
+            .await
+            .unwrap();
+    }
 
     context
         .pt_context
@@ -399,25 +400,26 @@ async fn test_dapp_transaction_denied() {
         dapp_test.multisig_op_account.pubkey(),
     )
     .await;
-    let approver = &context.approvers[0];
-    let approve_transaction = Transaction::new_signed_with_payer(
-        &[set_approval_disposition(
-            &context.program_id,
-            &dapp_test.multisig_op_account.pubkey(),
-            &approver.pubkey(),
-            ApprovalDisposition::DENY,
-            params_hash,
-        )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer, approver],
-        context.pt_context.last_blockhash,
-    );
-    context
-        .pt_context
-        .banks_client
-        .process_transaction(approve_transaction)
-        .await
-        .unwrap();
+    for approver in vec![&context.approvers[0], &context.approvers[1]] {
+        let approve_transaction = Transaction::new_signed_with_payer(
+            &[set_approval_disposition(
+                &context.program_id,
+                &dapp_test.multisig_op_account.pubkey(),
+                &approver.pubkey(),
+                ApprovalDisposition::DENY,
+                params_hash,
+            )],
+            Some(&context.pt_context.payer.pubkey()),
+            &[&context.pt_context.payer, approver],
+            context.pt_context.last_blockhash,
+        );
+        context
+            .pt_context
+            .banks_client
+            .process_transaction(approve_transaction)
+            .await
+            .unwrap();
+    }
 
     context
         .pt_context

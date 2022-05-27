@@ -59,7 +59,7 @@ pub fn init(
     multisig_op.init(
         wallet.get_transfer_approvers_keys(&balance_account),
         (*initiator_account_info.key, ApprovalDisposition::NONE),
-        1,
+        balance_account.approvals_required_for_transfer,
         clock.unix_timestamp,
         calculate_expires(
             clock.unix_timestamp,
