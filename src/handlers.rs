@@ -10,6 +10,7 @@ pub mod dapp_book_update_handler;
 pub mod dapp_transaction_handler;
 pub mod init_wallet_handler;
 pub mod migrate_handler;
+pub mod sign_data_handler;
 pub mod spl_token_accounts_creation_handler;
 pub mod transfer_handler;
 pub mod update_signer_handler;

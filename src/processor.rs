@@ -3,7 +3,7 @@ use crate::handlers::{
     balance_account_address_whitelist_update_handler, balance_account_creation_handler,
     balance_account_name_update_handler, balance_account_policy_update_handler,
     balance_account_settings_update_handler, cleanup_handler, dapp_book_update_handler,
-    dapp_transaction_handler, init_wallet_handler, migrate_handler,
+    dapp_transaction_handler, init_wallet_handler, migrate_handler, sign_data_handler,
     spl_token_accounts_creation_handler, transfer_handler, update_signer_handler,
     wallet_config_policy_update_handler, wrap_unwrap_handler,
 };
@@ -359,6 +359,22 @@ impl Processor {
                 &account_guid_hash,
                 &update,
             ),
+
+            ProgramInstruction::InitSignData {
+                fee_amount,
+                fee_account_guid_hash,
+                ref data,
+            } => sign_data_handler::init(
+                program_id,
+                accounts,
+                fee_amount,
+                fee_account_guid_hash,
+                data,
+            ),
+
+            ProgramInstruction::FinalizeSignData { ref data } => {
+                sign_data_handler::finalize(program_id, accounts, data)
+            }
         }
     }
 }

@@ -62,6 +62,8 @@ pub const TAG_MIGRATE: u8 = 31;
 pub const TAG_CLEANUP: u8 = 32;
 pub const TAG_INIT_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE: u8 = 33;
 pub const TAG_FINALIZE_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE: u8 = 34;
+pub const TAG_INIT_SIGN_DATA: u8 = 35;
+pub const TAG_FINALIZE_SIGN_DATA: u8 = 36;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -432,6 +434,25 @@ pub enum ProgramInstruction {
         account_guid_hash: BalanceAccountGuidHash,
         update: BalanceAccountAddressWhitelistUpdate,
     },
+
+    /// 0. `[writable]` The multisig operation account
+    /// 1. `[]` The wallet account
+    /// 2. `[signer]` The initiator account
+    /// 3. `[]` The sysvar clock account
+    /// 4. `[signer]` The rent return account
+    InitSignData {
+        fee_amount: u64,
+        fee_account_guid_hash: Option<BalanceAccountGuidHash>,
+        data: Vec<u8>,
+    },
+
+    /// 0. `[writable]` The multisig operation account
+    /// 1. `[writable]` The wallet account
+    /// 2. `[signer, writable]` The rent return account
+    /// 3. `[]` The sysvar clock account
+    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    FinalizeSignData { data: Vec<u8> },
 }
 
 impl ProgramInstruction {
@@ -756,6 +777,22 @@ impl ProgramInstruction {
                 buf.extend_from_slice(account_guid_hash.to_bytes());
                 buf.extend_from_slice(&update_bytes);
             }
+            &ProgramInstruction::InitSignData {
+                fee_amount,
+                fee_account_guid_hash,
+                ref data,
+            } => {
+                buf.push(TAG_INIT_SIGN_DATA);
+                buf.put_u64_le(fee_amount);
+                pack_option(fee_account_guid_hash.as_ref(), &mut buf);
+                buf.put_u16_le(data.len().as_u16());
+                buf.extend_from_slice(data);
+            }
+            &ProgramInstruction::FinalizeSignData { ref data } => {
+                buf.push(TAG_FINALIZE_SIGN_DATA);
+                buf.put_u16_le(data.len().as_u16());
+                buf.extend_from_slice(data);
+            }
         }
         buf
     }
@@ -847,6 +884,8 @@ impl ProgramInstruction {
             TAG_FINALIZE_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE => {
                 Self::unpack_finalize_balance_account_address_whitelist_update_instruction(rest)?
             }
+            TAG_INIT_SIGN_DATA => Self::unpack_init_sign_data_instruction(rest)?,
+            TAG_FINALIZE_SIGN_DATA => Self::unpack_finalize_sign_data_instruction(rest)?,
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }
@@ -1264,6 +1303,32 @@ impl ProgramInstruction {
                     .ok_or(ProgramError::InvalidInstructionData)?,
             )?,
         })
+    }
+
+    fn unpack_init_sign_data_instruction(bytes: &[u8]) -> Result<ProgramInstruction, ProgramError> {
+        let iter = &mut bytes.into_iter();
+        let fee_amount = read_u64(iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let fee_account_guid_hash = unpack_option::<BalanceAccountGuidHash>(iter)?;
+        let data_len = read_u16(iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let data = read_slice(iter, data_len.try_into().unwrap())
+            .ok_or(ProgramError::InvalidInstructionData)?
+            .to_vec();
+        Ok(Self::InitSignData {
+            fee_amount,
+            fee_account_guid_hash,
+            data,
+        })
+    }
+
+    fn unpack_finalize_sign_data_instruction(
+        bytes: &[u8],
+    ) -> Result<ProgramInstruction, ProgramError> {
+        let iter = &mut bytes.into_iter();
+        let data_len = read_u16(iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let data = read_slice(iter, data_len.try_into().unwrap())
+            .ok_or(ProgramError::InvalidInstructionData)?
+            .to_vec();
+        Ok(Self::FinalizeSignData { data })
     }
 }
 

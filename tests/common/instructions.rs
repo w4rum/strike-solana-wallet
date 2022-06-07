@@ -1134,3 +1134,59 @@ pub fn finalize_balance_account_address_whitelist_update_instruction(
         .pack(),
     }
 }
+
+pub fn init_sign_data_instruction(
+    program_id: &Pubkey,
+    wallet_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    initiator_account: &Pubkey,
+    rent_return_account: &Pubkey,
+    data: &Vec<u8>,
+) -> Instruction {
+    Instruction {
+        program_id: *program_id,
+        accounts: vec![
+            AccountMeta::new(*multisig_op_account, false),
+            AccountMeta::new(*wallet_account, false),
+            AccountMeta::new_readonly(*initiator_account, true),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+            AccountMeta::new_readonly(*rent_return_account, true),
+        ],
+        data: ProgramInstruction::InitSignData {
+            fee_amount: FEE_AMOUNT,
+            fee_account_guid_hash: FEE_ACCOUNT_GUID_HASH_NONE,
+            data: data.clone(),
+        }
+        .borrow()
+        .pack(),
+    }
+}
+
+pub fn finalize_sign_data_instruction(
+    program_id: &Pubkey,
+    wallet_account: &Pubkey,
+    multisig_op_account: &Pubkey,
+    rent_return_account: &Pubkey,
+    data: &Vec<u8>,
+    fee_account_maybe: Option<&Pubkey>,
+) -> Instruction {
+    let mut accounts = vec![
+        AccountMeta::new(*multisig_op_account, false),
+        AccountMeta::new(*wallet_account, false),
+        AccountMeta::new(*rent_return_account, true),
+        AccountMeta::new_readonly(sysvar::clock::id(), false),
+    ];
+
+    if let Some(fee_account) = fee_account_maybe {
+        accounts.push(AccountMeta::new(*fee_account, false));
+        accounts.push(AccountMeta::new_readonly(system_program::id(), false));
+    }
+
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data: ProgramInstruction::FinalizeSignData { data: data.clone() }
+            .borrow()
+            .pack(),
+    }
+}

@@ -41,6 +41,7 @@ pub enum MultisigOpCode {
     UpdateBalanceAccountPolicy,
     CreateSPLTokenAccounts,
     UpdateBalanceAccountAddressWhitelist,
+    SignData,
 }
 
 impl From<MultisigOpCode> for u8 {
@@ -59,6 +60,7 @@ impl From<MultisigOpCode> for u8 {
             MultisigOpCode::UpdateBalanceAccountPolicy => 12,
             MultisigOpCode::CreateSPLTokenAccounts => 13,
             MultisigOpCode::UpdateBalanceAccountAddressWhitelist => 14,
+            MultisigOpCode::SignData => 15,
         }
     }
 }
@@ -675,6 +677,10 @@ pub enum MultisigOpParams {
         account_guid_hash: BalanceAccountGuidHash,
         update: BalanceAccountAddressWhitelistUpdate,
     },
+    SignData {
+        wallet_address: Pubkey,
+        data: Vec<u8>,
+    },
 }
 
 impl MultisigOpParams {
@@ -951,6 +957,19 @@ impl MultisigOpParams {
                     account_guid_hash,
                     update_bytes,
                 )
+            }
+            MultisigOpParams::SignData {
+                wallet_address,
+                ref data,
+            } => {
+                let mut bytes: Vec<u8> =
+                    Vec::with_capacity(1 + PUBKEY_BYTES + HASH_LEN + 2 + data.len());
+                bytes.push(MultisigOpCode::SignData.into());
+                bytes.extend_from_slice(common_data_bytes.as_slice());
+                bytes.extend_from_slice(&wallet_address.to_bytes());
+                bytes.extend_from_slice(&data.len().as_u16().to_le_bytes());
+                bytes.extend_from_slice(data.as_slice());
+                hash(&bytes)
             }
         }
     }
