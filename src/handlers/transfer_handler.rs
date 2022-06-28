@@ -180,6 +180,13 @@ pub fn finalize(
     let wallet_guid_hash =
         &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
 
+    let bump_seed = validate_balance_account_and_get_seed(
+        source_account,
+        wallet_guid_hash,
+        account_guid_hash,
+        program_id,
+    )?;
+
     finalize_multisig_op(
         &multisig_op_account_info,
         FeeCollectionInfo {
@@ -197,12 +204,6 @@ pub fn finalize(
             token_mint,
         },
         || -> ProgramResult {
-            let bump_seed = validate_balance_account_and_get_seed(
-                source_account,
-                wallet_guid_hash,
-                account_guid_hash,
-                program_id,
-            )?;
             if is_spl {
                 let source_token_account_key =
                     get_associated_token_address(source_account.key, &token_mint);

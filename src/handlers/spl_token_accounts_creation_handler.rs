@@ -29,6 +29,7 @@ use solana_program::{
 };
 use spl_associated_token_account::get_associated_token_address;
 use spl_token;
+use spl_token::id as SPL_TOKEN_ID;
 use spl_token::state::Account as SPLAccount;
 
 /// Maximum number of BalanceAccounts sent in `account_guid_hashes`
@@ -145,7 +146,8 @@ pub fn finalize(
     let payer_balance_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
     let system_program_account_info = next_account_info(accounts_iter)?;
-    let _spl_associated_token_account_info = next_account_info(accounts_iter)?;
+    // spl_associated_token_account_info account
+    let _ = next_account_info(accounts_iter)?;
     let spl_token_program_account_info = next_account_info(accounts_iter)?;
     let rent_account_info = next_account_info(accounts_iter)?;
 
@@ -160,6 +162,11 @@ pub fn finalize(
     if *spl_token_program_account_info.key != spl_token::id() {
         msg!("Instruction expected SPL token program account");
         return Err(WalletError::AccountNotRecognized.into());
+    }
+
+    if *token_mint_account_info.owner != SPL_TOKEN_ID() {
+        msg!("Instruction expected account owned by Token Program");
+        return Err(WalletError::InvalidTokenMintAccount.into());
     }
 
     let n_guid_hashes = account_guid_hashes.len();

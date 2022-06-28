@@ -108,7 +108,8 @@ pub fn finalize(
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
     let wrapped_sol_account_info = next_account_info(accounts_iter)?;
-    let _spl_token_program_info = next_account_info(accounts_iter)?;
+    // spl_token_program_info account
+    let _ = next_account_info(accounts_iter)?;
     let fee_account_info_maybe = accounts_iter.next();
 
     if system_program_account_info.key != &system_program::id() {
@@ -117,6 +118,19 @@ pub fn finalize(
 
     let wallet_guid_hash =
         &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
+
+    let bump_seed = validate_balance_account_and_get_seed(
+        balance_account_info,
+        wallet_guid_hash,
+        account_guid_hash,
+        program_id,
+    )?;
+
+    let wrapped_sol_account_key =
+        get_associated_token_address(balance_account_info.key, &spl_token::native_mint::id());
+    if *wrapped_sol_account_info.key != wrapped_sol_account_key {
+        return Err(WalletError::InvalidSourceTokenAccount.into());
+    }
 
     finalize_multisig_op(
         &multisig_op_account_info,
@@ -134,21 +148,6 @@ pub fn finalize(
             direction,
         },
         || -> ProgramResult {
-            let bump_seed = validate_balance_account_and_get_seed(
-                balance_account_info,
-                wallet_guid_hash,
-                account_guid_hash,
-                program_id,
-            )?;
-
-            let wrapped_sol_account_key = get_associated_token_address(
-                balance_account_info.key,
-                &spl_token::native_mint::id(),
-            );
-            if *wrapped_sol_account_info.key != wrapped_sol_account_key {
-                return Err(WalletError::InvalidSourceTokenAccount.into());
-            }
-
             if direction == WrapDirection::WRAP {
                 transfer_sol_checked(
                     wallet_guid_hash,
