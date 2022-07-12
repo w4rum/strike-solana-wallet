@@ -56,8 +56,6 @@ pub const TAG_FINALIZE_BALANCE_ACCOUNT_NAME_UPDATE: u8 = 25;
 pub const TAG_INIT_BALANCE_ACCOUNT_POLICY_UPDATE: u8 = 26;
 pub const TAG_FINALIZE_BALANCE_ACCOUNT_POLICY_UPDATE: u8 = 27;
 pub const TAG_SUPPLY_DAPP_INSTRUCTIONS: u8 = 28;
-pub const TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 29;
-pub const TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN: u8 = 30;
 pub const TAG_MIGRATE: u8 = 31;
 pub const TAG_CLEANUP: u8 = 32;
 pub const TAG_INIT_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE: u8 = 33;
@@ -365,41 +363,6 @@ pub enum ProgramInstruction {
     FinalizeBalanceAccountPolicyUpdate {
         account_guid_hash: BalanceAccountGuidHash,
         update: BalanceAccountPolicyUpdate,
-    },
-
-    /// 0. `[writable]` The multisig operation account
-    /// 1. `[writable]` The wallet account
-    /// 2. `[signer]` The initiator account
-    /// 3. `[]` The token mint account enabled for the given BalanceAccounts.
-    /// 4. `[]` The sysvar clock account
-    /// 5. `[signer]` The rent return account
-    /// 6..N `[]` One or more associated token accounts, corresponding in number
-    ///           and order to the account GUID hashes.
-    InitSPLTokenAccountsCreation {
-        fee_amount: u64,
-        fee_account_guid_hash: Option<BalanceAccountGuidHash>,
-        payer_account_guid_hash: BalanceAccountGuidHash,
-        account_guid_hashes: Vec<BalanceAccountGuidHash>,
-    },
-
-    /// 0. `[writable]` The multisig operation account
-    /// 1. `[writable]` The wallet account
-    /// 2. `[signer, writable]` The rent return account
-    /// 3. `[]` The token mint account enabled for the given BalanceAccounts.
-    /// 4. `[]` The payer balance account.
-    /// 5. `[]` The sysvar clock account
-    /// 6. `[]` The system program (only by SPL associated token program)
-    /// 7. `[]` The SPL associated token program
-    /// 8. `[]` The SPL token program (only used by SPL associated token program)
-    /// 9. `[]` The Rent sysvar program
-    /// 10..N `[]` One or more associated token accounts.
-    /// N..M  `[]` One or more BalanceAccount accounts, corresponding in number
-    ///            and order to the associated token accounts.
-    /// M+1. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// M+2. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
-    FinalizeSPLTokenAccountsCreation {
-        payer_account_guid_hash: BalanceAccountGuidHash,
-        account_guid_hashes: Vec<BalanceAccountGuidHash>,
     },
 
     /// 0. `[writable]` The source account to migrate from
@@ -727,26 +690,6 @@ impl ProgramInstruction {
             } => {
                 pack_supply_dapp_transaction_instructions(starting_index, instructions, &mut buf);
             }
-            &ProgramInstruction::InitSPLTokenAccountsCreation {
-                fee_amount,
-                fee_account_guid_hash,
-                ref payer_account_guid_hash,
-                ref account_guid_hashes,
-            } => {
-                buf.push(TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN);
-                buf.put_u64_le(fee_amount);
-                pack_option(fee_account_guid_hash.as_ref(), &mut buf);
-                buf.extend_from_slice(payer_account_guid_hash.to_bytes());
-                pack_balance_account_guid_hash_vec(account_guid_hashes, &mut buf);
-            }
-            &ProgramInstruction::FinalizeSPLTokenAccountsCreation {
-                ref payer_account_guid_hash,
-                ref account_guid_hashes,
-            } => {
-                buf.push(TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN);
-                buf.extend_from_slice(payer_account_guid_hash.to_bytes());
-                pack_balance_account_guid_hash_vec(account_guid_hashes, &mut buf);
-            }
             &ProgramInstruction::Migrate {} => {
                 buf.push(TAG_MIGRATE);
             }
@@ -866,12 +809,6 @@ impl ProgramInstruction {
             }
             TAG_FINALIZE_BALANCE_ACCOUNT_POLICY_UPDATE => {
                 Self::unpack_finalize_balance_account_policy_update_instruction(rest)?
-            }
-            TAG_INIT_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN => {
-                Self::unpack_init_balance_account_enable_spl_token(rest)?
-            }
-            TAG_FINALIZE_BALANCE_ACCOUNT_ENABLE_SPL_TOKEN => {
-                Self::unpack_finalize_balance_account_enable_spl_token(rest)?
             }
             TAG_SUPPLY_DAPP_INSTRUCTIONS => {
                 Self::unpack_supply_dapp_instructions_instruction(rest)?
@@ -1223,40 +1160,6 @@ impl ProgramInstruction {
         Ok(Self::FinalizeBalanceAccountNameUpdate {
             account_guid_hash: unpack_account_guid_hash(bytes)?,
             account_name_hash: unpack_account_name_hash(
-                bytes
-                    .get(HASH_LEN..)
-                    .ok_or(ProgramError::InvalidInstructionData)?,
-            )?,
-        })
-    }
-
-    fn unpack_init_balance_account_enable_spl_token(
-        bytes: &[u8],
-    ) -> Result<ProgramInstruction, ProgramError> {
-        let iter = &mut bytes.into_iter();
-        let fee_amount = read_u64(iter).ok_or(ProgramError::InvalidInstructionData)?;
-        let fee_account_guid_hash = unpack_option::<BalanceAccountGuidHash>(iter)?;
-        let payer_account_guid_hash =
-            read_account_guid_hash(iter).ok_or(ProgramError::InvalidInstructionData)?;
-        let account_guid_hashes = unpack_account_guid_hash_vec(iter.as_slice())?;
-        Ok(Self::InitSPLTokenAccountsCreation {
-            fee_amount,
-            fee_account_guid_hash,
-            payer_account_guid_hash,
-            account_guid_hashes,
-        })
-    }
-
-    fn unpack_finalize_balance_account_enable_spl_token(
-        bytes: &[u8],
-    ) -> Result<ProgramInstruction, ProgramError> {
-        Ok(Self::FinalizeSPLTokenAccountsCreation {
-            payer_account_guid_hash: unpack_account_guid_hash(
-                bytes
-                    .get(0..HASH_LEN)
-                    .ok_or(ProgramError::InvalidInstructionData)?,
-            )?,
-            account_guid_hashes: unpack_account_guid_hash_vec(
                 bytes
                     .get(HASH_LEN..)
                     .ok_or(ProgramError::InvalidInstructionData)?,
