@@ -524,7 +524,7 @@ async fn test_dapp_transaction_with_spl_transfers() {
             6,
         )
         .unwrap(),
-        spl_associated_token_account::create_associated_token_account(
+        spl_associated_token_account::instruction::create_associated_token_account(
             &context.pt_context.payer.pubkey(),
             &balance_account,
             &mint.pubkey(),

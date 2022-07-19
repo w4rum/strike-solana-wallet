@@ -13,7 +13,7 @@ use solana_program::{
     program_error::ProgramError,
     program_pack::Pack,
     pubkey::Pubkey,
-    system_instruction, sysvar,
+    system_instruction,
     sysvar::Sysvar,
 };
 use spl_associated_token_account;
@@ -175,15 +175,17 @@ pub fn log_op_disposition(disposition: OperationDisposition) {
     msg!("OperationDisposition: [{}]", disposition.to_u8());
 }
 
-pub fn finalize_multisig_op<'a, F>(
+pub fn finalize_multisig_op<'a, F, G>(
     multisig_op_account_info: &AccountInfo,
     fee_collection_info: FeeCollectionInfo,
     clock: Clock,
     expected_params: MultisigOpParams,
     mut on_op_approved: F,
+    mut on_op_not_approved: G,
 ) -> ProgramResult
 where
     F: FnMut() -> ProgramResult,
+    G: FnMut() -> ProgramResult,
 {
     if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? == VERSION {
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
@@ -194,52 +196,55 @@ where
 
         if multisig_op.approved(expected_params.hash(&multisig_op), &clock, None)? {
             on_op_approved()?;
-            if multisig_op.fee_amount > 0 {
-                // attempt to collect fees
-                if let Some(guid_hash) = multisig_op.fee_account_guid_hash {
-                    if let Some(fee_account_info) = fee_collection_info.fee_account_info_maybe {
-                        let fee_collection = || -> Result<(), ProgramError> {
-                            let bump_seed = validate_balance_account_and_get_seed(
-                                fee_account_info,
-                                fee_collection_info.wallet_guid_hash,
-                                &guid_hash,
-                                fee_collection_info.program_id,
-                            )?;
-                            // this will transfer as much of the fee as possible without taking the
-                            // fee account below the minimum balance
-                            let rent = Rent::get()?;
-                            let balance_floor = rent.minimum_balance(0);
-                            let final_from_lamports = max(
-                                balance_floor,
-                                fee_account_info
-                                    .lamports()
-                                    .saturating_sub(multisig_op.fee_amount),
-                            );
-                            let amount = fee_account_info
-                                .lamports()
-                                .saturating_sub(final_from_lamports);
+        } else {
+            on_op_not_approved()?;
+        }
 
-                            invoke_signed(
-                                &system_instruction::transfer(
-                                    fee_account_info.key,
-                                    fee_collection_info.rent_return_account_info.key,
-                                    amount,
-                                ),
-                                &[
-                                    fee_account_info.clone(),
-                                    fee_collection_info.rent_return_account_info.clone(),
-                                ],
-                                &[&[
-                                    fee_collection_info.wallet_guid_hash.to_bytes(),
-                                    guid_hash.to_bytes(),
-                                    &[bump_seed],
-                                ]],
-                            )?;
-                            Ok(())
-                        };
-                        if let Err(err) = fee_collection() {
-                            msg!("Unable to collect fees: {:?}", err);
-                        }
+        if multisig_op.fee_amount > 0 {
+            // attempt to collect fees
+            if let Some(guid_hash) = multisig_op.fee_account_guid_hash {
+                if let Some(fee_account_info) = fee_collection_info.fee_account_info_maybe {
+                    let fee_collection = || -> Result<(), ProgramError> {
+                        let bump_seed = validate_balance_account_and_get_seed(
+                            fee_account_info,
+                            fee_collection_info.wallet_guid_hash,
+                            &guid_hash,
+                            fee_collection_info.program_id,
+                        )?;
+                        // this will transfer as much of the fee as possible without taking the
+                        // fee account below the minimum balance
+                        let rent = Rent::get()?;
+                        let balance_floor = rent.minimum_balance(0);
+                        let final_from_lamports = max(
+                            balance_floor,
+                            fee_account_info
+                                .lamports()
+                                .saturating_sub(multisig_op.fee_amount),
+                        );
+                        let amount = fee_account_info
+                            .lamports()
+                            .saturating_sub(final_from_lamports);
+
+                        invoke_signed(
+                            &system_instruction::transfer(
+                                fee_account_info.key,
+                                fee_collection_info.rent_return_account_info.key,
+                                amount,
+                            ),
+                            &[
+                                fee_account_info.clone(),
+                                fee_collection_info.rent_return_account_info.clone(),
+                            ],
+                            &[&[
+                                fee_collection_info.wallet_guid_hash.to_bytes(),
+                                guid_hash.to_bytes(),
+                                &[bump_seed],
+                            ]],
+                        )?;
+                        Ok(())
+                    };
+                    if let Err(err) = fee_collection() {
+                        msg!("Unable to collect fees: {:?}", err);
                     }
                 }
             }
@@ -329,8 +334,7 @@ pub fn create_associated_token_account_instruction(
             AccountMeta::new_readonly(*token_mint_account_info.key, false),
             AccountMeta::new_readonly(solana_program::system_program::id(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
-            AccountMeta::new_readonly(sysvar::rent::id(), false),
         ],
-        data: vec![],
+        data: vec![0],
     }
 }

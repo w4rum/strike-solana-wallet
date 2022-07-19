@@ -981,7 +981,7 @@ pub fn common_data(multisig_op: &MultisigOp) -> Vec<u8> {
     let mut common_data_bytes: Vec<u8> = Vec::with_capacity(COMMON_DATA_LEN);
     common_data_bytes.extend_from_slice(multisig_op.initiator.as_ref());
     common_data_bytes.extend_from_slice(multisig_op.rent_return.as_ref());
-    common_data_bytes.put_u64(multisig_op.fee_amount);
+    common_data_bytes.put_u64_le(multisig_op.fee_amount);
     common_data_bytes.extend_from_slice(
         multisig_op
             .fee_account_guid_hash

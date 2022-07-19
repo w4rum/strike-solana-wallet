@@ -1,10 +1,11 @@
-use solana_program::hash::Hash;
+use std::borrow::Borrow;
+use std::time::Duration;
 
+use solana_program::hash::Hash;
 use solana_program::instruction::{AccountMeta, Instruction};
 use solana_program::pubkey::Pubkey;
 use solana_program::{system_program, sysvar};
-use std::borrow::Borrow;
-use std::time::Duration;
+
 use strike_wallet::instruction::ProgramInstruction::{Cleanup, Migrate};
 use strike_wallet::instruction::{
     pack_supply_dapp_transaction_instructions, BalanceAccountAddressWhitelistUpdate,
@@ -414,12 +415,22 @@ pub fn init_wrap_unwrap(
     rent_return_account: &Pubkey,
     balance_account: &Pubkey,
     account_guid_hash: &BalanceAccountGuidHash,
+    wallet_guid_hash: &WalletGuidHash,
     amount: u64,
     direction: WrapDirection,
+    token_account_rent: u64,
 ) -> Instruction {
     let data = ProgramInstruction::InitWrapUnwrap {
-        fee_amount: FEE_AMOUNT,
-        fee_account_guid_hash: FEE_ACCOUNT_GUID_HASH_NONE,
+        fee_amount: if direction == WrapDirection::WRAP {
+            FEE_AMOUNT
+        } else {
+            token_account_rent
+        },
+        fee_account_guid_hash: if direction == WrapDirection::WRAP {
+            FEE_ACCOUNT_GUID_HASH_NONE
+        } else {
+            Some(account_guid_hash.clone())
+        },
         account_guid_hash: *account_guid_hash,
         amount,
         direction,
@@ -432,7 +443,7 @@ pub fn init_wrap_unwrap(
         &spl_token::native_mint::id(),
     );
 
-    let accounts = vec![
+    let mut accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new(*balance_account, false),
@@ -441,11 +452,29 @@ pub fn init_wrap_unwrap(
         AccountMeta::new_readonly(*initiator_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
         AccountMeta::new_readonly(*rent_return_account, true),
-        AccountMeta::new_readonly(system_program::id(), false),
-        AccountMeta::new_readonly(spl_token::id(), false),
-        AccountMeta::new_readonly(sysvar::rent::id(), false),
-        AccountMeta::new_readonly(spl_associated_token_account::id(), false),
     ];
+    if direction == WrapDirection::UNWRAP {
+        accounts.push(AccountMeta::new(
+            Pubkey::find_program_address(
+                &[
+                    &wallet_guid_hash.to_bytes(),
+                    &multisig_op_account.to_bytes(),
+                ],
+                program_id,
+            )
+            .0,
+            false,
+        ))
+    }
+    accounts.append(
+        vec![
+            AccountMeta::new_readonly(system_program::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::rent::id(), false),
+            AccountMeta::new_readonly(spl_associated_token_account::id(), false),
+        ]
+        .as_mut(),
+    );
 
     Instruction {
         program_id: *program_id,
@@ -460,6 +489,7 @@ pub fn finalize_wrap_unwrap(
     wallet_account: &Pubkey,
     balance_account: &Pubkey,
     rent_return_account: &Pubkey,
+    wallet_guid_hash: &WalletGuidHash,
     account_guid_hash: &BalanceAccountGuidHash,
     amount: u64,
     direction: WrapDirection,
@@ -487,11 +517,26 @@ pub fn finalize_wrap_unwrap(
         AccountMeta::new_readonly(sysvar::clock::id(), false),
         AccountMeta::new(wrapped_sol_account, false),
         AccountMeta::new_readonly(spl_token::id(), false),
+        AccountMeta::new_readonly(spl_token::native_mint::id(), false),
+        AccountMeta::new_readonly(spl_associated_token_account::id(), false),
     ];
+
+    if direction == WrapDirection::UNWRAP {
+        accounts.push(AccountMeta::new(
+            Pubkey::find_program_address(
+                &[
+                    &wallet_guid_hash.to_bytes(),
+                    &multisig_op_account.to_bytes(),
+                ],
+                program_id,
+            )
+            .0,
+            false,
+        ))
+    }
 
     if let Some(fee_account) = fee_account_maybe {
         accounts.push(AccountMeta::new(*fee_account, false));
-        accounts.push(AccountMeta::new_readonly(system_program::id(), false));
     }
 
     Instruction {

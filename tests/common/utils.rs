@@ -2125,7 +2125,7 @@ pub async fn setup_spl_transfer_test(
                     6,
                 )
                 .unwrap(),
-                spl_associated_token_account::create_associated_token_account(
+                spl_associated_token_account::instruction::create_associated_token_account(
                     &context.pt_context.payer.pubkey(),
                     source_account,
                     &mint.pubkey(),
@@ -2347,8 +2347,10 @@ pub async fn process_wrap(
                     &context.pt_context.payer.pubkey(),
                     &balance_account,
                     &context.balance_account_guid_hash,
+                    &context.wallet_guid_hash,
                     amount,
                     WrapDirection::WRAP,
+                    token_account_rent,
                 ),
             ],
             Some(&context.pt_context.payer.pubkey()),
@@ -2402,6 +2404,7 @@ pub async fn process_wrap(
                 &context.wallet_account.pubkey(),
                 &balance_account,
                 &context.pt_context.payer.pubkey(),
+                &context.wallet_guid_hash,
                 &context.balance_account_guid_hash,
                 amount,
                 WrapDirection::WRAP,
@@ -2417,8 +2420,10 @@ pub async fn process_wrap(
 pub async fn process_unwrapping(
     context: &mut BalanceAccountTestContext,
     multisig_account_rent: u64,
+    token_account_rent: u64,
     balance_account: Pubkey,
     unwrap_amount: u64,
+    disposition: ApprovalDisposition,
 ) -> Result<(), BanksClientError> {
     let unwrap_multisig_op_account = Keypair::new();
 
@@ -2442,8 +2447,10 @@ pub async fn process_unwrapping(
                     &context.pt_context.payer.pubkey(),
                     &balance_account,
                     &context.balance_account_guid_hash,
+                    &context.wallet_guid_hash,
                     unwrap_amount,
                     WrapDirection::UNWRAP,
+                    token_account_rent,
                 ),
             ],
             Some(&context.pt_context.payer.pubkey()),
@@ -2464,8 +2471,12 @@ pub async fn process_unwrapping(
         vec![&context.approvers[0], &context.approvers[1]],
         &context.pt_context.payer,
         context.pt_context.last_blockhash,
-        ApprovalDisposition::APPROVE,
-        OperationDisposition::APPROVED,
+        disposition,
+        if disposition == ApprovalDisposition::APPROVE {
+            OperationDisposition::APPROVED
+        } else {
+            OperationDisposition::DENIED
+        },
     )
     .await;
 
@@ -2479,10 +2490,11 @@ pub async fn process_unwrapping(
                 &context.wallet_account.pubkey(),
                 &balance_account,
                 &context.pt_context.payer.pubkey(),
+                &context.wallet_guid_hash,
                 &context.balance_account_guid_hash,
                 unwrap_amount,
                 WrapDirection::UNWRAP,
-                None,
+                Some(&balance_account),
             )],
             Some(&context.pt_context.payer.pubkey()),
             &[&context.pt_context.payer],

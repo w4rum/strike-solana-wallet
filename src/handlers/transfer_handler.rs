@@ -263,5 +263,6 @@ pub fn finalize(
                 );
             }
         },
+        || -> ProgramResult { Ok(()) },
     )
 }

@@ -22,7 +22,7 @@ use {
 #[tokio::test]
 async fn test_wrap_unwrap() {
     let (mut context, balance_account) =
-        setup_balance_account_tests_and_finalize(Some(60_000)).await;
+        setup_balance_account_tests_and_finalize(Some(80_000)).await;
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let token_account_rent = rent.minimum_balance(spl_token::state::Account::LEN);
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
@@ -153,8 +153,10 @@ async fn test_wrap_unwrap() {
     let result = process_unwrapping(
         &mut context,
         multisig_account_rent,
+        token_account_rent,
         balance_account,
         amount * 2,
+        ApprovalDisposition::APPROVE,
     )
     .await;
     assert_eq!(
@@ -166,8 +168,10 @@ async fn test_wrap_unwrap() {
     process_unwrapping(
         &mut context,
         multisig_account_rent,
+        token_account_rent,
         balance_account,
         unwrap_amount,
+        ApprovalDisposition::APPROVE,
     )
     .await
     .unwrap();
@@ -187,6 +191,35 @@ async fn test_wrap_unwrap() {
         amount - unwrap_amount
     );
 
+    assert_eq!(
+        context
+            .pt_context
+            .banks_client
+            .get_balance(balance_account)
+            .await
+            .unwrap(),
+        balance_account_rent + unwrap_amount
+    );
+
+    let failed_unwrap_amount = 15;
+    process_unwrapping(
+        &mut context,
+        multisig_account_rent,
+        token_account_rent,
+        balance_account,
+        failed_unwrap_amount,
+        ApprovalDisposition::DENY,
+    )
+    .await
+    .unwrap();
+
+    // nothing should have been unwrapped
+    assert_eq!(
+        get_token_balance(&mut context, &wrapped_sol_account).await,
+        amount - unwrap_amount
+    );
+
+    // and balance account should not change
     assert_eq!(
         context
             .pt_context
@@ -233,7 +266,7 @@ async fn test_transfer_spl(
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[
-                    spl_associated_token_account::create_associated_token_account(
+                    spl_associated_token_account::instruction::create_associated_token_account(
                         &context.pt_context.payer.pubkey(),
                         &context.destination.pubkey(),
                         &spl_context.mint.pubkey(),

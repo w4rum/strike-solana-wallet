@@ -70,6 +70,7 @@ pub fn finalize(program_id: &Pubkey, accounts: &[AccountInfo], data: &Vec<u8>) -
             data: data.clone(),
         },
         || -> ProgramResult { Ok(()) },
+        || -> ProgramResult { Ok(()) },
     )?;
 
     Ok(())

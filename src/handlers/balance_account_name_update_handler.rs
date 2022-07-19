@@ -97,6 +97,7 @@ pub fn finalize(
             Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
             Ok(())
         },
+        || -> ProgramResult { Ok(()) },
     )?;
 
     Ok(())

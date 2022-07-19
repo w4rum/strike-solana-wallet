@@ -84,6 +84,7 @@ pub fn finalize(
             wallet.update_dapp_book(update)?;
             Ok(())
         },
+        || -> ProgramResult { Ok(()) },
     )?;
 
     Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;

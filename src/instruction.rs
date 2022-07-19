@@ -152,10 +152,11 @@ pub enum ProgramInstruction {
     /// 5. `[signer]` The initiator account (either the transaction assistant or an approver)
     /// 6. `[]` The sysvar clock account
     /// 7. `[signer]` The rent return account
-    /// 8. `[]` The system program
-    /// 9. `[]` The SPL token program
-    /// 10. `[]` The Rent sysvar program
-    /// 11. `[]` The SPL associated token program
+    /// 8. `[writable]` A temporary wrapped SOL account (only for unwrap)
+    /// 9. `[]` The system program
+    /// 10. `[]` The SPL token program
+    /// 11. `[]` The Rent sysvar program
+    /// 12. `[]` The SPL associated token program
     InitWrapUnwrap {
         fee_amount: u64,
         fee_account_guid_hash: Option<BalanceAccountGuidHash>,
@@ -172,8 +173,10 @@ pub enum ProgramInstruction {
     /// 5. `[]` The sysvar clock account
     /// 6. `[writable]` The wrapped SOL token account
     /// 7. `[]` The SPL token account
-    /// 8. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 9. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 8. `[]` The native mint account
+    /// 9. `[]` The SPL associated token program
+    /// 10. `[writable]` A temporary wrapped SOL account, for use with unwrap
+    /// 11. `[writable]` The fee account, if fee_account_guid_hash was set in the init
     FinalizeWrapUnwrap {
         account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
