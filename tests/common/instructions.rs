@@ -166,7 +166,6 @@ pub fn finalize_balance_account_creation(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -218,7 +217,6 @@ pub fn finalize_dapp_book_update(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -275,7 +273,6 @@ pub fn finalize_balance_account_policy_update_instruction(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -371,7 +368,6 @@ pub fn finalize_transfer(
         AccountMeta::new(*destination_account, false),
         AccountMeta::new_readonly(system_program::id(), false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
     if *token_mint != system_program::id() {
         // SPL
@@ -514,7 +510,6 @@ pub fn finalize_wrap_unwrap(
         AccountMeta::new(*balance_account, false),
         AccountMeta::new_readonly(system_program::id(), false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
         AccountMeta::new(wrapped_sol_account, false),
         AccountMeta::new_readonly(spl_token::id(), false),
         AccountMeta::new_readonly(spl_token::native_mint::id(), false),
@@ -596,7 +591,6 @@ pub fn finalize_update_signer(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -650,7 +644,6 @@ pub fn finalize_wallet_config_policy_update_instruction(
         AccountMeta::new(multisig_op_account, false),
         AccountMeta::new(wallet_account, false),
         AccountMeta::new(rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -755,7 +748,6 @@ pub fn finalize_dapp_transaction(
         AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new(*balance_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     // we also need to include any accounts referenced by the dapp instructions, but we don't
@@ -766,7 +758,6 @@ pub fn finalize_dapp_transaction(
         *wallet_account,
         *balance_account,
         *rent_return_account,
-        sysvar::clock::id(),
     ];
 
     // add the optional fee account if it is supplied
@@ -840,7 +831,6 @@ pub fn finalize_account_settings_update(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -899,7 +889,6 @@ pub fn finalize_balance_account_name_update(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -957,7 +946,6 @@ pub fn finalize_address_book_update(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -1056,7 +1044,6 @@ pub fn finalize_balance_account_address_whitelist_update_instruction(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {
@@ -1115,7 +1102,6 @@ pub fn finalize_sign_data_instruction(
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*rent_return_account, true),
-        AccountMeta::new_readonly(sysvar::clock::id(), false),
     ];
 
     if let Some(fee_account) = fee_account_maybe {

@@ -131,13 +131,12 @@ pub enum ProgramInstruction {
     /// 3. `[writable]` The destination account
     /// 4. `[]` The system program
     /// 5. `[signer, writable]` The rent return account
-    /// 6. `[]` The sysvar clock account
-    /// 7. `[writable]` The source token account, if this is an SPL transfer
-    /// 8. `[writable]` The destination token account, if this is an SPL transfer
-    /// 9. `[]` The SPL token program account, if this is an SPL transfer
-    /// 10. `[]` The token mint authority, if this is an SPL transfer
-    /// 11. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 12. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 6. `[writable]` The source token account, if this is an SPL transfer
+    /// 7. `[writable]` The destination token account, if this is an SPL transfer
+    /// 8. `[]` The SPL token program account, if this is an SPL transfer
+    /// 9. `[]` The token mint authority, if this is an SPL transfer
+    /// 10. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 11. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeTransfer {
         account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
@@ -170,13 +169,12 @@ pub enum ProgramInstruction {
     /// 2. `[writable]` The balance account
     /// 3. `[]` The system program
     /// 4. `[signer, writable]` The rent return account
-    /// 5. `[]` The sysvar clock account
-    /// 6. `[writable]` The wrapped SOL token account
-    /// 7. `[]` The SPL token account
-    /// 8. `[]` The native mint account
-    /// 9. `[]` The SPL associated token program
-    /// 10. `[writable]` A temporary wrapped SOL account, for use with unwrap
-    /// 11. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 5. `[writable]` The wrapped SOL token account
+    /// 6. `[]` The SPL token account
+    /// 7. `[]` The native mint account
+    /// 8. `[]` The SPL associated token program
+    /// 9. `[writable]` A temporary wrapped SOL account, for use with unwrap
+    /// 10. `[writable]` The fee account, if fee_account_guid_hash was set in the init
     FinalizeWrapUnwrap {
         account_guid_hash: BalanceAccountGuidHash,
         amount: u64,
@@ -252,9 +250,8 @@ pub enum ProgramInstruction {
     /// 2. `[]` The wallet account
     /// 3. `[writable]` The balance account
     /// 4. `[signer, writable]` The rent return account
-    /// 5. `[]` The sysvar clock account
-    /// 6. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 7. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 5. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 6. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeDAppTransaction {
         account_guid_hash: BalanceAccountGuidHash,
         params_hash: Hash,
@@ -298,9 +295,8 @@ pub enum ProgramInstruction {
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The wallet account
     /// 2. `[signer, writable]` The rent return account
-    /// 3. `[]` The sysvar clock account
-    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeDAppBookUpdate { update: DAppBookUpdate },
 
     /// 0. `[writable]` The multisig operation account
@@ -317,9 +313,8 @@ pub enum ProgramInstruction {
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The wallet account
     /// 2. `[signer, writable]` The rent return account
-    /// 3. `[]` The sysvar clock account
-    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeAddressBookUpdate { update: AddressBookUpdate },
 
     /// 0. `[writable]` The multisig operation account
@@ -337,9 +332,8 @@ pub enum ProgramInstruction {
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The wallet account
     /// 2. `[signer, writable]` The rent return account
-    /// 3. `[]` The sysvar clock account
-    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeBalanceAccountNameUpdate {
         account_guid_hash: BalanceAccountGuidHash,
         account_name_hash: BalanceAccountNameHash,
@@ -360,9 +354,8 @@ pub enum ProgramInstruction {
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The wallet account
     /// 2. `[signer, writable]` The rent return account
-    /// 3. `[]` The sysvar clock account
-    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeBalanceAccountPolicyUpdate {
         account_guid_hash: BalanceAccountGuidHash,
         update: BalanceAccountPolicyUpdate,
@@ -393,9 +386,8 @@ pub enum ProgramInstruction {
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The wallet account
     /// 2. `[signer, writable]` The rent return account
-    /// 3. `[]` The sysvar clock account
-    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeBalanceAccountAddressWhitelistUpdate {
         account_guid_hash: BalanceAccountGuidHash,
         update: BalanceAccountAddressWhitelistUpdate,
@@ -415,9 +407,8 @@ pub enum ProgramInstruction {
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The wallet account
     /// 2. `[signer, writable]` The rent return account
-    /// 3. `[]` The sysvar clock account
-    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeSignData { data: Vec<u8> },
 }
 

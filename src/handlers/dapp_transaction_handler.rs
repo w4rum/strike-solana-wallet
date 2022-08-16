@@ -1,5 +1,6 @@
 use bitvec::macros::internal::funty::Fundamental;
 use solana_program::account_info::{next_account_info, AccountInfo};
+use solana_program::clock::Clock;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::hash::Hash;
 use solana_program::instruction::Instruction;
@@ -8,6 +9,7 @@ use solana_program::program::invoke_signed;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::Pubkey;
+use solana_program::sysvar::Sysvar;
 use spl_token::state::Account as SPLAccount;
 
 use crate::error::WalletError;
@@ -259,7 +261,7 @@ pub fn finalize(
     let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
     let balance_account = next_account_info(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
-    let clock = get_clock_from_next_account(accounts_iter)?;
+    let clock = Clock::get()?;
 
     if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? == VERSION {
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;

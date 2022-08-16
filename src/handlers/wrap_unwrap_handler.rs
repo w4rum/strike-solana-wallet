@@ -9,6 +9,7 @@ use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::multisig_op::{MultisigOpParams, WrapDirection};
 use crate::model::wallet::Wallet;
 use solana_program::account_info::{next_account_info, AccountInfo};
+use solana_program::clock::Clock;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
 use solana_program::program::{invoke, invoke_signed};
@@ -159,7 +160,6 @@ pub fn finalize(
     let balance_account_info = next_account_info(accounts_iter)?;
     let system_program_account_info = next_account_info(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
-    let clock = get_clock_from_next_account(accounts_iter)?;
     let wrapped_sol_account_info = next_account_info(accounts_iter)?;
     // spl_token_program_info account
     let _ = next_account_info(accounts_iter)?;
@@ -214,6 +214,8 @@ pub fn finalize(
     if *wrapped_sol_account_info.key != wrapped_sol_account_key {
         return Err(WalletError::InvalidSourceTokenAccount.into());
     }
+
+    let clock = Clock::get()?;
 
     finalize_multisig_op(
         &multisig_op_account_info,

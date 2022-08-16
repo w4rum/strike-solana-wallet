@@ -7,9 +7,11 @@ use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::multisig_op::MultisigOpParams;
 use crate::model::wallet::Wallet;
 use solana_program::account_info::{next_account_info, AccountInfo};
+use solana_program::clock::Clock;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::Pubkey;
+use solana_program::sysvar::Sysvar;
 
 pub fn init(
     program_id: &Pubkey,
@@ -50,8 +52,8 @@ pub fn finalize(program_id: &Pubkey, accounts: &[AccountInfo], data: &Vec<u8>) -
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
     let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
-    let clock = get_clock_from_next_account(accounts_iter)?;
     let fee_account_info_maybe = accounts_iter.next();
+    let clock = Clock::get()?;
 
     let wallet_guid_hash =
         &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;

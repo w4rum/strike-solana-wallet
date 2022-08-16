@@ -11,6 +11,7 @@ use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::multisig_op::MultisigOpParams;
 use crate::model::wallet::Wallet;
 use solana_program::account_info::{next_account_info, AccountInfo};
+use solana_program::clock::Clock;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::msg;
 use solana_program::program::{invoke, invoke_signed};
@@ -147,7 +148,6 @@ pub fn finalize(
     let destination_account = next_account_info(accounts_iter)?;
     let system_program_account = next_account_info(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
-    let clock = get_clock_from_next_account(accounts_iter)?;
 
     let is_spl = token_mint.to_bytes() != [0; PUBKEY_BYTES];
     let source_token_account = if is_spl {
@@ -176,6 +176,8 @@ pub fn finalize(
     if system_program_account.key != &system_program::id() {
         return Err(WalletError::AccountNotRecognized.into());
     }
+
+    let clock = Clock::get()?;
 
     let wallet_guid_hash =
         &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
