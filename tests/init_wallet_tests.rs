@@ -7,7 +7,7 @@ pub use common::utils::*;
 
 use std::time::Duration;
 
-use solana_program::instruction::InstructionError::Custom;
+use solana_program::instruction::InstructionError::{Custom, MissingRequiredSignature};
 use solana_sdk::transaction::TransactionError;
 
 use crate::common::utils;
@@ -21,12 +21,11 @@ use strike_wallet::utils::SlotId;
 use strike_wallet::version::VERSION;
 use uuid::Uuid;
 use {
-    solana_program_test::{processor, tokio, ProgramTest},
+    solana_program_test::tokio,
     solana_sdk::{
         pubkey::Pubkey,
         signature::{Keypair, Signer as SdkSigner},
     },
-    strike_wallet::processor::Processor,
 };
 
 #[tokio::test]
@@ -41,11 +40,15 @@ async fn init_wallet() {
     let config_approvers = signers.clone();
 
     let program_id = Keypair::new().pubkey();
-    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_compute_max_units(25_000);
-    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
+    let program_upgrade_authority = Keypair::new();
+
+    let (test_context, program_data_address) =
+        start_program_test(program_id, 25_000, Some(program_upgrade_authority.pubkey())).await;
+    let mut banks_client = test_context.banks_client;
+    let payer = test_context.payer;
+    let recent_blockhash = test_context.last_blockhash;
+
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
     let wallet_guid_hash = WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes()));
 
@@ -54,8 +57,9 @@ async fn init_wallet() {
         &payer,
         recent_blockhash,
         &program_id,
+        &program_data_address,
+        &program_upgrade_authority,
         &wallet_account,
-        &assistant_account,
         wallet_guid_hash,
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
@@ -79,7 +83,6 @@ async fn init_wallet() {
             rent_return: payer.pubkey().clone(),
             wallet_guid_hash,
             signers: Signers::from_vec(signers),
-            assistant: assistant_account.pubkey_as_signer(),
             address_book: AddressBook::new(),
             approvals_required_for_config,
             approval_timeout_for_config,
@@ -96,13 +99,61 @@ async fn init_wallet() {
 }
 
 #[tokio::test]
-async fn invalid_wallet_initialization() {
+async fn init_wallet_has_to_be_signed_by_program_upgrade_authority() {
+    let approvals_required_for_config = 2;
+    let approval_timeout_for_config = Duration::from_secs(3600);
+    let signers = vec![
+        (SlotId::new(0), Signer::new(Pubkey::new_unique())),
+        (SlotId::new(1), Signer::new(Pubkey::new_unique())),
+        (SlotId::new(2), Signer::new(Pubkey::new_unique())),
+    ];
+    let config_approvers = signers.clone();
+
     let program_id = Keypair::new().pubkey();
-    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_compute_max_units(40_000);
-    let (mut banks_client, payer, recent_blockhash) = pt.start().await;
+    let program_upgrade_authority = Keypair::new().pubkey();
+
+    let (test_context, program_data_address) =
+        start_program_test(program_id, 25_000, Some(program_upgrade_authority)).await;
+    let mut banks_client = test_context.banks_client;
+    let payer = test_context.payer;
+    let recent_blockhash = test_context.last_blockhash;
+
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
+
+    let wallet_guid_hash = WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes()));
+
+    assert_eq!(
+        utils::init_wallet(
+            &mut banks_client,
+            &payer,
+            recent_blockhash,
+            &program_id,
+            &program_data_address,
+            &Keypair::new(),
+            &wallet_account,
+            wallet_guid_hash,
+            InitialWalletConfig {
+                approvals_required_for_config: approvals_required_for_config.clone(),
+                approval_timeout_for_config,
+                signers: signers.clone(),
+                config_approvers: config_approvers
+                    .clone()
+                    .iter()
+                    .map(|signer| signer.0)
+                    .collect_vec(),
+            },
+        )
+        .await
+        .unwrap_err()
+        .unwrap(),
+        TransactionError::InstructionError(1, MissingRequiredSignature),
+    );
+}
+
+#[tokio::test]
+async fn invalid_wallet_initialization() {
+    let mut test_context = setup_test(25_000).await;
+    let wallet_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
     let signers = vec![
@@ -113,13 +164,9 @@ async fn invalid_wallet_initialization() {
 
     // verify approvals required for config can't exceed configured approvers count
     assert_eq!(
-        utils::init_wallet(
-            &mut banks_client,
-            &payer,
-            recent_blockhash,
-            &program_id,
+        utils::init_wallet_from_context(
+            &mut test_context,
             &wallet_account,
-            &assistant_account,
             WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
             InitialWalletConfig {
                 approvals_required_for_config: 3,
@@ -136,13 +183,9 @@ async fn invalid_wallet_initialization() {
 
     // verify it's not allowed to add a config approver that is not configured as signer
     assert_eq!(
-        utils::init_wallet(
-            &mut banks_client,
-            &payer,
-            recent_blockhash,
-            &program_id,
+        utils::init_wallet_from_context(
+            &mut test_context,
             &wallet_account,
-            &assistant_account,
             WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
             InitialWalletConfig {
                 approvals_required_for_config: 1,

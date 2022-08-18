@@ -26,7 +26,6 @@ async fn wallet_config_policy_update() {
     let mut context = setup_test(40_000).await;
 
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
     let signers = vec![
@@ -35,13 +34,9 @@ async fn wallet_config_policy_update() {
         approvers[2].pubkey_as_signer(),
     ];
 
-    utils::init_wallet(
-        &mut context.banks_client,
-        &context.payer,
-        context.recent_blockhash,
-        &context.program_id,
+    utils::init_wallet_from_context(
+        &mut context,
         &wallet_account,
-        &assistant_account,
         WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
@@ -57,7 +52,11 @@ async fn wallet_config_policy_update() {
     .await
     .unwrap();
 
-    let wallet = get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await;
+    let wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &wallet_account.pubkey(),
+    )
+    .await;
 
     let update = WalletConfigPolicyUpdate {
         approvals_required_for_config: 1,
@@ -76,7 +75,7 @@ async fn wallet_config_policy_update() {
     .unwrap();
 
     assert_initialized_multisig_op(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         started_at,
         Duration::from_secs(3600),
         2,
@@ -96,7 +95,7 @@ async fn wallet_config_policy_update() {
             update: update.clone(),
         },
         &approvers[2].pubkey(),
-        &context.payer.pubkey(),
+        &context.pt_context.payer.pubkey(),
     );
 
     approve_n_of_n_multisig_op(
@@ -122,7 +121,11 @@ async fn wallet_config_policy_update() {
 
     assert_eq!(
         expected_wallet,
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
+        get_wallet(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey()
+        )
+        .await
     );
 
     // verify updates
@@ -134,7 +137,7 @@ async fn wallet_config_policy_update() {
     utils::update_wallet_config_policy(
         &mut context,
         wallet_account.pubkey(),
-        &assistant_account,
+        &approvers[0],
         &WalletConfigPolicyUpdate {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(14400),
@@ -147,7 +150,11 @@ async fn wallet_config_policy_update() {
 
     assert_eq!(
         expected_wallet,
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
+        get_wallet(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey()
+        )
+        .await
     );
 
     expected_wallet.config_approvers =
@@ -156,7 +163,7 @@ async fn wallet_config_policy_update() {
     utils::update_wallet_config_policy(
         &mut context,
         wallet_account.pubkey(),
-        &assistant_account,
+        &approvers[0],
         &WalletConfigPolicyUpdate {
             approvals_required_for_config: 2,
             approval_timeout_for_config: Duration::from_secs(14400),
@@ -169,7 +176,11 @@ async fn wallet_config_policy_update() {
 
     assert_eq!(
         expected_wallet,
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey()).await
+        get_wallet(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey()
+        )
+        .await
     );
 }
 
@@ -178,7 +189,6 @@ async fn invalid_wallet_config_policy_updates() {
     let mut context = setup_test(40_000).await;
 
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
     let signers = vec![
@@ -187,13 +197,9 @@ async fn invalid_wallet_config_policy_updates() {
         approvers[2].pubkey_as_signer(),
     ];
 
-    utils::init_wallet(
-        &mut context.banks_client,
-        &context.payer,
-        context.recent_blockhash,
-        &context.program_id,
+    utils::init_wallet_from_context(
+        &mut context,
         &wallet_account,
-        &assistant_account,
         WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
@@ -210,7 +216,7 @@ async fn invalid_wallet_config_policy_updates() {
         utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
-            &assistant_account,
+            &approvers[0],
             &WalletConfigPolicyUpdate {
                 approvals_required_for_config: 3,
                 approval_timeout_for_config: Duration::from_secs(3200),
@@ -228,7 +234,7 @@ async fn invalid_wallet_config_policy_updates() {
         utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
-            &assistant_account,
+            &approvers[0],
             &WalletConfigPolicyUpdate {
                 approvals_required_for_config: 2,
                 approval_timeout_for_config: Duration::from_secs(3200),
@@ -246,7 +252,7 @@ async fn invalid_wallet_config_policy_updates() {
         utils::init_wallet_config_policy_update(
             &mut context,
             wallet_account.pubkey(),
-            &assistant_account,
+            &approvers[0],
             &WalletConfigPolicyUpdate {
                 approvals_required_for_config: 2,
                 approval_timeout_for_config: Duration::from_secs(3200),
@@ -265,7 +271,6 @@ async fn wallet_config_policy_update_initiator_approval() {
     let mut context = setup_test(30_000).await;
 
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
     let signers = vec![
@@ -274,13 +279,9 @@ async fn wallet_config_policy_update_initiator_approval() {
         approvers[2].pubkey_as_signer(),
     ];
 
-    utils::init_wallet(
-        &mut context.banks_client,
-        &context.payer,
-        context.recent_blockhash,
-        &context.program_id,
+    utils::init_wallet_from_context(
+        &mut context,
         &wallet_account,
-        &assistant_account,
         WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
@@ -313,7 +314,7 @@ async fn wallet_config_policy_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -358,7 +359,7 @@ async fn wallet_config_policy_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         1,
         &vec![ApprovalDispositionRecord {
             approver: approvers[0].pubkey(),

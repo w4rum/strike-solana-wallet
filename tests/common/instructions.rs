@@ -31,15 +31,17 @@ use strike_wallet::{
 pub fn init_wallet(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
-    assistant_account: &Pubkey,
+    program_data_account: &Pubkey,
     rent_return_account: &Pubkey,
+    program_upgrade_authority: &Pubkey,
     wallet_guid_hash: WalletGuidHash,
     initial_config: InitialWalletConfig,
 ) -> Instruction {
     let accounts = vec![
         AccountMeta::new(*wallet_account, false),
-        AccountMeta::new_readonly(*assistant_account, true),
+        AccountMeta::new_readonly(*program_data_account, false),
         AccountMeta::new_readonly(*rent_return_account, true),
+        AccountMeta::new_readonly(*program_upgrade_authority, true),
     ];
 
     Instruction {

@@ -47,18 +47,24 @@ async fn inner_instructions(
     balance_account: &Pubkey,
     amount: u64,
 ) -> Vec<Instruction> {
-    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
+    let rent = context
+        .test_context
+        .pt_context
+        .banks_client
+        .get_rent()
+        .await
+        .unwrap();
     let multisig_op_account_rent = rent.minimum_balance(MultisigOp::LEN);
     vec![
         system_instruction::create_account(
-            &context.pt_context.payer.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
             inner_multisig_op_account,
             multisig_op_account_rent,
             MultisigOp::LEN as u64,
-            &context.program_id,
+            &context.test_context.program_id,
         ),
         init_transfer(
-            &context.program_id,
+            &context.test_context.program_id,
             &context.wallet_account.pubkey(),
             &inner_multisig_op_account,
             &context.initiator_account.pubkey(),
@@ -68,7 +74,7 @@ async fn inner_instructions(
             amount,
             context.destination_name_hash,
             &system_program::id(),
-            &context.pt_context.payer.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
         ),
     ]
 }
@@ -77,7 +83,13 @@ async fn setup_dapp_test() -> DAppTest {
     let (mut context, balance_account) =
         utils::setup_balance_account_tests_and_finalize(Some(100000)).await;
 
-    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
+    let rent = context
+        .test_context
+        .pt_context
+        .banks_client
+        .get_rent()
+        .await
+        .unwrap();
     let multisig_op_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
     let multisig_data_account_rent = rent.minimum_balance(DAppMultisigData::LEN);
@@ -96,7 +108,7 @@ async fn setup_dapp_test() -> DAppTest {
 
     let inner_multisig_op_account = Keypair::new();
     let dapp = DAppBookEntry {
-        address: context.program_id.clone(),
+        address: context.test_context.program_id.clone(),
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"Strike Wallet")),
     };
 
@@ -109,44 +121,45 @@ async fn setup_dapp_test() -> DAppTest {
     .await;
 
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_op_account.pubkey(),
                     multisig_op_account_rent,
                     MultisigOp::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_data_account.pubkey(),
                     multisig_data_account_rent,
                     DAppMultisigData::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 init_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &multisig_data_account.pubkey(),
                     &context.initiator_account.pubkey(),
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
                     inner_instructions.len().as_u8(),
                 ),
             ],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &multisig_op_account,
                 &multisig_data_account,
                 &context.initiator_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -191,6 +204,7 @@ async fn setup_dapp_test() -> DAppTest {
 
     let multisig_op = MultisigOp::unpack_from_slice(
         context
+            .test_context
             .pt_context
             .banks_client
             .get_account(multisig_op_account.pubkey())
@@ -222,28 +236,29 @@ async fn test_dapp_transaction_simulation() {
     // attempting to finalize before approval should result in a transaction simulation
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &dapp_test.multisig_op_account.pubkey(),
                     &dapp_test.multisig_data_account.pubkey(),
                     &dapp_test.balance_account,
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     &dapp_test.params_hash,
                     &dapp_test.inner_instructions,
                     None,
                 )],
-                Some(&context.pt_context.payer.pubkey()),
+                Some(&context.test_context.pt_context.payer.pubkey()),
                 &[
-                    &context.pt_context.payer,
+                    &context.test_context.pt_context.payer,
                     &context.initiator_account,
                     &dapp_test.inner_multisig_op_account,
                 ],
-                context.pt_context.last_blockhash,
+                context.test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -259,24 +274,25 @@ async fn test_dapp_transaction_bad_signature() {
     let mut context = dapp_test.context;
 
     let params_hash = utils::get_operation_hash(
-        context.pt_context.banks_client.borrow_mut(),
+        context.test_context.pt_context.banks_client.borrow_mut(),
         dapp_test.multisig_op_account.pubkey(),
     )
     .await;
     let approver = &context.approvers[0];
     let approve_transaction = Transaction::new_signed_with_payer(
         &[set_approval_disposition(
-            &context.program_id,
+            &context.test_context.program_id,
             &dapp_test.multisig_op_account.pubkey(),
             &approver.pubkey(),
             ApprovalDisposition::APPROVE,
             params_hash,
         )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer, approver],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer, approver],
+        context.test_context.pt_context.last_blockhash,
     );
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(approve_transaction)
@@ -286,28 +302,29 @@ async fn test_dapp_transaction_bad_signature() {
     // attempt to finalize with bad param hash
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &dapp_test.multisig_op_account.pubkey(),
                     &dapp_test.multisig_data_account.pubkey(),
                     &dapp_test.balance_account,
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     &hash(&[0]),
                     &dapp_test.inner_instructions,
                     None,
                 )],
-                Some(&context.pt_context.payer.pubkey()),
+                Some(&context.test_context.pt_context.payer.pubkey()),
                 &[
-                    &context.pt_context.payer,
+                    &context.test_context.pt_context.payer,
                     &context.initiator_account,
                     &dapp_test.inner_multisig_op_account,
                 ],
-                context.pt_context.last_blockhash,
+                context.test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -323,24 +340,25 @@ async fn test_dapp_transaction() {
     let mut context = dapp_test.context;
 
     let params_hash = utils::get_operation_hash(
-        context.pt_context.banks_client.borrow_mut(),
+        context.test_context.pt_context.banks_client.borrow_mut(),
         dapp_test.multisig_op_account.pubkey(),
     )
     .await;
     for approver in vec![&context.approvers[0], &context.approvers[1]] {
         let approve_transaction = Transaction::new_signed_with_payer(
             &[set_approval_disposition(
-                &context.program_id,
+                &context.test_context.program_id,
                 &dapp_test.multisig_op_account.pubkey(),
                 &approver.pubkey(),
                 ApprovalDisposition::APPROVE,
                 params_hash,
             )],
-            Some(&context.pt_context.payer.pubkey()),
-            &[&context.pt_context.payer, approver],
-            context.pt_context.last_blockhash,
+            Some(&context.test_context.pt_context.payer.pubkey()),
+            &[&context.test_context.pt_context.payer, approver],
+            context.test_context.pt_context.last_blockhash,
         );
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(approve_transaction)
@@ -349,34 +367,36 @@ async fn test_dapp_transaction() {
     }
 
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_dapp_transaction(
-                &context.program_id,
+                &context.test_context.program_id,
                 &context.wallet_account.pubkey(),
                 &dapp_test.multisig_op_account.pubkey(),
                 &dapp_test.multisig_data_account.pubkey(),
                 &dapp_test.balance_account,
-                &context.pt_context.payer.pubkey(),
+                &context.test_context.pt_context.payer.pubkey(),
                 &context.balance_account_guid_hash,
                 &dapp_test.params_hash,
                 &dapp_test.inner_instructions,
                 None,
             )],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &context.initiator_account,
                 &dapp_test.inner_multisig_op_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     let multisig_op = MultisigOp::unpack_from_slice(
         &*context
+            .test_context
             .pt_context
             .banks_client
             .get_account(dapp_test.inner_multisig_op_account.pubkey())
@@ -396,24 +416,25 @@ async fn test_dapp_transaction_denied() {
     let mut context = dapp_test.context;
 
     let params_hash = utils::get_operation_hash(
-        context.pt_context.banks_client.borrow_mut(),
+        context.test_context.pt_context.banks_client.borrow_mut(),
         dapp_test.multisig_op_account.pubkey(),
     )
     .await;
     for approver in vec![&context.approvers[0], &context.approvers[1]] {
         let approve_transaction = Transaction::new_signed_with_payer(
             &[set_approval_disposition(
-                &context.program_id,
+                &context.test_context.program_id,
                 &dapp_test.multisig_op_account.pubkey(),
                 &approver.pubkey(),
                 ApprovalDisposition::DENY,
                 params_hash,
             )],
-            Some(&context.pt_context.payer.pubkey()),
-            &[&context.pt_context.payer, approver],
-            context.pt_context.last_blockhash,
+            Some(&context.test_context.pt_context.payer.pubkey()),
+            &[&context.test_context.pt_context.payer, approver],
+            context.test_context.pt_context.last_blockhash,
         );
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(approve_transaction)
@@ -422,34 +443,36 @@ async fn test_dapp_transaction_denied() {
     }
 
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_dapp_transaction(
-                &context.program_id,
+                &context.test_context.program_id,
                 &context.wallet_account.pubkey(),
                 &dapp_test.multisig_op_account.pubkey(),
                 &dapp_test.multisig_data_account.pubkey(),
                 &dapp_test.balance_account,
-                &context.pt_context.payer.pubkey(),
+                &context.test_context.pt_context.payer.pubkey(),
                 &context.balance_account_guid_hash,
                 &dapp_test.params_hash,
                 &dapp_test.inner_instructions,
                 None,
             )],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &context.initiator_account,
                 &dapp_test.inner_multisig_op_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     // ensure inner transaction did not execute (so inner multisig op account should not exist)
     assert!(context
+        .test_context
         .pt_context
         .banks_client
         .get_account(dapp_test.inner_multisig_op_account.pubkey())
@@ -463,6 +486,7 @@ async fn test_dapp_transaction_denied() {
         dapp_test.multisig_data_account.pubkey(),
     ] {
         assert!(context
+            .test_context
             .pt_context
             .banks_client
             .get_account(account)
@@ -488,7 +512,13 @@ async fn test_dapp_transaction_with_spl_transfers() {
     )
     .await;
 
-    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
+    let rent = context
+        .test_context
+        .pt_context
+        .banks_client
+        .get_rent()
+        .await
+        .unwrap();
     let multisig_op_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
     let multisig_data_account_rent = rent.minimum_balance(DAppMultisigData::LEN);
@@ -503,14 +533,14 @@ async fn test_dapp_transaction_with_spl_transfers() {
 
     let inner_instructions = vec![
         system_instruction::create_account(
-            &context.pt_context.payer.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
             &mint.pubkey(),
             mint_account_rent,
             spl_token::state::Mint::LEN as u64,
             &spl_token::id(),
         ),
         system_instruction::create_account(
-            &context.pt_context.payer.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
             &mint_authority.pubkey(),
             0,
             0,
@@ -525,7 +555,7 @@ async fn test_dapp_transaction_with_spl_transfers() {
         )
         .unwrap(),
         spl_associated_token_account::instruction::create_associated_token_account(
-            &context.pt_context.payer.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
             &balance_account,
             &mint.pubkey(),
         ),
@@ -541,49 +571,50 @@ async fn test_dapp_transaction_with_spl_transfers() {
     ];
 
     let dapp = DAppBookEntry {
-        address: context.program_id.clone(),
+        address: context.test_context.program_id.clone(),
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"Strike Wallet")),
     };
 
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_op_account.pubkey(),
                     multisig_op_account_rent,
                     MultisigOp::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_data_account.pubkey(),
                     multisig_data_account_rent,
                     DAppMultisigData::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 init_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &multisig_data_account.pubkey(),
                     &context.initiator_account.pubkey(),
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
                     inner_instructions.len().as_u8(),
                 ),
             ],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &multisig_op_account,
                 &multisig_data_account,
                 &context.initiator_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -592,18 +623,19 @@ async fn test_dapp_transaction_with_spl_transfers() {
     let approver = &context.approvers[0];
     let approve_transaction = Transaction::new_signed_with_payer(
         &[set_approval_disposition(
-            &context.program_id,
+            &context.test_context.program_id,
             &multisig_op_account.pubkey(),
             &approver.pubkey(),
             ApprovalDisposition::APPROVE,
             Hash::new_unique(), // doesn't matter
         )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer, approver],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer, approver],
+        context.test_context.pt_context.last_blockhash,
     );
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(approve_transaction)
@@ -615,24 +647,29 @@ async fn test_dapp_transaction_with_spl_transfers() {
 
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &multisig_data_account.pubkey(),
                     &balance_account,
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     &Hash::new_unique(), // doesn't matter
                     &inner_instructions,
                     None,
                 )],
-                Some(&context.pt_context.payer.pubkey()),
-                &[&context.pt_context.payer, &mint, &mint_authority],
-                context.pt_context.last_blockhash,
+                Some(&context.test_context.pt_context.payer.pubkey()),
+                &[
+                    &context.test_context.pt_context.payer,
+                    &mint,
+                    &mint_authority
+                ],
+                context.test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -669,6 +706,7 @@ async fn test_dapp_transaction_with_spl_transfers() {
 
     let multisig_op = MultisigOp::unpack_from_slice(
         context
+            .test_context
             .pt_context
             .banks_client
             .get_account(multisig_op_account.pubkey())
@@ -683,24 +721,29 @@ async fn test_dapp_transaction_with_spl_transfers() {
     // attempting to finalize before approval should result in a transaction simulation
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &multisig_data_account.pubkey(),
                     &balance_account,
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     &multisig_data.hash(&multisig_op).unwrap(),
                     &inner_instructions,
                     None,
                 )],
-                Some(&context.pt_context.payer.pubkey()),
-                &[&context.pt_context.payer, &mint, &mint_authority],
-                context.pt_context.last_blockhash,
+                Some(&context.test_context.pt_context.payer.pubkey()),
+                &[
+                    &context.test_context.pt_context.payer,
+                    &mint,
+                    &mint_authority
+                ],
+                context.test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -714,13 +757,19 @@ async fn test_dapp_transaction_without_dapps_enabled() {
     let (mut context, balance_account) =
         utils::setup_balance_account_tests_and_finalize(None).await;
 
-    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
+    let rent = context
+        .test_context
+        .pt_context
+        .banks_client
+        .get_rent()
+        .await
+        .unwrap();
     let multisig_op_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
     let multisig_data_account_rent = rent.minimum_balance(DAppMultisigData::LEN);
     let multisig_data_account = Keypair::new();
     let dapp = DAppBookEntry {
-        address: context.program_id.clone(),
+        address: context.test_context.program_id.clone(),
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"Strike Wallet")),
     };
     let inner_instructions = inner_instructions(
@@ -732,44 +781,45 @@ async fn test_dapp_transaction_without_dapps_enabled() {
     .await;
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[
                     system_instruction::create_account(
-                        &context.pt_context.payer.pubkey(),
+                        &context.test_context.pt_context.payer.pubkey(),
                         &multisig_op_account.pubkey(),
                         multisig_op_account_rent,
                         MultisigOp::LEN as u64,
-                        &context.program_id,
+                        &context.test_context.program_id,
                     ),
                     system_instruction::create_account(
-                        &context.pt_context.payer.pubkey(),
+                        &context.test_context.pt_context.payer.pubkey(),
                         &multisig_data_account.pubkey(),
                         multisig_data_account_rent,
                         DAppMultisigData::LEN as u64,
-                        &context.program_id,
+                        &context.test_context.program_id,
                     ),
                     init_dapp_transaction(
-                        &context.program_id,
+                        &context.test_context.program_id,
                         &context.wallet_account.pubkey(),
                         &multisig_op_account.pubkey(),
                         &multisig_data_account.pubkey(),
                         &context.initiator_account.pubkey(),
-                        &context.pt_context.payer.pubkey(),
+                        &context.test_context.pt_context.payer.pubkey(),
                         &context.balance_account_guid_hash,
                         dapp,
                         inner_instructions.len().as_u8(),
                     ),
                 ],
-                Some(&context.pt_context.payer.pubkey()),
+                Some(&context.test_context.pt_context.payer.pubkey()),
                 &[
-                    &context.pt_context.payer,
+                    &context.test_context.pt_context.payer,
                     &multisig_op_account,
                     &multisig_data_account,
                     &context.initiator_account,
                 ],
-                context.pt_context.last_blockhash,
+                context.test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -794,13 +844,19 @@ async fn test_dapp_transaction_unwhitelisted() {
     )
     .await;
 
-    let rent = context.pt_context.banks_client.get_rent().await.unwrap();
+    let rent = context
+        .test_context
+        .pt_context
+        .banks_client
+        .get_rent()
+        .await
+        .unwrap();
     let multisig_op_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
     let multisig_data_account_rent = rent.minimum_balance(DAppMultisigData::LEN);
     let multisig_data_account = Keypair::new();
     let dapp = DAppBookEntry {
-        address: context.program_id.clone(),
+        address: context.test_context.program_id.clone(),
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"Strike Wallet")),
     };
     let inner_instructions = inner_instructions(
@@ -812,44 +868,45 @@ async fn test_dapp_transaction_unwhitelisted() {
     .await;
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[
                     system_instruction::create_account(
-                        &context.pt_context.payer.pubkey(),
+                        &context.test_context.pt_context.payer.pubkey(),
                         &multisig_op_account.pubkey(),
                         multisig_op_account_rent,
                         MultisigOp::LEN as u64,
-                        &context.program_id,
+                        &context.test_context.program_id,
                     ),
                     system_instruction::create_account(
-                        &context.pt_context.payer.pubkey(),
+                        &context.test_context.pt_context.payer.pubkey(),
                         &multisig_data_account.pubkey(),
                         multisig_data_account_rent,
                         DAppMultisigData::LEN as u64,
-                        &context.program_id,
+                        &context.test_context.program_id,
                     ),
                     init_dapp_transaction(
-                        &context.program_id,
+                        &context.test_context.program_id,
                         &context.wallet_account.pubkey(),
                         &multisig_op_account.pubkey(),
                         &multisig_data_account.pubkey(),
                         &context.initiator_account.pubkey(),
-                        &context.pt_context.payer.pubkey(),
+                        &context.test_context.pt_context.payer.pubkey(),
                         &context.balance_account_guid_hash,
                         dapp,
                         inner_instructions.len().as_u8(),
                     ),
                 ],
-                Some(&context.pt_context.payer.pubkey()),
+                Some(&context.test_context.pt_context.payer.pubkey()),
                 &[
-                    &context.pt_context.payer,
+                    &context.test_context.pt_context.payer,
                     &multisig_op_account,
                     &multisig_data_account,
                     &context.initiator_account,
                 ],
-                context.pt_context.last_blockhash,
+                context.test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -874,9 +931,19 @@ async fn test_dapp_transaction_whitelisted() {
     )
     .await;
 
-    let multisig_op_account_rent = context.rent.minimum_balance(MultisigOp::LEN);
+    let multisig_op_account_rent = context
+        .test_context
+        .pt_context
+        .genesis_config()
+        .rent
+        .minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
-    let multisig_data_account_rent = context.rent.minimum_balance(DAppMultisigData::LEN);
+    let multisig_data_account_rent = context
+        .test_context
+        .pt_context
+        .genesis_config()
+        .rent
+        .minimum_balance(DAppMultisigData::LEN);
     let multisig_data_account = Keypair::new();
     let inner_instructions = inner_instructions(
         &mut context,
@@ -886,44 +953,45 @@ async fn test_dapp_transaction_whitelisted() {
     )
     .await;
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_op_account.pubkey(),
                     multisig_op_account_rent,
                     MultisigOp::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_data_account.pubkey(),
                     multisig_data_account_rent,
                     DAppMultisigData::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 init_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &multisig_data_account.pubkey(),
                     &context.initiator_account.pubkey(),
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     context.allowed_dapp,
                     inner_instructions.len().as_u8(),
                 ),
             ],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &multisig_op_account,
                 &multisig_data_account,
                 &context.initiator_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -945,13 +1013,23 @@ async fn test_supply_instruction_errors() {
     )
     .await;
 
-    let multisig_op_account_rent = context.rent.minimum_balance(MultisigOp::LEN);
+    let multisig_op_account_rent = context
+        .test_context
+        .pt_context
+        .genesis_config()
+        .rent
+        .minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
-    let multisig_data_account_rent = context.rent.minimum_balance(DAppMultisigData::LEN);
+    let multisig_data_account_rent = context
+        .test_context
+        .pt_context
+        .genesis_config()
+        .rent
+        .minimum_balance(DAppMultisigData::LEN);
     let multisig_data_account = Keypair::new();
     let inner_multisig_op_account = Keypair::new();
     let dapp = DAppBookEntry {
-        address: context.program_id.clone(),
+        address: context.test_context.program_id.clone(),
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"Strike Wallet")),
     };
 
@@ -964,44 +1042,45 @@ async fn test_supply_instruction_errors() {
     .await;
 
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_op_account.pubkey(),
                     multisig_op_account_rent,
                     MultisigOp::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_data_account.pubkey(),
                     multisig_data_account_rent,
                     DAppMultisigData::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 init_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &multisig_data_account.pubkey(),
                     &context.initiator_account.pubkey(),
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
                     inner_instructions.len().as_u8(),
                 ),
             ],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &multisig_op_account,
                 &multisig_data_account,
                 &context.initiator_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -1069,20 +1148,24 @@ async fn supply_instructions(
     instructions: &Vec<Instruction>,
 ) -> Result<(), BanksClientError> {
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[supply_dapp_transaction_instructions(
-                &context.program_id,
+                &context.test_context.program_id,
                 &multisig_op_account.pubkey(),
                 &multisig_data_account.pubkey(),
                 &context.initiator_account.pubkey(),
                 starting_index,
                 instructions,
             )],
-            Some(&context.pt_context.payer.pubkey()),
-            &[&context.pt_context.payer, &context.initiator_account],
-            context.pt_context.last_blockhash,
+            Some(&context.test_context.pt_context.payer.pubkey()),
+            &[
+                &context.test_context.pt_context.payer,
+                &context.initiator_account,
+            ],
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
 }
@@ -1103,13 +1186,23 @@ async fn test_multisig_op_version_mismatch() {
     )
     .await;
 
-    let multisig_op_account_rent = context.rent.minimum_balance(MultisigOp::LEN);
+    let multisig_op_account_rent = context
+        .test_context
+        .pt_context
+        .genesis_config()
+        .rent
+        .minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
-    let multisig_data_account_rent = context.rent.minimum_balance(DAppMultisigData::LEN);
+    let multisig_data_account_rent = context
+        .test_context
+        .pt_context
+        .genesis_config()
+        .rent
+        .minimum_balance(DAppMultisigData::LEN);
     let multisig_data_account = Keypair::new();
     let inner_multisig_op_account = Keypair::new();
     let dapp = DAppBookEntry {
-        address: context.program_id.clone(),
+        address: context.test_context.program_id.clone(),
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"Strike Wallet")),
     };
 
@@ -1122,50 +1215,52 @@ async fn test_multisig_op_version_mismatch() {
     .await;
 
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_op_account.pubkey(),
                     multisig_op_account_rent,
                     MultisigOp::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 system_instruction::create_account(
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &multisig_data_account.pubkey(),
                     multisig_data_account_rent,
                     DAppMultisigData::LEN as u64,
-                    &context.program_id,
+                    &context.test_context.program_id,
                 ),
                 init_dapp_transaction(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
                     &multisig_op_account.pubkey(),
                     &multisig_data_account.pubkey(),
                     &context.initiator_account.pubkey(),
-                    &context.pt_context.payer.pubkey(),
+                    &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
                     inner_instructions.len().as_u8(),
                 ),
             ],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &multisig_op_account,
                 &multisig_data_account,
                 &context.initiator_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     let mut multisig_op_account_shared_data = AccountSharedData::from(
         context
+            .test_context
             .pt_context
             .banks_client
             .get_account(multisig_op_account.pubkey())
@@ -1181,7 +1276,7 @@ async fn test_multisig_op_version_mismatch() {
     let bad_version = correct_version + 1;
     multisig_op.version = bad_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
@@ -1204,7 +1299,7 @@ async fn test_multisig_op_version_mismatch() {
     // put the version back and supply instructions
     multisig_op.version = correct_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
@@ -1223,6 +1318,7 @@ async fn test_multisig_op_version_mismatch() {
     // have to re-read the multisig op account data as it now has a params hash set
     let mut multisig_op_account_shared_data = AccountSharedData::from(
         context
+            .test_context
             .pt_context
             .banks_client
             .get_account(multisig_op_account.pubkey())
@@ -1235,31 +1331,32 @@ async fn test_multisig_op_version_mismatch() {
         MultisigOp::unpack_from_slice(multisig_op_account_shared_data.data()).unwrap();
     multisig_op.version = bad_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
 
     let params_hash = utils::get_operation_hash(
-        context.pt_context.banks_client.borrow_mut(),
+        context.test_context.pt_context.banks_client.borrow_mut(),
         multisig_op_account.pubkey(),
     )
     .await;
     let approver = &context.approvers[0];
     let approve_transaction = Transaction::new_signed_with_payer(
         &[set_approval_disposition(
-            &context.program_id,
+            &context.test_context.program_id,
             &multisig_op_account.pubkey(),
             &approver.pubkey(),
             ApprovalDisposition::APPROVE,
             params_hash,
         )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer, approver],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer, approver],
+        context.test_context.pt_context.last_blockhash,
     );
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(approve_transaction)
@@ -1272,7 +1369,7 @@ async fn test_multisig_op_version_mismatch() {
     // put the version back and approve
     multisig_op.version = correct_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
@@ -1280,17 +1377,18 @@ async fn test_multisig_op_version_mismatch() {
     let approver = &context.approvers[1];
     let approve_transaction = Transaction::new_signed_with_payer(
         &[set_approval_disposition(
-            &context.program_id,
+            &context.test_context.program_id,
             &multisig_op_account.pubkey(),
             &approver.pubkey(),
             ApprovalDisposition::APPROVE,
             params_hash,
         )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer, approver],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer, approver],
+        context.test_context.pt_context.last_blockhash,
     );
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(approve_transaction)
@@ -1301,6 +1399,7 @@ async fn test_multisig_op_version_mismatch() {
     // have to re-read the multisig op account data as it now has a disposition set
     let mut multisig_op_account_shared_data = AccountSharedData::from(
         context
+            .test_context
             .pt_context
             .banks_client
             .get_account(multisig_op_account.pubkey())
@@ -1313,40 +1412,42 @@ async fn test_multisig_op_version_mismatch() {
         MultisigOp::unpack_from_slice(multisig_op_account_shared_data.data()).unwrap();
     multisig_op.version = bad_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
 
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_dapp_transaction(
-                &context.program_id,
+                &context.test_context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
                 &multisig_data_account.pubkey(),
                 &balance_account,
-                &context.pt_context.payer.pubkey(),
+                &context.test_context.pt_context.payer.pubkey(),
                 &context.balance_account_guid_hash,
                 &params_hash,
                 &inner_instructions,
                 None,
             )],
-            Some(&context.pt_context.payer.pubkey()),
+            Some(&context.test_context.pt_context.payer.pubkey()),
             &[
-                &context.pt_context.payer,
+                &context.test_context.pt_context.payer,
                 &context.initiator_account,
                 &inner_multisig_op_account,
             ],
-            context.pt_context.last_blockhash,
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     // ensure inner transaction did not execute (so inner multisig op account should not exist)
     assert!(context
+        .test_context
         .pt_context
         .banks_client
         .get_account(inner_multisig_op_account.pubkey())
@@ -1357,6 +1458,7 @@ async fn test_multisig_op_version_mismatch() {
     // outer multisig op and multisig data should have been cleaned up
     for account in vec![multisig_op_account.pubkey(), multisig_data_account.pubkey()] {
         assert!(context
+            .test_context
             .pt_context
             .banks_client
             .get_account(account)

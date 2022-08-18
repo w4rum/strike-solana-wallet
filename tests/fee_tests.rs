@@ -63,21 +63,22 @@ async fn test_fee_collection() {
     let balance_account = &BalanceAccount::find_address(
         &context.wallet_guid_hash,
         &context.balance_account_guid_hash,
-        &context.program_id,
+        &context.test_context.program_id,
     )
     .0;
     context
+        .test_context
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[system_instruction::transfer(
-                &context.pt_context.payer.pubkey(),
+                &context.test_context.pt_context.payer.pubkey(),
                 balance_account,
                 starting_balance,
             )],
-            Some(&context.pt_context.payer.pubkey()),
-            &[&context.pt_context.payer],
-            context.pt_context.last_blockhash,
+            Some(&context.test_context.pt_context.payer.pubkey()),
+            &[&context.test_context.pt_context.payer],
+            context.test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
@@ -97,6 +98,7 @@ async fn test_fee_collection() {
 
     // the balance account should be decremented by the fee amount
     let balance = context
+        .test_context
         .pt_context
         .banks_client
         .get_balance(*balance_account)
@@ -117,6 +119,7 @@ async fn test_fee_collection() {
     )
     .await;
     let balance = context
+        .test_context
         .pt_context
         .banks_client
         .get_balance(*balance_account)
@@ -136,6 +139,7 @@ async fn test_fee_collection() {
     )
     .await;
     let balance = context
+        .test_context
         .pt_context
         .banks_client
         .get_balance(*balance_account)

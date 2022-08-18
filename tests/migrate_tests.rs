@@ -9,8 +9,8 @@ use solana_program::instruction::InstructionError;
 use solana_program::instruction::InstructionError::{Custom, UninitializedAccount};
 use solana_program::program_pack::Pack;
 use solana_program::pubkey::PUBKEY_BYTES;
-use solana_program::system_instruction;
-use solana_program_test::{find_file, processor, read_file, BanksClientError, ProgramTestContext};
+use solana_program::{bpf_loader_upgradeable, system_instruction};
+use solana_program_test::{find_file, read_file, BanksClientError, ProgramTestContext};
 use solana_sdk::account::{AccountSharedData, ReadableAccount, WritableAccount};
 use solana_sdk::transaction::{Transaction, TransactionError};
 use uuid::Uuid;
@@ -29,7 +29,6 @@ use {
         pubkey::Pubkey,
         signature::{Keypair, Signer as SdkSigner},
     },
-    strike_wallet::processor::Processor,
 };
 
 use crate::common::{instructions, utils};
@@ -57,7 +56,6 @@ async fn migrate_account() {
 
     // deploy program as upgradeable
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
     let program_file = find_file(&"strike_wallet.so").unwrap();
     let data = read_file(&program_file);
@@ -87,14 +85,19 @@ async fn migrate_account() {
         ))
         .await
         .unwrap();
+
     let wallet_guid_hash = WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes()));
+    let (program_data_account_address, _) =
+        Pubkey::find_program_address(&[&program_id.to_bytes()], &bpf_loader_upgradeable::id());
+
     utils::init_wallet(
         &mut pt_context.banks_client,
         &pt_context.payer,
         pt_context.last_blockhash,
         &program_id,
+        &program_data_account_address,
+        &pt_context.payer,
         &wallet_account,
-        &assistant_account,
         wallet_guid_hash,
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
@@ -177,7 +180,6 @@ async fn migrate_account() {
             rent_return: pt_context.payer.pubkey().clone(),
             wallet_guid_hash,
             signers: Signers::from_vec(signers),
-            assistant: assistant_account.pubkey_as_signer(),
             address_book: AddressBook::new(),
             approvals_required_for_config,
             approval_timeout_for_config,
@@ -249,20 +251,13 @@ async fn test_migrate_errors() {
     ];
     let config_approvers = signers.clone();
 
-    let program_id = Keypair::new().pubkey();
-    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_compute_max_units(25_000);
-    let mut pt_context = pt.start_with_context().await;
-    let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
+    let mut test_context = setup_test(25_000).await;
 
-    utils::init_wallet(
-        &mut pt_context.banks_client,
-        &pt_context.payer,
-        pt_context.last_blockhash,
-        &program_id,
+    let wallet_account = Keypair::new();
+
+    utils::init_wallet_from_context(
+        &mut test_context,
         &wallet_account,
-        &assistant_account,
         WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
@@ -279,33 +274,39 @@ async fn test_migrate_errors() {
     .unwrap();
 
     let destination_wallet_account = Keypair::new();
-    let rent = pt_context.banks_client.get_rent().await.unwrap();
+    let rent = test_context
+        .pt_context
+        .banks_client
+        .get_rent()
+        .await
+        .unwrap();
     let program_rent = rent.minimum_balance(Wallet::LEN);
 
     // create the destination account first in its own transaction
-    pt_context
+    test_context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[system_instruction::create_account(
-                &pt_context.payer.pubkey(),
+                &test_context.pt_context.payer.pubkey(),
                 &destination_wallet_account.pubkey(),
                 program_rent,
                 Wallet::LEN as u64,
-                &program_id,
+                &test_context.program_id,
             )],
-            Some(&pt_context.payer.pubkey()),
-            &[&pt_context.payer, &destination_wallet_account],
-            pt_context.last_blockhash,
+            Some(&test_context.pt_context.payer.pubkey()),
+            &[&test_context.pt_context.payer, &destination_wallet_account],
+            test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
-    let blockhash = pt_context.last_blockhash;
+    let blockhash = test_context.pt_context.last_blockhash;
     // cannot call migrate from the current version
     assert_eq!(
         process_migrate_account_transaction(
-            &mut pt_context,
-            &program_id,
+            &mut test_context.pt_context,
+            &test_context.program_id,
             &wallet_account,
             &destination_wallet_account,
             blockhash
@@ -318,7 +319,8 @@ async fn test_migrate_errors() {
 
     // alter the version of the source account so it is not the current version, but an unknown version
     let mut wallet_account_shared_data = AccountSharedData::from(
-        pt_context
+        test_context
+            .pt_context
             .banks_client
             .get_account(wallet_account.pubkey())
             .await
@@ -328,14 +330,16 @@ async fn test_migrate_errors() {
     let mut wallet = Wallet::unpack_from_slice(wallet_account_shared_data.data()).unwrap();
     wallet.version = 0;
     wallet.pack_into_slice(wallet_account_shared_data.data_as_mut_slice());
-    pt_context.set_account(&wallet_account.pubkey(), &wallet_account_shared_data);
+    test_context
+        .pt_context
+        .set_account(&wallet_account.pubkey(), &wallet_account_shared_data);
 
     // we need a fresh blockhash so the transaction executes again
-    let blockhash = wait_for_new_blockhash(&mut pt_context).await;
+    let blockhash = wait_for_new_blockhash(&mut test_context.pt_context).await;
     assert_eq!(
         process_migrate_account_transaction(
-            &mut pt_context,
-            &program_id,
+            &mut test_context.pt_context,
+            &test_context.program_id,
             &wallet_account,
             &destination_wallet_account,
             blockhash
@@ -348,7 +352,8 @@ async fn test_migrate_errors() {
 
     // set the initialized bit on the destination account
     let mut destination_wallet_account_shared_data = AccountSharedData::from(
-        pt_context
+        test_context
+            .pt_context
             .banks_client
             .get_account(destination_wallet_account.pubkey())
             .await
@@ -356,17 +361,17 @@ async fn test_migrate_errors() {
             .unwrap(),
     );
     destination_wallet_account_shared_data.data_mut()[0] = 1;
-    pt_context.set_account(
+    test_context.pt_context.set_account(
         &destination_wallet_account.pubkey(),
         &destination_wallet_account_shared_data,
     );
 
     // we need a fresh blockhash so the transaction executes again
-    let blockhash = wait_for_new_blockhash(&mut pt_context).await;
+    let blockhash = wait_for_new_blockhash(&mut test_context.pt_context).await;
     assert_eq!(
         process_migrate_account_transaction(
-            &mut pt_context,
-            &program_id,
+            &mut test_context.pt_context,
+            &test_context.program_id,
             &wallet_account,
             &destination_wallet_account,
             blockhash
@@ -385,20 +390,12 @@ async fn test_cleanup_errors() {
     let signers = vec![(SlotId::new(0), Signer::new(Pubkey::new_unique()))];
     let config_approvers = signers.clone();
 
-    let program_id = Keypair::new().pubkey();
-    let mut pt = ProgramTest::new("strike_wallet", program_id, processor!(Processor::process));
-    pt.set_compute_max_units(25_000);
-    let mut pt_context = pt.start_with_context().await;
+    let mut test_context = setup_test(25_000).await;
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
-    utils::init_wallet(
-        &mut pt_context.banks_client,
-        &pt_context.payer,
-        pt_context.last_blockhash,
-        &program_id,
+    utils::init_wallet_from_context(
+        &mut test_context,
         &wallet_account,
-        &assistant_account,
         WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: approvals_required_for_config.clone(),
@@ -416,18 +413,19 @@ async fn test_cleanup_errors() {
 
     // cannot clean up a wallet account for the current program version
     assert_eq!(
-        pt_context
+        test_context
+            .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[cleanup_account(
-                    &program_id,
+                    &test_context.program_id,
                     &wallet_account.pubkey(),
                     &wallet_account.pubkey(),
-                    &pt_context.payer.pubkey(),
+                    &test_context.pt_context.payer.pubkey(),
                 )],
-                Some(&pt_context.payer.pubkey()),
-                &[&pt_context.payer],
-                pt_context.last_blockhash,
+                Some(&test_context.pt_context.payer.pubkey()),
+                &[&test_context.pt_context.payer],
+                test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -437,39 +435,46 @@ async fn test_cleanup_errors() {
 
     // cannot cleanup an uninitialized account
     let uninitialized_account = Keypair::new();
-    let rent = pt_context.banks_client.get_rent().await.unwrap();
+    let rent = test_context
+        .pt_context
+        .banks_client
+        .get_rent()
+        .await
+        .unwrap();
     let wallet_account_rent = rent.minimum_balance(Wallet::LEN);
 
-    pt_context
+    test_context
+        .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
             &[system_instruction::create_account(
-                &pt_context.payer.pubkey(),
+                &test_context.pt_context.payer.pubkey(),
                 &uninitialized_account.pubkey(),
                 wallet_account_rent,
                 Wallet::LEN as u64,
-                &program_id,
+                &test_context.program_id,
             )],
-            Some(&pt_context.payer.pubkey()),
-            &[&pt_context.payer, &uninitialized_account],
-            pt_context.last_blockhash,
+            Some(&test_context.pt_context.payer.pubkey()),
+            &[&test_context.pt_context.payer, &uninitialized_account],
+            test_context.pt_context.last_blockhash,
         ))
         .await
         .unwrap();
 
     assert_eq!(
-        pt_context
+        test_context
+            .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[cleanup_account(
-                    &program_id,
+                    &test_context.program_id,
                     &wallet_account.pubkey(),
                     &uninitialized_account.pubkey(),
-                    &pt_context.payer.pubkey(),
+                    &test_context.pt_context.payer.pubkey(),
                 )],
-                Some(&pt_context.payer.pubkey()),
-                &[&pt_context.payer],
-                pt_context.last_blockhash,
+                Some(&test_context.pt_context.payer.pubkey()),
+                &[&test_context.pt_context.payer],
+                test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -480,7 +485,8 @@ async fn test_cleanup_errors() {
     // must pass correct rent return account
     // (need to modify uninitialized account to be initialized so we can get past previous error)
     let mut uninitialized_wallet_account_shared_data = AccountSharedData::from(
-        pt_context
+        test_context
+            .pt_context
             .banks_client
             .get_account(uninitialized_account.pubkey())
             .await
@@ -488,25 +494,26 @@ async fn test_cleanup_errors() {
             .unwrap(),
     );
     uninitialized_wallet_account_shared_data.data_as_mut_slice()[0] = 1;
-    pt_context.set_account(
+    test_context.pt_context.set_account(
         &uninitialized_account.pubkey(),
         &uninitialized_wallet_account_shared_data,
     );
 
-    let blockhash = wait_for_new_blockhash(&mut pt_context).await;
+    let blockhash = wait_for_new_blockhash(&mut test_context.pt_context).await;
 
     assert_eq!(
-        pt_context
+        test_context
+            .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[cleanup_account(
-                    &program_id,
+                    &test_context.program_id,
                     &wallet_account.pubkey(),
                     &uninitialized_account.pubkey(),
-                    &pt_context.payer.pubkey(),
+                    &test_context.pt_context.payer.pubkey(),
                 )],
-                Some(&pt_context.payer.pubkey()),
-                &[&pt_context.payer],
+                Some(&test_context.pt_context.payer.pubkey()),
+                &[&test_context.pt_context.payer],
                 blockhash,
             ))
             .await
@@ -518,27 +525,28 @@ async fn test_cleanup_errors() {
     // cleanup account must have same wallet guid hash as the wallet account
     // first we modify it so it has the correct rent_return address
     uninitialized_wallet_account_shared_data.data_as_mut_slice()[5..5 + PUBKEY_BYTES]
-        .copy_from_slice(pt_context.payer.pubkey().as_ref());
+        .copy_from_slice(test_context.pt_context.payer.pubkey().as_ref());
 
-    pt_context.set_account(
+    test_context.pt_context.set_account(
         &uninitialized_account.pubkey(),
         &uninitialized_wallet_account_shared_data,
     );
 
-    let blockhash = wait_for_new_blockhash(&mut pt_context).await;
+    let blockhash = wait_for_new_blockhash(&mut test_context.pt_context).await;
 
     assert_eq!(
-        pt_context
+        test_context
+            .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[cleanup_account(
-                    &program_id,
+                    &test_context.program_id,
                     &wallet_account.pubkey(),
                     &uninitialized_account.pubkey(),
-                    &pt_context.payer.pubkey(),
+                    &test_context.pt_context.payer.pubkey(),
                 )],
-                Some(&pt_context.payer.pubkey()),
-                &[&pt_context.payer],
+                Some(&test_context.pt_context.payer.pubkey()),
+                &[&test_context.pt_context.payer],
                 blockhash,
             ))
             .await

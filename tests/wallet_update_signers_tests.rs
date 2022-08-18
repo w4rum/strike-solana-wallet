@@ -147,12 +147,12 @@ async fn test_remove_signer_fails_for_a_transfer_approver() {
     let mut context = setup_balance_account_tests(None, true).await;
 
     approve_or_deny_n_of_n_multisig_op(
-        context.pt_context.banks_client.borrow_mut(),
-        &context.program_id,
+        context.test_context.pt_context.banks_client.borrow_mut(),
+        &context.test_context.program_id,
         &context.multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.pt_context.payer,
-        context.pt_context.last_blockhash,
+        &context.test_context.pt_context.payer,
+        context.test_context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
         OperationDisposition::APPROVED,
     )
@@ -162,17 +162,17 @@ async fn test_remove_signer_fails_for_a_transfer_approver() {
     // approvers 0 & 1 are config and transfer approvers, 2 is just a transfer approver
     let multisig_op_account = Keypair::new();
     verify_multisig_op_init_fails(
-        &mut context.pt_context.banks_client,
-        context.pt_context.last_blockhash,
-        &context.pt_context.payer,
-        &context.assistant_account,
+        &mut context.test_context.pt_context.banks_client,
+        context.test_context.pt_context.last_blockhash,
+        &context.test_context.pt_context.payer,
+        &context.initiator_account,
         &multisig_op_account,
         instructions::init_update_signer(
-            &context.program_id,
+            &context.test_context.program_id,
             &context.wallet_account.pubkey(),
             &multisig_op_account.pubkey(),
-            &context.assistant_account.pubkey(),
-            &context.pt_context.payer.pubkey(),
+            &context.initiator_account.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
             SlotUpdateType::Clear,
             SlotId::new(2),
             context.approvers[2].pubkey_as_signer(),
@@ -216,7 +216,11 @@ async fn test_signers_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(
+            &mut context.test_context.pt_context.banks_client,
+            multisig_op_account,
+        )
+        .await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -259,7 +263,11 @@ async fn test_signers_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(
+            &mut context.test_context.pt_context.banks_client,
+            multisig_op_account,
+        )
+        .await,
         1,
         &vec![
             ApprovalDispositionRecord {

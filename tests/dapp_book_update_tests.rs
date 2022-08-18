@@ -23,7 +23,6 @@ async fn test_dapp_book_update() {
     let mut context = setup_test(40_000).await;
 
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new()];
     let signers = vec![
@@ -31,13 +30,9 @@ async fn test_dapp_book_update() {
         approvers[1].pubkey_as_signer(),
     ];
 
-    utils::init_wallet(
-        &mut context.banks_client,
-        &context.payer,
-        context.recent_blockhash,
-        &context.program_id,
+    utils::init_wallet_from_context(
+        &mut context,
         &wallet_account,
-        &assistant_account,
         WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 1,
@@ -74,7 +69,7 @@ async fn test_dapp_book_update() {
     .unwrap();
 
     assert_initialized_multisig_op(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         started_at,
         Duration::from_secs(3600),
         1,
@@ -88,7 +83,7 @@ async fn test_dapp_book_update() {
             update: add_dapp.clone(),
         },
         &approvers[1].pubkey(),
-        &context.payer.pubkey(),
+        &context.pt_context.payer.pubkey(),
     );
 
     approve_n_of_n_multisig_op(&mut context, &multisig_op_account, vec![&approvers[0]]).await;
@@ -103,9 +98,12 @@ async fn test_dapp_book_update() {
 
     assert_eq!(
         Slots::from_vec(vec![dapp_slot]),
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey())
-            .await
-            .dapp_book
+        get_wallet(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey()
+        )
+        .await
+        .dapp_book
     );
 
     // now remove it
@@ -124,7 +122,11 @@ async fn test_dapp_book_update() {
     .unwrap();
 
     assert_initialized_multisig_op(
-        &get_multisig_op_data(&mut context.banks_client, remove_multisig_op_account).await,
+        &get_multisig_op_data(
+            &mut context.pt_context.banks_client,
+            remove_multisig_op_account,
+        )
+        .await,
         started_at,
         Duration::from_secs(3600),
         1,
@@ -138,7 +140,7 @@ async fn test_dapp_book_update() {
             update: remove_dapp.clone(),
         },
         &approvers[0].pubkey(),
-        &context.payer.pubkey(),
+        &context.pt_context.payer.pubkey(),
     );
 
     utils::finalize_dapp_book_update(
@@ -151,9 +153,12 @@ async fn test_dapp_book_update() {
 
     assert_eq!(
         Slots::new(),
-        get_wallet(&mut context.banks_client, &wallet_account.pubkey())
-            .await
-            .dapp_book
+        get_wallet(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey()
+        )
+        .await
+        .dapp_book
     );
 }
 
@@ -162,7 +167,6 @@ async fn test_dapp_book_update_initiator_approval() {
     let mut context = setup_test(30_000).await;
 
     let wallet_account = Keypair::new();
-    let assistant_account = Keypair::new();
 
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
     let signers = vec![
@@ -171,13 +175,9 @@ async fn test_dapp_book_update_initiator_approval() {
         approvers[2].pubkey_as_signer(),
     ];
 
-    utils::init_wallet(
-        &mut context.banks_client,
-        &context.payer,
-        context.recent_blockhash,
-        &context.program_id,
+    utils::init_wallet_from_context(
+        &mut context,
         &wallet_account,
-        &assistant_account,
         WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
         InitialWalletConfig {
             approvals_required_for_config: 2,
@@ -212,7 +212,7 @@ async fn test_dapp_book_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -246,7 +246,7 @@ async fn test_dapp_book_update_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(&mut context.pt_context.banks_client, multisig_op_account).await,
         2,
         &vec![
             ApprovalDispositionRecord {

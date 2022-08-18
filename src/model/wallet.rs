@@ -53,7 +53,6 @@ pub struct Wallet {
     pub rent_return: Pubkey,
     pub wallet_guid_hash: WalletGuidHash,
     pub signers: Signers,
-    pub assistant: Signer,
     pub address_book: AddressBook,
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
@@ -188,7 +187,7 @@ impl Wallet {
         if !initiator.is_signer {
             return Err(WalletError::InvalidSignature.into());
         }
-        if initiator.key == &self.assistant.key || get_initiators().contains(initiator.key) {
+        if get_initiators().contains(initiator.key) {
             Ok(())
         } else {
             msg!("Transactions can only be initiated by an authorized account");
@@ -871,7 +870,6 @@ impl Pack for Wallet {
         PUBKEY_BYTES + // rent return
         HASH_LEN + // wallet guid hash
         Signers::LEN +
-        Signer::LEN + // assistant
         AddressBook::LEN +
         1 + // approvals_required_for_config
         8 + // approval_timeout_for_config
@@ -887,7 +885,6 @@ impl Pack for Wallet {
             rent_return_dst,
             wallet_guid_hash_dst,
             signers_dst,
-            assistant_account_dst,
             address_book_dst,
             approvals_required_for_config_dst,
             approval_timeout_for_config_dst,
@@ -901,7 +898,6 @@ impl Pack for Wallet {
             PUBKEY_BYTES,
             HASH_LEN,
             Signers::LEN,
-            Signer::LEN,
             AddressBook::LEN,
             1,
             8,
@@ -915,7 +911,6 @@ impl Pack for Wallet {
         rent_return_dst.copy_from_slice(self.rent_return.as_ref());
         wallet_guid_hash_dst.copy_from_slice(&self.wallet_guid_hash.0);
         self.signers.pack_into_slice(signers_dst);
-        self.assistant.pack_into_slice(assistant_account_dst);
         self.address_book.pack_into_slice(address_book_dst);
         approvals_required_for_config_dst[0] = self.approvals_required_for_config;
         *approval_timeout_for_config_dst = self.approval_timeout_for_config.as_secs().to_le_bytes();
@@ -932,7 +927,6 @@ impl Pack for Wallet {
             rent_return,
             wallet_guid_hash,
             signers_src,
-            assistant,
             address_book_src,
             approvals_required_for_config,
             approval_timeout_for_config,
@@ -946,7 +940,6 @@ impl Pack for Wallet {
             PUBKEY_BYTES,
             HASH_LEN,
             Signers::LEN,
-            Signer::LEN,
             AddressBook::LEN,
             1,
             8,
@@ -965,7 +958,6 @@ impl Pack for Wallet {
             rent_return: Pubkey::new_from_array(*rent_return),
             wallet_guid_hash: WalletGuidHash::new(wallet_guid_hash),
             signers: Signers::unpack_from_slice(signers_src)?,
-            assistant: Signer::unpack_from_slice(assistant)?,
             address_book: AddressBook::unpack_from_slice(address_book_src)?,
             approvals_required_for_config: approvals_required_for_config[0],
             approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(

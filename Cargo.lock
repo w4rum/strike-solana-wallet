@@ -5480,6 +5480,7 @@ version = "0.0.1"
 dependencies = [
  "arrayref",
  "assert_matches",
+ "bincode",
  "bitvec",
  "bytes",
  "cmake",

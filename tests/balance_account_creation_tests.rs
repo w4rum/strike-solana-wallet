@@ -41,12 +41,12 @@ async fn test_balance_account_creation() {
     let mut context = setup_balance_account_tests(None, false).await;
 
     approve_or_deny_n_of_n_multisig_op(
-        context.pt_context.banks_client.borrow_mut(),
-        &context.program_id,
+        context.test_context.pt_context.banks_client.borrow_mut(),
+        &context.test_context.program_id,
         &context.multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.pt_context.payer,
-        context.pt_context.last_blockhash,
+        &context.test_context.pt_context.payer,
+        context.test_context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
         OperationDisposition::APPROVED,
     )
@@ -54,12 +54,14 @@ async fn test_balance_account_creation() {
 
     // finalize
     let starting_rent_collector_balance = context
+        .test_context
         .pt_context
         .banks_client
-        .get_balance(context.pt_context.payer.pubkey())
+        .get_balance(context.test_context.pt_context.payer.pubkey())
         .await
         .unwrap();
     let op_account_balance = context
+        .test_context
         .pt_context
         .banks_client
         .get_balance(context.multisig_op_account.pubkey())
@@ -69,7 +71,7 @@ async fn test_balance_account_creation() {
 
     // verify that it was created as expected
     let wallet = get_wallet(
-        &mut context.pt_context.banks_client,
+        &mut context.test_context.pt_context.banks_client,
         &context.wallet_account.pubkey(),
     )
     .await;
@@ -103,6 +105,7 @@ async fn test_balance_account_creation() {
 
     // verify the multisig op account is closed
     assert!(context
+        .test_context
         .pt_context
         .banks_client
         .get_account(context.multisig_op_account.pubkey())
@@ -111,9 +114,10 @@ async fn test_balance_account_creation() {
         .is_none());
     // and that the remaining balance went to the rent collector (less the 5000 in signature fees for the finalize)
     let ending_rent_collector_balance = context
+        .test_context
         .pt_context
         .banks_client
-        .get_balance(context.pt_context.payer.pubkey())
+        .get_balance(context.test_context.pt_context.payer.pubkey())
         .await
         .unwrap();
     assert_eq!(
@@ -176,7 +180,7 @@ async fn test_balance_account_creation_not_signed_by_rent_collector() {
     // first check if it's not signed
     let rent_collector = Keypair::new();
     let mut instruction = finalize_balance_account_creation(
-        &context.program_id,
+        &context.test_context.program_id,
         &context.wallet_account.pubkey(),
         &context.multisig_op_account.pubkey(),
         &rent_collector.pubkey(),
@@ -188,12 +192,13 @@ async fn test_balance_account_creation_not_signed_by_rent_collector() {
 
     let finalize_transaction = Transaction::new_signed_with_payer(
         &[instruction.clone()],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer],
+        context.test_context.pt_context.last_blockhash,
     );
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(finalize_transaction)
@@ -207,12 +212,13 @@ async fn test_balance_account_creation_not_signed_by_rent_collector() {
     instruction.accounts[2].is_signer = true;
     let finalize_transaction = Transaction::new_signed_with_payer(
         &[instruction],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer, &rent_collector],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer, &rent_collector],
+        context.test_context.pt_context.last_blockhash,
     );
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(finalize_transaction)
@@ -234,20 +240,21 @@ async fn test_balance_account_creation_incorrect_hash() {
 
     let finalize_transaction_wrong_wallet_guid_hash = Transaction::new_signed_with_payer(
         &[finalize_balance_account_creation(
-            &context.program_id,
+            &context.test_context.program_id,
             &context.wallet_account.pubkey(),
             &context.multisig_op_account.pubkey(),
-            &context.pt_context.payer.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
             wrong_guid_hash,
             context.expected_creation_params.clone(),
             None,
         )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer],
+        context.test_context.pt_context.last_blockhash,
     );
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(finalize_transaction_wrong_wallet_guid_hash)
@@ -262,21 +269,22 @@ async fn test_balance_account_creation_incorrect_hash() {
 
     let finalize_transaction_wrong_update = Transaction::new_signed_with_payer(
         &[finalize_balance_account_creation(
-            &context.program_id,
+            &context.test_context.program_id,
             &context.wallet_account.pubkey(),
             &context.multisig_op_account.pubkey(),
-            &context.pt_context.payer.pubkey(),
+            &context.test_context.pt_context.payer.pubkey(),
             context.balance_account_guid_hash,
             altered_creation_params.clone(),
             None,
         )],
-        Some(&context.pt_context.payer.pubkey()),
-        &[&context.pt_context.payer],
-        context.pt_context.last_blockhash,
+        Some(&context.test_context.pt_context.payer.pubkey()),
+        &[&context.test_context.pt_context.payer],
+        context.test_context.pt_context.last_blockhash,
     );
 
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(finalize_transaction_wrong_update)
@@ -326,7 +334,11 @@ async fn test_balance_account_creation_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(
+            &mut context.test_context.pt_context.banks_client,
+            multisig_op_account,
+        )
+        .await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -361,7 +373,11 @@ async fn test_balance_account_creation_initiator_approval() {
     .unwrap();
 
     assert_multisig_op_dispositions(
-        &get_multisig_op_data(&mut context.banks_client, multisig_op_account).await,
+        &get_multisig_op_data(
+            &mut context.test_context.pt_context.banks_client,
+            multisig_op_account,
+        )
+        .await,
         2,
         &vec![
             ApprovalDispositionRecord {
@@ -384,6 +400,7 @@ async fn test_multisig_op_version_mismatch() {
     // modify the version in the multisig op
     let mut multisig_op_account_shared_data = AccountSharedData::from(
         context
+            .test_context
             .pt_context
             .banks_client
             .get_account(context.multisig_op_account.pubkey())
@@ -397,7 +414,7 @@ async fn test_multisig_op_version_mismatch() {
     let bad_version = correct_version + 1;
     multisig_op.version = bad_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &context.multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
@@ -406,19 +423,20 @@ async fn test_multisig_op_version_mismatch() {
     let approver = context.approvers[0].borrow();
     assert_eq!(
         context
+            .test_context
             .pt_context
             .banks_client
             .process_transaction(Transaction::new_signed_with_payer(
                 &[set_approval_disposition(
-                    &context.program_id,
+                    &context.test_context.program_id,
                     &context.multisig_op_account.pubkey(),
                     &approver.pubkey(),
                     ApprovalDisposition::APPROVE,
                     Hash::new_from_array([0; 32]), // doesn't matter, it will fail for version mismatch first
                 )],
-                Some(&context.pt_context.payer.pubkey()),
-                &[&context.pt_context.payer, approver],
-                context.pt_context.last_blockhash,
+                Some(&context.test_context.pt_context.payer.pubkey()),
+                &[&context.test_context.pt_context.payer, approver],
+                context.test_context.pt_context.last_blockhash,
             ))
             .await
             .unwrap_err()
@@ -429,18 +447,18 @@ async fn test_multisig_op_version_mismatch() {
     // put the version back and approve
     multisig_op.version = correct_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &context.multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
 
     approve_or_deny_n_of_n_multisig_op(
-        context.pt_context.banks_client.borrow_mut(),
-        &context.program_id,
+        context.test_context.pt_context.banks_client.borrow_mut(),
+        &context.test_context.program_id,
         &context.multisig_op_account.pubkey(),
         vec![&context.approvers[0], &context.approvers[1]],
-        &context.pt_context.payer,
-        context.pt_context.last_blockhash,
+        &context.test_context.pt_context.payer,
+        context.test_context.pt_context.last_blockhash,
         ApprovalDisposition::APPROVE,
         OperationDisposition::APPROVED,
     )
@@ -449,6 +467,7 @@ async fn test_multisig_op_version_mismatch() {
     // modify the version; need to re-read multisig op state since it's changed
     let mut multisig_op_account_shared_data = AccountSharedData::from(
         context
+            .test_context
             .pt_context
             .banks_client
             .get_account(context.multisig_op_account.pubkey())
@@ -460,7 +479,7 @@ async fn test_multisig_op_version_mismatch() {
         MultisigOp::unpack_from_slice(multisig_op_account_shared_data.data()).unwrap();
     multisig_op.version = bad_version;
     multisig_op.pack_into_slice(multisig_op_account_shared_data.data_as_mut_slice());
-    context.pt_context.set_account(
+    context.test_context.pt_context.set_account(
         &context.multisig_op_account.pubkey(),
         &multisig_op_account_shared_data,
     );
@@ -469,7 +488,7 @@ async fn test_multisig_op_version_mismatch() {
     utils::finalize_balance_account_creation(context.borrow_mut()).await;
 
     let wallet = get_wallet(
-        &mut context.pt_context.banks_client,
+        &mut context.test_context.pt_context.banks_client,
         &context.wallet_account.pubkey(),
     )
     .await;
