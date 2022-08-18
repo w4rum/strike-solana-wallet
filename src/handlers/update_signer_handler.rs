@@ -41,6 +41,7 @@ pub fn init(
     start_multisig_config_op(
         &multisig_op_account_info,
         &wallet,
+        None,
         clock,
         MultisigOpParams::UpdateSigner {
             wallet_address: *wallet_account_info.key,

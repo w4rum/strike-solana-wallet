@@ -239,15 +239,9 @@ impl Processor {
                 instructions,
             ),
 
-            ProgramInstruction::FinalizeDAppTransaction {
-                ref account_guid_hash,
-                ref params_hash,
-            } => dapp_transaction_handler::finalize(
-                program_id,
-                accounts,
-                account_guid_hash,
-                params_hash,
-            ),
+            ProgramInstruction::FinalizeDAppTransaction {} => {
+                dapp_transaction_handler::finalize(program_id, accounts)
+            }
 
             ProgramInstruction::InitAccountSettingsUpdate {
                 fee_amount,

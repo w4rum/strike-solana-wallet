@@ -125,6 +125,8 @@ pub fn start_multisig_transfer_op(
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
 
     multisig_op.init(
+        wallet.wallet_guid_hash,
+        Some(balance_account.guid_hash),
         wallet.get_transfer_approvers_keys(balance_account),
         (initiator, ApprovalDisposition::APPROVE),
         balance_account.approvals_required_for_transfer,
@@ -146,6 +148,7 @@ pub fn start_multisig_transfer_op(
 pub fn start_multisig_config_op(
     multisig_op_account_info: &AccountInfo,
     wallet: &Wallet,
+    balance_account_guid_hash: Option<BalanceAccountGuidHash>,
     clock: Clock,
     params: MultisigOpParams,
     initiator: Pubkey,
@@ -156,6 +159,8 @@ pub fn start_multisig_config_op(
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
 
     multisig_op.init(
+        wallet.wallet_guid_hash,
+        balance_account_guid_hash,
         wallet.get_config_approvers_keys(),
         (initiator, ApprovalDisposition::APPROVE),
         wallet.approvals_required_for_config,
@@ -194,7 +199,7 @@ where
             return Err(WalletError::IncorrectRentReturnAccount.into());
         }
 
-        if multisig_op.approved(expected_params.hash(&multisig_op), &clock, None)? {
+        if multisig_op.approved(expected_params.hash(&multisig_op), &clock)? {
             on_op_approved()?;
         } else {
             on_op_not_approved()?;

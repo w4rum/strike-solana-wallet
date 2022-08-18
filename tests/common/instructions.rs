@@ -726,28 +726,21 @@ pub fn supply_dapp_transaction_instructions(
 
 pub fn finalize_dapp_transaction(
     program_id: &Pubkey,
-    wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
     multisig_data_account: &Pubkey,
     balance_account: &Pubkey,
     rent_return_account: &Pubkey,
-    account_guid_hash: &BalanceAccountGuidHash,
-    params_hash: &Hash,
     instructions: &Vec<Instruction>,
     fee_account_maybe: Option<&Pubkey>,
 ) -> Instruction {
-    let data = ProgramInstruction::FinalizeDAppTransaction {
-        account_guid_hash: *account_guid_hash,
-        params_hash: *params_hash,
-    }
-    .borrow()
-    .pack();
+    let data = ProgramInstruction::FinalizeDAppTransaction {}
+        .borrow()
+        .pack();
 
     // the accounts below are expected below in this order by finalize
     let mut accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*multisig_data_account, false),
-        AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new(*balance_account, false),
         AccountMeta::new(*rent_return_account, true),
     ];
@@ -757,7 +750,6 @@ pub fn finalize_dapp_transaction(
     let mut keys_to_skip = vec![
         *multisig_op_account,
         *multisig_data_account,
-        *wallet_account,
         *balance_account,
         *rent_return_account,
     ];

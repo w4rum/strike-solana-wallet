@@ -2,7 +2,6 @@ use bitvec::macros::internal::funty::Fundamental;
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::clock::Clock;
 use solana_program::entrypoint::ProgramResult;
-use solana_program::hash::Hash;
 use solana_program::instruction::Instruction;
 use solana_program::msg;
 use solana_program::program::invoke_signed;
@@ -59,6 +58,8 @@ pub fn init(
 
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
     multisig_op.init(
+        wallet.wallet_guid_hash,
+        Some(balance_account.guid_hash),
         wallet.get_transfer_approvers_keys(&balance_account),
         (*initiator_account_info.key, ApprovalDisposition::NONE),
         balance_account.approvals_required_for_transfer,
@@ -249,16 +250,10 @@ fn balance_changes_from_simulation(
     )
 }
 
-pub fn finalize(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    account_guid_hash: &BalanceAccountGuidHash,
-    params_hash: &Hash,
-) -> ProgramResult {
+pub fn finalize(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
     let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let wallet_account_info = next_program_account_info(accounts_iter, program_id)?;
     let balance_account = next_account_info(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
     let clock = Clock::get()?;
@@ -270,21 +265,23 @@ pub fn finalize(
         let instructions = multisig_data.instructions()?;
         let (is_approved, is_final) = {
             const NOT_FINAL: u32 = WalletError::TransferDispositionNotFinal as u32;
-            match multisig_op.approved(multisig_data.hash(&multisig_op)?, &clock, Some(params_hash))
-            {
+            match multisig_op.approved(multisig_data.hash(&multisig_op)?, &clock) {
                 Ok(a) => (a, true),
                 Err(ProgramError::Custom(NOT_FINAL)) => (false, false),
                 Err(e) => return Err(e),
             }
         };
 
-        let wallet_guid_hash =
-            &Wallet::wallet_guid_hash_from_slice(&wallet_account_info.data.borrow())?;
+        let wallet_guid_hash = multisig_op.wallet_guid_hash;
+
+        let account_guid_hash = multisig_op
+            .balance_account_guid_hash
+            .ok_or(WalletError::NoAccountGuidHashInMultisigOp)?;
 
         let bump_seed = validate_balance_account_and_get_seed(
             balance_account,
-            wallet_guid_hash,
-            account_guid_hash,
+            &wallet_guid_hash,
+            &account_guid_hash,
             program_id,
         )?;
 

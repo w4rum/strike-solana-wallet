@@ -21,7 +21,7 @@ use crate::instruction::{
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use crate::model::signer::Signer;
-use crate::model::wallet::Wallet;
+use crate::model::wallet::{Wallet, WalletGuidHash};
 use crate::serialization_utils::pack_option;
 use crate::utils::SlotId;
 use crate::version::{Versioned, VERSION};
@@ -258,6 +258,8 @@ pub struct MultisigOp {
     pub rent_return: Pubkey,
     pub fee_amount: u64,
     pub fee_account_guid_hash: Option<BalanceAccountGuidHash>,
+    pub wallet_guid_hash: WalletGuidHash,
+    pub balance_account_guid_hash: Option<BalanceAccountGuidHash>,
 }
 
 const EMPTY_HASH: [u8; HASH_BYTES] = [0; HASH_BYTES];
@@ -272,6 +274,8 @@ impl MultisigOp {
 
     pub fn init(
         &mut self,
+        wallet_guid_hash: WalletGuidHash,
+        balance_account_guid_hash: Option<BalanceAccountGuidHash>,
         approvers: Vec<Pubkey>,
         initiator_disposition: (Pubkey, ApprovalDisposition),
         approvals_required: u8,
@@ -282,6 +286,8 @@ impl MultisigOp {
         fee_amount: u64,
         fee_account_guid_hash: Option<BalanceAccountGuidHash>,
     ) -> ProgramResult {
+        self.wallet_guid_hash = wallet_guid_hash;
+        self.balance_account_guid_hash = balance_account_guid_hash;
         self.disposition_records = approvers
             .iter()
             .map(|approver| ApprovalDispositionRecord {
@@ -367,29 +373,14 @@ impl MultisigOp {
         return self.operation_disposition;
     }
 
-    pub fn approved(
-        &self,
-        expected_param_hash: Hash,
-        clock: &Clock,
-        supplied_param_hash: Option<&Hash>,
-    ) -> Result<bool, ProgramError> {
+    pub fn approved(&self, expected_param_hash: Hash, clock: &Clock) -> Result<bool, ProgramError> {
         match self.params_hash {
             Some(hash) => {
                 if expected_param_hash != hash {
                     return Err(WalletError::InvalidSignature.into());
                 }
-                if let Some(supplied_hash) = supplied_param_hash {
-                    if *supplied_hash != hash {
-                        return Err(WalletError::InvalidSignature.into());
-                    }
-                }
             }
             None => {
-                if let Some(hash) = supplied_param_hash {
-                    if expected_param_hash != *hash {
-                        return Err(WalletError::InvalidSignature.into());
-                    }
-                }
                 return Err(WalletError::OperationNotInitialized.into());
             }
         }
@@ -447,7 +438,9 @@ impl Pack for MultisigOp {
         + PUBKEY_BYTES // initiator
         + PUBKEY_BYTES // rent return
         + 8 // fee amount
-        + HASH_LEN; // fee account
+        + HASH_LEN // fee account guid hash
+        + HASH_LEN // wallet guid hash
+        + HASH_LEN; // balance account guid hash
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
@@ -465,6 +458,8 @@ impl Pack for MultisigOp {
             rent_return_dst,
             fee_amount_dst,
             fee_account_guid_hash_dst,
+            wallet_guid_hash_dst,
+            balance_account_guid_hash_dst,
         ) = mut_array_refs![
             dst,
             1,
@@ -479,6 +474,8 @@ impl Pack for MultisigOp {
             PUBKEY_BYTES,
             PUBKEY_BYTES,
             8,
+            HASH_LEN,
+            HASH_LEN,
             HASH_LEN
         ];
 
@@ -495,6 +492,8 @@ impl Pack for MultisigOp {
             rent_return,
             fee_amount,
             fee_account_guid_hash,
+            wallet_guid_hash,
+            balance_account_guid_hash,
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
@@ -530,6 +529,12 @@ impl Pack for MultisigOp {
         } else {
             fee_account_guid_hash_dst.copy_from_slice(&EMPTY_HASH)
         }
+        wallet_guid_hash_dst.copy_from_slice(&wallet_guid_hash.to_bytes());
+        if let Some(hash) = balance_account_guid_hash {
+            balance_account_guid_hash_dst.copy_from_slice(&hash.to_bytes());
+        } else {
+            balance_account_guid_hash_dst.copy_from_slice(&EMPTY_HASH)
+        }
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -548,6 +553,8 @@ impl Pack for MultisigOp {
             rent_return,
             fee_amount,
             fee_account_guid_hash,
+            wallet_guid_hash,
+            balance_account_guid_hash,
         ) = array_refs![
             src,
             1,
@@ -562,6 +569,8 @@ impl Pack for MultisigOp {
             PUBKEY_BYTES,
             PUBKEY_BYTES,
             8,
+            HASH_LEN,
+            HASH_LEN,
             HASH_LEN
         ];
         let is_initialized = match is_initialized {
@@ -600,6 +609,12 @@ impl Pack for MultisigOp {
                 None
             } else {
                 Some(BalanceAccountGuidHash::new(fee_account_guid_hash))
+            },
+            wallet_guid_hash: WalletGuidHash::new(wallet_guid_hash),
+            balance_account_guid_hash: if *balance_account_guid_hash == EMPTY_HASH {
+                None
+            } else {
+                Some(BalanceAccountGuidHash::new(balance_account_guid_hash))
             },
         })
     }

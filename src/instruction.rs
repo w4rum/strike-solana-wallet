@@ -247,15 +247,11 @@ pub enum ProgramInstruction {
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The multisig data account
-    /// 2. `[]` The wallet account
-    /// 3. `[writable]` The balance account
-    /// 4. `[signer, writable]` The rent return account
-    /// 5. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 6. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
-    FinalizeDAppTransaction {
-        account_guid_hash: BalanceAccountGuidHash,
-        params_hash: Hash,
-    },
+    /// 2. `[writable]` The balance account
+    /// 3. `[signer, writable]` The rent return account
+    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    FinalizeDAppTransaction {},
 
     /// 0  `[writable]` The multisig operation account
     /// 1. `[]` The wallet account
@@ -566,13 +562,8 @@ impl ProgramInstruction {
                 buf.extend_from_slice(&buf2[..]);
                 buf.put_u8(instruction_count);
             }
-            &ProgramInstruction::FinalizeDAppTransaction {
-                ref account_guid_hash,
-                ref params_hash,
-            } => {
+            &ProgramInstruction::FinalizeDAppTransaction {} => {
                 buf.push(TAG_FINALIZE_DAPP_TRANSACTION);
-                buf.extend_from_slice(&account_guid_hash.to_bytes());
-                buf.extend_from_slice(&params_hash.to_bytes());
             }
             &ProgramInstruction::InitAccountSettingsUpdate {
                 fee_amount,
@@ -770,11 +761,10 @@ impl ProgramInstruction {
             TAG_FINALIZE_WALLET_CONFIG_POLICY_UPDATE => {
                 Self::unpack_finalize_wallet_config_policy_update_instruction(rest)?
             }
-            TAG_INIT_DAPP_TRANSACTION => Self::unpack_init_dapp_transaction_instruction(rest)?,
 
-            TAG_FINALIZE_DAPP_TRANSACTION => {
-                Self::unpack_finalize_dapp_transaction_instruction(rest)?
-            }
+            TAG_INIT_DAPP_TRANSACTION => Self::unpack_init_dapp_transaction_instruction(rest)?,
+            TAG_FINALIZE_DAPP_TRANSACTION => Self::FinalizeDAppTransaction {},
+
             TAG_INIT_ACCOUNT_SETTINGS_UPDATE => {
                 Self::unpack_init_account_settings_update_instruction(rest)?
             }
@@ -1047,21 +1037,6 @@ impl ProgramInstruction {
             account_guid_hash,
             dapp,
             instruction_count: *instruction_count,
-        })
-    }
-
-    fn unpack_finalize_dapp_transaction_instruction(
-        bytes: &[u8],
-    ) -> Result<ProgramInstruction, ProgramError> {
-        let iter = &mut bytes.into_iter();
-        let account_guid_hash = unpack_account_guid_hash(
-            read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?,
-        )?;
-        let params_hash =
-            Hash::new(read_slice(iter, HASH_LEN).ok_or(ProgramError::InvalidInstructionData)?);
-        Ok(Self::FinalizeDAppTransaction {
-            account_guid_hash,
-            params_hash,
         })
     }
 

@@ -149,6 +149,10 @@ pub enum WalletError {
     /// Incorrect Initiator Account
     #[error("Incorrect Initiator Account")]
     IncorrectInitiatorAccount,
+
+    /// No Account Guid Hash In Multisig Op
+    #[error("No Account Guid Hash In Multisig Op")]
+    NoAccountGuidHashInMultisigOp,
 }
 
 impl From<WalletError> for ProgramError {
