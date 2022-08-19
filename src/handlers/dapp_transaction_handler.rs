@@ -37,7 +37,6 @@ pub fn init(
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
     let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
     let clock = get_clock_from_next_account(accounts_iter)?;
@@ -59,6 +58,13 @@ pub fn init(
     }
 
     let mut multisig_op = MultisigOp::unpack_unchecked(&multisig_op_account_info.data.borrow())?;
+    let mut multisig_data: DAppMultisigData = DAppMultisigData::default();
+    multisig_data.init(
+        *wallet_account_info.key,
+        *account_guid_hash,
+        dapp,
+        instruction_count,
+    )?;
     multisig_op.init(
         wallet.wallet_guid_hash,
         Some(balance_account.guid_hash),
@@ -74,21 +80,9 @@ pub fn init(
         *rent_return_account_info.key,
         fee_amount,
         fee_account_guid_hash,
+        Some(multisig_data),
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
-
-    let mut multisig_data =
-        DAppMultisigData::unpack_unchecked(&multisig_data_account_info.data.borrow())?;
-    multisig_data.init(
-        *wallet_account_info.key,
-        *account_guid_hash,
-        dapp,
-        instruction_count,
-    )?;
-    DAppMultisigData::pack(
-        multisig_data,
-        &mut multisig_data_account_info.data.borrow_mut(),
-    )?;
 
     Ok(())
 }
@@ -101,7 +95,6 @@ pub fn supply_instructions(
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
     let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
 
@@ -121,11 +114,8 @@ pub fn supply_instructions(
     let params_hash = {
         let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
 
-        let mut multisig_data =
-            DAppMultisigData::unpack(&multisig_data_account_info.data.borrow())?;
-
         let whitelisting_on = wallet
-            .get_balance_account(&multisig_data.account_guid_hash)?
+            .get_balance_account(&multisig_op.balance_account_guid_hash.unwrap())?
             .whitelist_enabled
             == BooleanSetting::On;
         let instruction_whitelist = if whitelisting_on {
@@ -134,7 +124,7 @@ pub fn supply_instructions(
                     .dapp_book
                     .into_iter()
                     .filter_map(|entry| {
-                        if entry.name_hash == multisig_data.dapp.name_hash {
+                        if entry.name_hash == multisig_op.dapp().unwrap().name_hash {
                             Some(entry.address)
                         } else {
                             None
@@ -160,19 +150,20 @@ pub fn supply_instructions(
                     return Err(WalletError::DAppInstructionForbidden.into());
                 }
             }
-            multisig_data.add_instruction(index, instruction)?;
+            multisig_op.add_instruction(index, instruction)?;
         }
 
-        let params_hash = if multisig_data.all_instructions_supplied() {
-            Some(multisig_data.hash(&multisig_op)?)
-        } else {
-            None
-        };
-
-        DAppMultisigData::pack(
-            multisig_data,
-            &mut multisig_data_account_info.data.borrow_mut(),
-        )?;
+        let params_hash = multisig_op
+            .dapp_tx_data
+            .iter()
+            .flat_map(|data| {
+                if data.all_instructions_supplied() {
+                    multisig_op.dapp_hash().ok()
+                } else {
+                    None
+                }
+            })
+            .next();
 
         params_hash
     };
@@ -195,9 +186,9 @@ pub fn supply_instructions(
         {
             multisig_op.operation_disposition = OperationDisposition::APPROVED
         }
-
-        MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
     }
+
+    MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
     Ok(())
 }
@@ -288,102 +279,95 @@ fn balance_changes_from_simulation(
 pub fn finalize(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
-    let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
     let balance_account = next_account_info(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
     let clock = Clock::get()?;
 
     if MultisigOp::version_from_slice(&multisig_op_account_info.data.borrow())? == VERSION {
         let multisig_op = MultisigOp::unpack(&multisig_op_account_info.data.borrow())?;
-        let multisig_data = DAppMultisigData::unpack(&multisig_data_account_info.data.borrow())?;
 
-        let instructions = multisig_data.instructions()?;
-        let (is_approved, is_final) = {
-            const NOT_FINAL: u32 = WalletError::TransferDispositionNotFinal as u32;
-            match multisig_op.approved(multisig_data.hash(&multisig_op)?, &clock) {
-                Ok(a) => (a, true),
-                Err(ProgramError::Custom(NOT_FINAL)) => (false, false),
-                Err(e) => return Err(e),
+        if let Some(ref data) = multisig_op.dapp_tx_data {
+            let instructions = data.instructions()?;
+            let expected_param_hash = multisig_op.dapp_hash()?;
+
+            let (is_approved, is_final) = {
+                const NOT_FINAL: u32 = WalletError::TransferDispositionNotFinal as u32;
+                match multisig_op.approved(expected_param_hash, &clock) {
+                    Ok(a) => (a, true),
+                    Err(ProgramError::Custom(NOT_FINAL)) => (false, false),
+                    Err(e) => return Err(e),
+                }
+            };
+
+            let wallet_guid_hash = multisig_op.wallet_guid_hash;
+            let account_guid_hash = multisig_op
+                .balance_account_guid_hash
+                .ok_or(WalletError::NoAccountGuidHashInMultisigOp)?;
+
+            let bump_seed = validate_balance_account_and_get_seed(
+                balance_account,
+                &wallet_guid_hash,
+                &account_guid_hash,
+                program_id,
+            )?;
+
+            if *rent_return_account_info.key != multisig_op.rent_return {
+                return Err(WalletError::IncorrectRentReturnAccount.into());
             }
-        };
 
-        let wallet_guid_hash = multisig_op.wallet_guid_hash;
+            let starting_balances: Vec<u64> = if is_final {
+                Vec::new()
+            } else {
+                account_balances(accounts)
+            };
 
-        let account_guid_hash = multisig_op
-            .balance_account_guid_hash
-            .ok_or(WalletError::NoAccountGuidHashInMultisigOp)?;
+            let starting_spl_balances: Vec<SplBalance> = if is_final {
+                Vec::new()
+            } else {
+                spl_balances(accounts)
+            };
 
-        let bump_seed = validate_balance_account_and_get_seed(
-            balance_account,
-            &wallet_guid_hash,
-            &account_guid_hash,
-            program_id,
-        )?;
-
-        if *rent_return_account_info.key != multisig_op.rent_return {
-            return Err(WalletError::IncorrectRentReturnAccount.into());
-        }
-
-        let starting_balances: Vec<u64> = if is_final {
-            Vec::new()
-        } else {
-            account_balances(accounts)
-        };
-
-        let starting_spl_balances: Vec<SplBalance> = if is_final {
-            Vec::new()
-        } else {
-            spl_balances(accounts)
-        };
-
-        // actually run instructions if action is approved or this is a simulation (we are not final)
-        if is_approved || !is_final {
-            for instruction in instructions.iter() {
-                invoke_signed(
-                    &instruction,
-                    &accounts,
-                    &[&[
-                        wallet_guid_hash.to_bytes(),
-                        account_guid_hash.to_bytes(),
-                        &[bump_seed],
-                    ]],
-                )?;
+            // actually run instructions if action is approved or this is a simulation (we are not final)
+            if is_approved || !is_final {
+                for instruction in instructions.iter() {
+                    invoke_signed(
+                        &instruction,
+                        &accounts,
+                        &[&[
+                            wallet_guid_hash.to_bytes(),
+                            account_guid_hash.to_bytes(),
+                            &[bump_seed],
+                        ]],
+                    )?;
+                }
             }
-        }
 
-        if is_final {
-            cleanup(
-                &multisig_op_account_info,
-                &multisig_data_account_info,
-                &rent_return_account_info,
-            )
+            if is_final {
+                cleanup(&multisig_op_account_info, &rent_return_account_info)
+            } else {
+                msg!(&balance_changes_from_simulation(
+                    starting_balances,
+                    starting_spl_balances,
+                    account_balances(accounts),
+                    spl_balances(accounts),
+                    accounts,
+                ));
+                Err(WalletError::SimulationFinished.into())
+            }
         } else {
-            msg!(&balance_changes_from_simulation(
-                starting_balances,
-                starting_spl_balances,
-                account_balances(accounts),
-                spl_balances(accounts),
-                accounts,
-            ));
-            Err(WalletError::SimulationFinished.into())
+            Err(WalletError::OperationNotInitialized.into())
         }
     } else {
         log_op_disposition(OperationDisposition::EXPIRED);
-        cleanup(
-            &multisig_op_account_info,
-            &multisig_data_account_info,
-            &rent_return_account_info,
-        )
+        cleanup(&multisig_op_account_info, &rent_return_account_info)
     }
 }
 
 fn cleanup(
     multisig_op_account_info: &AccountInfo,
-    multisig_data_account_info: &AccountInfo,
     rent_return_account_info: &AccountInfo,
 ) -> ProgramResult {
     collect_remaining_balance(multisig_op_account_info, rent_return_account_info)?;
-    collect_remaining_balance(multisig_data_account_info, rent_return_account_info)?;
 
     Ok(())
 }

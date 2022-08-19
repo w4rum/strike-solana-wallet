@@ -139,6 +139,7 @@ pub fn start_multisig_transfer_op(
         rent_return,
         fee_amount,
         fee_account_guid_hash,
+        None,
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
@@ -170,6 +171,7 @@ pub fn start_multisig_config_op(
         rent_return,
         fee_amount,
         fee_account_guid_hash,
+        None,
     )?;
     MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 

@@ -20,6 +20,7 @@ use crate::instruction::{
 };
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
+use crate::model::dapp_multisig_data::DAppMultisigData;
 use crate::model::signer::Signer;
 use crate::model::wallet::{Wallet, WalletGuidHash};
 use crate::serialization_utils::pack_option;
@@ -260,6 +261,7 @@ pub struct MultisigOp {
     pub fee_account_guid_hash: Option<BalanceAccountGuidHash>,
     pub wallet_guid_hash: WalletGuidHash,
     pub balance_account_guid_hash: Option<BalanceAccountGuidHash>,
+    pub dapp_tx_data: Option<DAppMultisigData>,
 }
 
 const EMPTY_HASH: [u8; HASH_BYTES] = [0; HASH_BYTES];
@@ -285,6 +287,7 @@ impl MultisigOp {
         rent_return: Pubkey,
         fee_amount: u64,
         fee_account_guid_hash: Option<BalanceAccountGuidHash>,
+        dapp_tx_data: Option<DAppMultisigData>,
     ) -> ProgramResult {
         self.wallet_guid_hash = wallet_guid_hash;
         self.balance_account_guid_hash = balance_account_guid_hash;
@@ -308,6 +311,7 @@ impl MultisigOp {
         self.fee_amount = fee_amount;
         self.fee_account_guid_hash = fee_account_guid_hash;
         self.params_hash = params.map_or(None, |p| Some(p.hash(&self)));
+        self.dapp_tx_data = dapp_tx_data;
 
         if self.get_disposition_count(ApprovalDisposition::APPROVE) == self.dispositions_required {
             self.operation_disposition = OperationDisposition::APPROVED
@@ -403,6 +407,33 @@ impl MultisigOp {
 
         Ok(false)
     }
+
+    pub fn add_instruction(&mut self, index: u8, instruction: &Instruction) -> ProgramResult {
+        if self.dapp_tx_data.is_none() {
+            Err(WalletError::OperationNotInitialized.into())
+        } else {
+            self.dapp_tx_data
+                .as_mut()
+                .unwrap()
+                .add_instruction(index, instruction)
+        }
+    }
+
+    pub fn dapp_hash(&self) -> Result<Hash, ProgramError> {
+        if self.dapp_tx_data.is_none() {
+            Err(WalletError::OperationNotInitialized.into())
+        } else {
+            self.dapp_tx_data.as_ref().unwrap().hash(common_data(self))
+        }
+    }
+
+    pub fn dapp(&self) -> Option<DAppBookEntry> {
+        if self.dapp_tx_data.is_some() {
+            Some(self.dapp_tx_data.as_ref().unwrap().dapp)
+        } else {
+            None
+        }
+    }
 }
 
 impl Versioned for MultisigOp {
@@ -440,7 +471,8 @@ impl Pack for MultisigOp {
         + 8 // fee amount
         + HASH_LEN // fee account guid hash
         + HASH_LEN // wallet guid hash
-        + HASH_LEN; // balance account guid hash
+        + HASH_LEN // balance account guid hash
+        + DAppMultisigData::LEN;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, MultisigOp::LEN];
@@ -460,6 +492,7 @@ impl Pack for MultisigOp {
             fee_account_guid_hash_dst,
             wallet_guid_hash_dst,
             balance_account_guid_hash_dst,
+            dapp_tx_data_dst,
         ) = mut_array_refs![
             dst,
             1,
@@ -476,7 +509,8 @@ impl Pack for MultisigOp {
             8,
             HASH_LEN,
             HASH_LEN,
-            HASH_LEN
+            HASH_LEN,
+            DAppMultisigData::LEN
         ];
 
         let MultisigOp {
@@ -494,6 +528,7 @@ impl Pack for MultisigOp {
             fee_account_guid_hash,
             wallet_guid_hash,
             balance_account_guid_hash,
+            dapp_tx_data,
         } = self;
 
         is_initialized_dst[0] = *is_initialized as u8;
@@ -535,6 +570,10 @@ impl Pack for MultisigOp {
         } else {
             balance_account_guid_hash_dst.copy_from_slice(&EMPTY_HASH)
         }
+
+        if let Some(dapp_tx) = dapp_tx_data {
+            dapp_tx.pack_into_slice(dapp_tx_data_dst)
+        }
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -555,6 +594,7 @@ impl Pack for MultisigOp {
             fee_account_guid_hash,
             wallet_guid_hash,
             balance_account_guid_hash,
+            dapp_tx_data,
         ) = array_refs![
             src,
             1,
@@ -571,7 +611,8 @@ impl Pack for MultisigOp {
             8,
             HASH_LEN,
             HASH_LEN,
-            HASH_LEN
+            HASH_LEN,
+            DAppMultisigData::LEN
         ];
         let is_initialized = match is_initialized {
             [0] => false,
@@ -615,6 +656,11 @@ impl Pack for MultisigOp {
                 None
             } else {
                 Some(BalanceAccountGuidHash::new(balance_account_guid_hash))
+            },
+            dapp_tx_data: if dapp_tx_data[0] == 1 {
+                Some(DAppMultisigData::unpack_from_slice(dapp_tx_data)?)
+            } else {
+                None
             },
         })
     }

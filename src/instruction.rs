@@ -224,11 +224,10 @@ pub enum ProgramInstruction {
     FinalizeWalletConfigPolicyUpdate { update: WalletConfigPolicyUpdate },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[writable]` The multisig data account
-    /// 2. `[]` The wallet account
-    /// 3. `[signer]` The initiator account
-    /// 4. `[]` The sysvar clock account
-    /// 5. `[signer]` The rent return account
+    /// 1. `[]` The wallet account
+    /// 2. `[signer]` The initiator account
+    /// 3. `[]` The sysvar clock account
+    /// 4. `[signer]` The rent return account
     InitDAppTransaction {
         fee_amount: u64,
         fee_account_guid_hash: Option<BalanceAccountGuidHash>,
@@ -238,20 +237,18 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[writable]` The multisig data account
-    /// 2. `[]` The wallet account
-    /// 3. `[signer]` The initiator account
+    /// 1. `[]` The wallet account
+    /// 2. `[signer]` The initiator account
     SupplyDAppTransactionInstructions {
         instructions: Vec<Instruction>,
         starting_index: u8,
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[writable]` The multisig data account
-    /// 2. `[writable]` The balance account
-    /// 3. `[signer, writable]` The rent return account
-    /// 4. `[writable]` The fee account, if fee_account_guid_hash was set in the init
-    /// 5. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
+    /// 1. `[writable]` The balance account
+    /// 2. `[signer, writable]` The rent return account
+    /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
+    /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeDAppTransaction {},
 
     /// 0  `[writable]` The multisig operation account

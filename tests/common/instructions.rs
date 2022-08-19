@@ -668,7 +668,6 @@ pub fn init_dapp_transaction(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
     multisig_op_account: &Pubkey,
-    multisig_data_account: &Pubkey,
     initiator_account: &Pubkey,
     rent_return_account: &Pubkey,
     account_guid_hash: &BalanceAccountGuidHash,
@@ -687,7 +686,6 @@ pub fn init_dapp_transaction(
 
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*multisig_data_account, false),
         AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new_readonly(*initiator_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
@@ -704,7 +702,6 @@ pub fn init_dapp_transaction(
 pub fn supply_dapp_transaction_instructions(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
-    multisig_data_account: &Pubkey,
     wallet_account: &Pubkey,
     initiator_account: &Pubkey,
     starting_index: u8,
@@ -714,7 +711,6 @@ pub fn supply_dapp_transaction_instructions(
     pack_supply_dapp_transaction_instructions(starting_index, instructions, &mut data);
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*multisig_data_account, false),
         AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new_readonly(*initiator_account, true),
     ];
@@ -729,7 +725,6 @@ pub fn supply_dapp_transaction_instructions(
 pub fn finalize_dapp_transaction(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
-    multisig_data_account: &Pubkey,
     balance_account: &Pubkey,
     rent_return_account: &Pubkey,
     instructions: &Vec<Instruction>,
@@ -742,19 +737,13 @@ pub fn finalize_dapp_transaction(
     // the accounts below are expected below in this order by finalize
     let mut accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new(*multisig_data_account, false),
         AccountMeta::new(*balance_account, false),
         AccountMeta::new(*rent_return_account, true),
     ];
 
     // we also need to include any accounts referenced by the dapp instructions, but we don't
     // want to repeat keys
-    let mut keys_to_skip = vec![
-        *multisig_op_account,
-        *multisig_data_account,
-        *balance_account,
-        *rent_return_account,
-    ];
+    let mut keys_to_skip = vec![*multisig_op_account, *balance_account, *rent_return_account];
 
     // add the optional fee account if it is supplied
     if let Some(fee_account) = fee_account_maybe {

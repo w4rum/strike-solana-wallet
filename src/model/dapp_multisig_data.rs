@@ -1,8 +1,7 @@
 use crate::error::WalletError;
 use crate::instruction::{append_instruction, read_instruction_from_slice};
-use crate::model::address_book::DAppBookEntry;
+use crate::model::address_book::{DAppBookEntry, DAppBookEntryNameHash};
 use crate::model::balance_account::BalanceAccountGuidHash;
-use crate::model::multisig_op::{common_data, MultisigOp};
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use bitvec::macros::internal::funty::Fundamental;
 use bytes::BufMut;
@@ -28,6 +27,24 @@ pub struct DAppMultisigData {
     instruction_offsets: [u16; MAX_INSTRUCTION_COUNT],
     instruction_data: Vec<u8>,
     position: usize,
+}
+
+impl Default for DAppMultisigData {
+    fn default() -> Self {
+        DAppMultisigData {
+            is_initialized: false,
+            wallet_address: Pubkey::default(),
+            account_guid_hash: BalanceAccountGuidHash::default(),
+            dapp: DAppBookEntry {
+                address: Pubkey::default(),
+                name_hash: DAppBookEntryNameHash::zero(),
+            },
+            num_instructions: 0,
+            instruction_offsets: [0; 32],
+            instruction_data: vec![],
+            position: 0,
+        }
+    }
 }
 
 impl DAppMultisigData {
@@ -83,10 +100,10 @@ impl DAppMultisigData {
         })
     }
 
-    pub fn hash(&self, multisig_op: &MultisigOp) -> Result<Hash, ProgramError> {
+    pub fn hash(&self, common_data: Vec<u8>) -> Result<Hash, ProgramError> {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.push(7);
-        bytes.extend_from_slice(common_data(multisig_op).as_slice());
+        bytes.extend_from_slice(common_data.as_slice());
         bytes.extend_from_slice(&self.wallet_address.to_bytes());
         bytes.extend_from_slice(&self.account_guid_hash.to_bytes());
         let mut buf = vec![0; DAppBookEntry::LEN];
