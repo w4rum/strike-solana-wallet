@@ -3,6 +3,7 @@ pub mod error;
 pub mod instruction;
 pub mod model;
 pub mod processor;
+pub mod security;
 pub mod serialization_utils;
 pub mod utils;
 pub mod version;
