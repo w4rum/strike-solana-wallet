@@ -450,6 +450,7 @@ async fn test_dapp_transaction_with_spl_transfers() {
             &context.test_context.pt_context.payer.pubkey(),
             &balance_account,
             &mint.pubkey(),
+            &spl_token::id(),
         ),
         spl_token::instruction::mint_to(
             &spl_token::id(),

@@ -286,6 +286,7 @@ async fn test_transfer_spl(
                         &context.test_context.pt_context.payer.pubkey(),
                         &context.destination.pubkey(),
                         &spl_context.mint.pubkey(),
+                        &spl_token::id(),
                     ),
                 ],
                 Some(&context.test_context.pt_context.payer.pubkey()),

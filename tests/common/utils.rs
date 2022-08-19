@@ -2279,6 +2279,7 @@ pub async fn setup_spl_transfer_test(
                     &context.test_context.pt_context.payer.pubkey(),
                     source_account,
                     &mint.pubkey(),
+                    &spl_token::id(),
                 ),
                 system_instruction::create_account(
                     &context.test_context.pt_context.payer.pubkey(),
