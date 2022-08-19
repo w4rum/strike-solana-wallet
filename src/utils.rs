@@ -32,6 +32,19 @@ pub struct Slots<A, const SIZE: usize> {
     array: Box<[Option<A>; SIZE]>,
 }
 
+impl<A, const SIZE: usize> IntoIterator for Slots<A, SIZE> {
+    type Item = A;
+    type IntoIter = std::vec::IntoIter<A>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.array
+            .into_iter()
+            .flatten()
+            .collect::<Vec<A>>()
+            .into_iter()
+    }
+}
+
 impl<A, const SIZE: usize> Index<SlotId<A>> for Slots<A, SIZE> {
     type Output = Option<A>;
 

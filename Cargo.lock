@@ -5550,7 +5550,7 @@ dependencies = [
 
 [[package]]
 name = "strike-wallet"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "arrayref",
  "assert_matches",

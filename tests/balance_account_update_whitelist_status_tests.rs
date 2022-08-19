@@ -17,7 +17,7 @@ use strike_wallet::utils::SlotId;
 
 #[tokio::test]
 async fn test_whitelist_status() {
-    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None, true).await;
 
     // status is off by default
     verify_whitelist_status(&mut context, BooleanSetting::Off, 0).await;
@@ -116,7 +116,7 @@ async fn test_whitelist_status() {
 
 #[tokio::test]
 async fn test_modify_whitelist_when_account_guid_invalid() {
-    let mut context = setup_balance_account_tests_and_finalize(None).await.0;
+    let mut context = setup_balance_account_tests_and_finalize(None, true).await.0;
 
     // status is off by default
     account_settings_update(

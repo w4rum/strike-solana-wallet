@@ -80,7 +80,7 @@ async fn inner_instructions(
 
 async fn setup_dapp_test() -> DAppTest {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(100000)).await;
+        utils::setup_balance_account_tests_and_finalize(Some(100000), true).await;
 
     let rent = context
         .test_context
@@ -391,7 +391,7 @@ async fn test_dapp_transaction_denied() {
 #[tokio::test]
 async fn test_dapp_transaction_with_spl_transfers() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(120000)).await;
+        utils::setup_balance_account_tests_and_finalize(Some(120000), true).await;
 
     account_settings_update(
         &mut context,
@@ -611,7 +611,7 @@ async fn test_dapp_transaction_with_spl_transfers() {
 #[tokio::test]
 async fn test_dapp_transaction_without_dapps_enabled() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+        utils::setup_balance_account_tests_and_finalize(None, true).await;
 
     let rent = context
         .test_context
@@ -687,7 +687,7 @@ async fn test_dapp_transaction_without_dapps_enabled() {
 #[tokio::test]
 async fn test_dapp_transaction_unwhitelisted() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+        utils::setup_balance_account_tests_and_finalize(None, true).await;
 
     account_settings_update(
         &mut context,
@@ -771,10 +771,9 @@ async fn test_dapp_transaction_unwhitelisted() {
     );
 }
 
-#[tokio::test]
-async fn test_dapp_transaction_whitelisted() {
+async fn _test_dapp_transaction_whitelist(happy_path: bool) {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(None).await;
+        setup_balance_account_tests_and_finalize(None, happy_path).await;
 
     account_settings_update(
         &mut context,
@@ -851,12 +850,43 @@ async fn test_dapp_transaction_whitelisted() {
         ))
         .await
         .unwrap();
+
+    let supply_instruction_result = supply_instructions(
+        &mut context,
+        &multisig_op_account,
+        &multisig_data_account,
+        0,
+        &inner_instructions,
+    )
+    .await;
+
+    if happy_path {
+        supply_instruction_result.unwrap();
+    } else {
+        assert_eq!(
+            supply_instruction_result.unwrap_err().unwrap(),
+            TransactionError::InstructionError(
+                0,
+                Custom(WalletError::DAppInstructionForbidden as u32)
+            ),
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_dapp_transaction_whitelisted() {
+    _test_dapp_transaction_whitelist(true).await
+}
+
+#[tokio::test]
+async fn test_dapp_transaction_whitelist_error() {
+    _test_dapp_transaction_whitelist(false).await
 }
 
 #[tokio::test]
 async fn test_supply_instruction_errors() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(100000)).await;
+        setup_balance_account_tests_and_finalize(Some(100000), true).await;
 
     account_settings_update(
         &mut context,
@@ -1012,6 +1042,7 @@ async fn supply_instructions(
                 &context.test_context.program_id,
                 &multisig_op_account.pubkey(),
                 &multisig_data_account.pubkey(),
+                &context.wallet_account.pubkey(),
                 &context.initiator_account.pubkey(),
                 starting_index,
                 instructions,
@@ -1029,7 +1060,7 @@ async fn supply_instructions(
 #[tokio::test]
 async fn test_multisig_op_version_mismatch() {
     let (mut context, balance_account) =
-        utils::setup_balance_account_tests_and_finalize(Some(100000)).await;
+        utils::setup_balance_account_tests_and_finalize(Some(100000), true).await;
 
     account_settings_update(
         &mut context,

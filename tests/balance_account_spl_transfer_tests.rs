@@ -22,7 +22,7 @@ use {
 #[tokio::test]
 async fn test_wrap_unwrap() {
     let (mut context, balance_account) =
-        setup_balance_account_tests_and_finalize(Some(80_000)).await;
+        setup_balance_account_tests_and_finalize(Some(80_000), true).await;
     let rent = context
         .test_context
         .pt_context
@@ -266,7 +266,7 @@ async fn test_transfer_spl(
     fund_source_account_to_pay_for_token: bool,
 ) {
     let (mut context, balance_account) =
-        setup_balance_account_tests_and_finalize(Some(60_000)).await;
+        setup_balance_account_tests_and_finalize(Some(60_000), true).await;
 
     let spl_context = setup_spl_transfer_test(
         &mut context,
@@ -367,7 +367,7 @@ async fn test_transfer_spl(
 #[tokio::test]
 async fn test_transfer_spl_insufficient_balance() {
     let (mut context, balance_account) =
-        setup_balance_account_tests_and_finalize(Some(60_000)).await;
+        setup_balance_account_tests_and_finalize(Some(60_000), true).await;
     let spl_context = setup_spl_transfer_test(&mut context, &balance_account, true).await;
 
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());

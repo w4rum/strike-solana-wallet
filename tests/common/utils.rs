@@ -1247,6 +1247,7 @@ pub async fn init_balance_account_creation(
 pub async fn setup_balance_account_tests(
     compute_max_units: Option<u64>,
     add_extra_transfer_approver: bool,
+    allowed_dapp_is_our_program: bool,
 ) -> BalanceAccountTestContext {
     let mut test_context = setup_test(compute_max_units.unwrap_or(50_000)).await;
     let wallet_account = Keypair::new();
@@ -1260,7 +1261,11 @@ pub async fn setup_balance_account_tests(
         name_hash: AddressBookEntryNameHash::new(&hash_of(b"Destination 1 Name")),
     };
     let allowed_dapp = DAppBookEntry {
-        address: Keypair::new().pubkey(),
+        address: if allowed_dapp_is_our_program {
+            test_context.program_id
+        } else {
+            Keypair::new().pubkey()
+        },
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
     };
 
@@ -1606,8 +1611,10 @@ pub async fn finalize_balance_account_creation(context: &mut BalanceAccountTestC
 
 pub async fn setup_balance_account_tests_and_finalize(
     compute_max_units: Option<u64>,
+    allowed_dapp_is_our_program: bool,
 ) -> (BalanceAccountTestContext, Pubkey) {
-    let mut context = setup_balance_account_tests(compute_max_units, false).await;
+    let mut context =
+        setup_balance_account_tests(compute_max_units, false, allowed_dapp_is_our_program).await;
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
@@ -3034,7 +3041,7 @@ pub async fn create_program_buffer(
 }
 
 pub async fn setup_fee_tests() -> BalanceAccountTestContext {
-    let mut context = setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false, true).await;
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),

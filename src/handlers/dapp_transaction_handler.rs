@@ -20,7 +20,9 @@ use crate::handlers::utils::{
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::dapp_multisig_data::DAppMultisigData;
-use crate::model::multisig_op::{ApprovalDisposition, MultisigOp, OperationDisposition};
+use crate::model::multisig_op::{
+    ApprovalDisposition, BooleanSetting, MultisigOp, OperationDisposition,
+};
 use crate::model::wallet::Wallet;
 use crate::version::{Versioned, VERSION};
 
@@ -100,6 +102,7 @@ pub fn supply_instructions(
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
     let multisig_data_account_info = next_program_account_info(accounts_iter, program_id)?;
+    let wallet_account_info = next_wallet_account_info(accounts_iter, program_id)?;
     let initiator_account_info = next_account_info(accounts_iter)?;
 
     if !initiator_account_info.is_signer {
@@ -116,16 +119,48 @@ pub fn supply_instructions(
     }
 
     let params_hash = {
+        let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+
         let mut multisig_data =
             DAppMultisigData::unpack(&multisig_data_account_info.data.borrow())?;
 
+        let whitelisting_on = wallet
+            .get_balance_account(&multisig_data.account_guid_hash)?
+            .whitelist_enabled
+            == BooleanSetting::On;
+        let instruction_whitelist = if whitelisting_on {
+            [
+                wallet
+                    .dapp_book
+                    .into_iter()
+                    .filter_map(|entry| {
+                        if entry.name_hash == multisig_data.dapp.name_hash {
+                            Some(entry.address)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<Pubkey>>(),
+                vec![
+                    solana_program::system_program::id(),
+                    spl_token::id(),
+                    spl_associated_token_account::id(),
+                ],
+            ]
+            .concat()
+        } else {
+            vec![]
+        };
         for index in starting_index..starting_index + instructions.len().as_u8() {
-            multisig_data.add_instruction(
-                index,
-                &instructions
-                    .get(usize::from(index - starting_index))
-                    .unwrap(),
-            )?;
+            let instruction = &instructions
+                .get(usize::from(index - starting_index))
+                .unwrap();
+            if whitelisting_on {
+                if !instruction_whitelist.contains(&instruction.program_id) {
+                    return Err(WalletError::DAppInstructionForbidden.into());
+                }
+            }
+            multisig_data.add_instruction(index, instruction)?;
         }
 
         let params_hash = if multisig_data.all_instructions_supplied() {

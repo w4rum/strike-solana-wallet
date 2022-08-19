@@ -239,7 +239,8 @@ pub enum ProgramInstruction {
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[writable]` The multisig data account
-    /// 2. `[signer]` The initiator account
+    /// 2. `[]` The wallet account
+    /// 3. `[signer]` The initiator account
     SupplyDAppTransactionInstructions {
         instructions: Vec<Instruction>,
         starting_index: u8,

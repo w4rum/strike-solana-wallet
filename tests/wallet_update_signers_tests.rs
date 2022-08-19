@@ -144,7 +144,7 @@ async fn test_add_and_remove_signer_init_failures() {
 
 #[tokio::test]
 async fn test_remove_signer_fails_for_a_transfer_approver() {
-    let mut context = setup_balance_account_tests(None, true).await;
+    let mut context = setup_balance_account_tests(None, true, true).await;
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),

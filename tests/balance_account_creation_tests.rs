@@ -38,7 +38,7 @@ use {
 
 #[tokio::test]
 async fn test_balance_account_creation() {
-    let mut context = setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false, true).await;
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
@@ -175,7 +175,7 @@ async fn test_balance_account_creation_fails_if_num_approvals_required_not_set()
 
 #[tokio::test]
 async fn test_balance_account_creation_not_signed_by_rent_collector() {
-    let mut context = setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false, true).await;
 
     // first check if it's not signed
     let rent_collector = Keypair::new();
@@ -234,7 +234,7 @@ async fn test_balance_account_creation_not_signed_by_rent_collector() {
 
 #[tokio::test]
 async fn test_balance_account_creation_incorrect_hash() {
-    let mut context = setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false, true).await;
 
     let wrong_guid_hash = BalanceAccountGuidHash::zero();
 
@@ -395,7 +395,7 @@ async fn test_balance_account_creation_initiator_approval() {
 
 #[tokio::test]
 async fn test_multisig_op_version_mismatch() {
-    let mut context = setup_balance_account_tests(None, false).await;
+    let mut context = setup_balance_account_tests(None, false, true).await;
 
     // modify the version in the multisig op
     let mut multisig_op_account_shared_data = AccountSharedData::from(

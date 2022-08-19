@@ -18,7 +18,7 @@ use strike_wallet::model::multisig_op::{
 
 #[tokio::test]
 async fn test_address_book_update() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000), true).await;
 
     let wallet = get_wallet(
         &mut context.test_context.pt_context.banks_client,
@@ -106,7 +106,7 @@ async fn test_address_book_update() {
 
 #[tokio::test]
 async fn test_address_book_failures() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(40000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(40000), true).await;
 
     let wallet = get_wallet(
         &mut context.test_context.pt_context.banks_client,
@@ -198,7 +198,7 @@ async fn test_address_book_failures() {
 
 #[tokio::test]
 async fn test_address_book_update_initiator_approval() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000), true).await;
     let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
     let wallet = get_wallet(

@@ -35,7 +35,7 @@ use {
 
 #[tokio::test]
 async fn test_balance_account_policy_update() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
 
     let wallet = get_wallet(
         &mut context.test_context.pt_context.banks_client,
@@ -164,7 +164,7 @@ async fn test_balance_account_policy_update() {
 
 #[tokio::test]
 async fn test_balance_account_policy_update_initiator_approval() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
     let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
     let signers_hash = hash_signers(&vec![
@@ -204,7 +204,7 @@ async fn test_balance_account_policy_update_initiator_approval() {
         OperationDisposition::NONE,
     );
 
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
     let initiator_account = Keypair::from_base58_string(&context.approvers[0].to_base58_string());
 
     let signers_hash_new = hash_signers(&vec![
@@ -248,7 +248,7 @@ async fn test_balance_account_policy_update_initiator_approval() {
 
 #[tokio::test]
 async fn test_balance_account_policy_update_is_denied() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
 
     let wallet = get_wallet(
         &mut context.test_context.pt_context.banks_client,
@@ -430,7 +430,7 @@ async fn test_balance_account_policy_update_is_denied() {
 
 #[tokio::test]
 async fn invalid_balance_account_policy_updates() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(None).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(None, true).await;
     let signers_hash = hash_signers(&vec![
         context.approvers[1].pubkey_as_signer(),
         context.approvers[2].pubkey_as_signer(),
@@ -548,7 +548,7 @@ async fn invalid_balance_account_policy_updates() {
 
 #[tokio::test]
 async fn test_update_balance_account_name_happy_path() {
-    let mut context = setup_balance_account_tests_and_finalize(None).await.0;
+    let mut context = setup_balance_account_tests_and_finalize(None, true).await.0;
     let name_hash = BalanceAccountNameHash::new(&[1; 32]);
 
     update_balance_account_name_hash(&mut context, name_hash, None).await;
@@ -557,7 +557,7 @@ async fn test_update_balance_account_name_happy_path() {
 
 #[tokio::test]
 async fn test_update_balance_account_name_fails_when_guid_invalid() {
-    let mut context = setup_balance_account_tests_and_finalize(None).await.0;
+    let mut context = setup_balance_account_tests_and_finalize(None, true).await.0;
     let name_hash = BalanceAccountNameHash::new(&[1; 32]);
 
     // set invalid GUID hash
@@ -573,7 +573,7 @@ async fn test_update_balance_account_name_fails_when_guid_invalid() {
 
 #[tokio::test]
 async fn test_update_balance_account_name_initiator_approval() {
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
     let name_hash = BalanceAccountNameHash::new(&[1; 32]);
     let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
@@ -602,7 +602,7 @@ async fn test_update_balance_account_name_initiator_approval() {
         OperationDisposition::NONE,
     );
 
-    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000)).await;
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
     let name_hash = BalanceAccountNameHash::new(&[1; 32]);
     let initiator_account = Keypair::from_base58_string(&context.approvers[0].to_base58_string());
 

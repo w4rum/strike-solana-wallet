@@ -705,6 +705,7 @@ pub fn supply_dapp_transaction_instructions(
     program_id: &Pubkey,
     multisig_op_account: &Pubkey,
     multisig_data_account: &Pubkey,
+    wallet_account: &Pubkey,
     initiator_account: &Pubkey,
     starting_index: u8,
     instructions: &Vec<Instruction>,
@@ -714,6 +715,7 @@ pub fn supply_dapp_transaction_instructions(
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
         AccountMeta::new(*multisig_data_account, false),
+        AccountMeta::new_readonly(*wallet_account, false),
         AccountMeta::new_readonly(*initiator_account, true),
     ];
 
