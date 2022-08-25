@@ -3,7 +3,6 @@
 use std::borrow::BorrowMut;
 use std::option::Option::None;
 
-use bitvec::macros::internal::funty::Fundamental;
 use solana_program::hash::Hash;
 use solana_program::instruction::Instruction;
 use solana_program::instruction::InstructionError::Custom;
@@ -22,6 +21,7 @@ use common::instructions::{
 };
 pub use common::utils::*;
 use strike_wallet::error::WalletError;
+use strike_wallet::instruction::append_instruction;
 use strike_wallet::model::address_book::{DAppBookEntry, DAppBookEntryNameHash};
 use strike_wallet::model::dapp_multisig_data::DAppMultisigData;
 use strike_wallet::model::multisig_op::{ApprovalDisposition, BooleanSetting, MultisigOp};
@@ -116,6 +116,12 @@ async fn setup_dapp_test() -> DAppTest {
     )
     .await;
 
+    let mut instruction_buffer: Vec<u8> = Vec::new();
+    for instruction in inner_instructions.clone() {
+        append_instruction(&instruction, &mut instruction_buffer);
+    }
+    let total_instruction_len = instruction_buffer.len() as u16;
+
     context
         .test_context
         .pt_context
@@ -137,7 +143,7 @@ async fn setup_dapp_test() -> DAppTest {
                     &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
-                    inner_instructions.len().as_u8(),
+                    total_instruction_len,
                 ),
             ],
             Some(&context.test_context.pt_context.payer.pubkey()),
@@ -156,8 +162,9 @@ async fn setup_dapp_test() -> DAppTest {
     supply_instructions(
         &mut context,
         &multisig_op_account,
-        1,
-        &vec![inner_instructions[1].clone()],
+        300,
+        total_instruction_len - 300,
+        &instruction_buffer.clone()[300..].to_vec(),
     )
     .await
     .unwrap();
@@ -165,7 +172,8 @@ async fn setup_dapp_test() -> DAppTest {
         &mut context,
         &multisig_op_account,
         0,
-        &vec![inner_instructions[0].clone()],
+        300,
+        &instruction_buffer.clone()[..300].to_vec(),
     )
     .await
     .unwrap();
@@ -176,15 +184,13 @@ async fn setup_dapp_test() -> DAppTest {
             context.wallet_account.pubkey(),
             context.balance_account_guid_hash.clone(),
             dapp,
-            inner_instructions.len().as_u8(),
+            total_instruction_len,
         )
         .unwrap();
 
-    for (ix, instruction) in inner_instructions.iter().enumerate() {
-        multisig_data
-            .add_instruction(ix.as_u8(), instruction)
-            .unwrap()
-    }
+    multisig_data
+        .add_instruction(0, total_instruction_len, &instruction_buffer.clone())
+        .unwrap();
 
     let mut multisig_op = MultisigOp::unpack_from_slice(
         context
@@ -475,6 +481,12 @@ async fn test_dapp_transaction_with_spl_transfers() {
         name_hash: DAppBookEntryNameHash::new(&hash_of(b"Strike Wallet")),
     };
 
+    let mut instruction_buffer: Vec<u8> = Vec::new();
+    for instruction in inner_instructions.clone() {
+        append_instruction(&instruction, &mut instruction_buffer);
+    }
+    let total_instruction_len = instruction_buffer.len() as u16;
+
     context
         .test_context
         .pt_context
@@ -496,7 +508,7 @@ async fn test_dapp_transaction_with_spl_transfers() {
                     &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
-                    inner_instructions.len().as_u8(),
+                    total_instruction_len,
                 ),
             ],
             Some(&context.test_context.pt_context.payer.pubkey()),
@@ -564,9 +576,15 @@ async fn test_dapp_transaction_with_spl_transfers() {
         TransactionError::InstructionError(0, Custom(WalletError::OperationNotInitialized as u32)),
     );
 
-    supply_instructions(&mut context, &multisig_op_account, 0, &inner_instructions)
-        .await
-        .unwrap();
+    supply_instructions(
+        &mut context,
+        &multisig_op_account,
+        0,
+        total_instruction_len,
+        &instruction_buffer.clone(),
+    )
+    .await
+    .unwrap();
 
     let mut multisig_data = DAppMultisigData::default();
     multisig_data
@@ -574,15 +592,13 @@ async fn test_dapp_transaction_with_spl_transfers() {
             context.wallet_account.pubkey(),
             context.balance_account_guid_hash.clone(),
             dapp,
-            inner_instructions.len().as_u8(),
+            total_instruction_len,
         )
         .unwrap();
 
-    for (ix, instruction) in inner_instructions.iter().enumerate() {
-        multisig_data
-            .add_instruction(ix.as_u8(), instruction)
-            .unwrap()
-    }
+    multisig_data
+        .add_instruction(0, total_instruction_len, &instruction_buffer.clone())
+        .unwrap();
 
     let mut multisig_op = MultisigOp::unpack_from_slice(
         context
@@ -654,6 +670,13 @@ async fn test_dapp_transaction_without_dapps_enabled() {
         123,
     )
     .await;
+
+    let mut instruction_buffer: Vec<u8> = Vec::new();
+    for instruction in inner_instructions.clone() {
+        append_instruction(&instruction, &mut instruction_buffer);
+    }
+    let total_instruction_len = instruction_buffer.len() as u16;
+
     assert_eq!(
         context
             .test_context
@@ -676,7 +699,7 @@ async fn test_dapp_transaction_without_dapps_enabled() {
                         &context.test_context.pt_context.payer.pubkey(),
                         &context.balance_account_guid_hash,
                         dapp,
-                        inner_instructions.len().as_u8(),
+                        total_instruction_len,
                     ),
                 ],
                 Some(&context.test_context.pt_context.payer.pubkey()),
@@ -729,6 +752,13 @@ async fn test_dapp_transaction_unwhitelisted() {
         123,
     )
     .await;
+
+    let mut instruction_buffer: Vec<u8> = Vec::new();
+    for instruction in inner_instructions.clone() {
+        append_instruction(&instruction, &mut instruction_buffer);
+    }
+    let total_instruction_len = instruction_buffer.len() as u16;
+
     assert_eq!(
         context
             .test_context
@@ -751,7 +781,7 @@ async fn test_dapp_transaction_unwhitelisted() {
                         &context.test_context.pt_context.payer.pubkey(),
                         &context.balance_account_guid_hash,
                         dapp,
-                        inner_instructions.len().as_u8(),
+                        total_instruction_len,
                     ),
                 ],
                 Some(&context.test_context.pt_context.payer.pubkey()),
@@ -798,6 +828,13 @@ async fn _test_dapp_transaction_whitelist(happy_path: bool) {
         123,
     )
     .await;
+
+    let mut instruction_buffer: Vec<u8> = Vec::new();
+    for instruction in inner_instructions.clone() {
+        append_instruction(&instruction, &mut instruction_buffer);
+    }
+    let total_instruction_len = instruction_buffer.len() as u16;
+
     context
         .test_context
         .pt_context
@@ -819,7 +856,7 @@ async fn _test_dapp_transaction_whitelist(happy_path: bool) {
                     &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     context.allowed_dapp,
-                    inner_instructions.len().as_u8(),
+                    total_instruction_len,
                 ),
             ],
             Some(&context.test_context.pt_context.payer.pubkey()),
@@ -833,8 +870,14 @@ async fn _test_dapp_transaction_whitelist(happy_path: bool) {
         .await
         .unwrap();
 
-    let supply_instruction_result =
-        supply_instructions(&mut context, &multisig_op_account, 0, &inner_instructions).await;
+    let supply_instruction_result = supply_instructions(
+        &mut context,
+        &multisig_op_account,
+        0,
+        total_instruction_len,
+        &instruction_buffer.clone(),
+    )
+    .await;
 
     if happy_path {
         supply_instruction_result.unwrap();
@@ -896,6 +939,12 @@ async fn test_supply_instruction_errors() {
     )
     .await;
 
+    let mut instruction_buffer: Vec<u8> = Vec::new();
+    for instruction in inner_instructions.clone() {
+        append_instruction(&instruction, &mut instruction_buffer);
+    }
+    let total_instruction_len = instruction_buffer.len() as u16;
+
     context
         .test_context
         .pt_context
@@ -917,7 +966,7 @@ async fn test_supply_instruction_errors() {
                     &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
-                    inner_instructions.len().as_u8(),
+                    total_instruction_len,
                 ),
             ],
             Some(&context.test_context.pt_context.payer.pubkey()),
@@ -936,8 +985,9 @@ async fn test_supply_instruction_errors() {
         supply_instructions(
             &mut context,
             &multisig_op_account,
-            2,
-            &vec![inner_instructions[1].clone()]
+            total_instruction_len - 200,
+            300,
+            &instruction_buffer.clone()[..300].to_vec(),
         )
         .await
         .unwrap_err()
@@ -950,7 +1000,8 @@ async fn test_supply_instruction_errors() {
         &mut context,
         &multisig_op_account,
         0,
-        &vec![inner_instructions[0].clone()],
+        300,
+        &instruction_buffer.clone()[..300].to_vec(),
     )
     .await
     .unwrap();
@@ -960,7 +1011,8 @@ async fn test_supply_instruction_errors() {
             &mut context,
             &multisig_op_account,
             0,
-            &vec![inner_instructions[1].clone()]
+            300,
+            &instruction_buffer.clone()[100..400].to_vec(),
         )
         .await
         .unwrap_err()
@@ -976,7 +1028,8 @@ async fn test_supply_instruction_errors() {
         &mut context,
         &multisig_op_account,
         0,
-        &vec![inner_instructions[0].clone()],
+        300,
+        &instruction_buffer.clone()[..300].to_vec(),
     )
     .await
     .unwrap();
@@ -985,8 +1038,9 @@ async fn test_supply_instruction_errors() {
 async fn supply_instructions(
     context: &mut BalanceAccountTestContext,
     multisig_op_account: &Keypair,
-    starting_index: u8,
-    instructions: &Vec<Instruction>,
+    instruction_data_offset: u16,
+    instruction_data_len: u16,
+    instruction_data: &Vec<u8>,
 ) -> Result<(), BanksClientError> {
     context
         .test_context
@@ -998,8 +1052,9 @@ async fn supply_instructions(
                 &multisig_op_account.pubkey(),
                 &context.wallet_account.pubkey(),
                 &context.initiator_account.pubkey(),
-                starting_index,
-                instructions,
+                instruction_data_offset,
+                instruction_data_len,
+                instruction_data,
             )],
             Some(&context.test_context.pt_context.payer.pubkey()),
             &[
@@ -1048,6 +1103,12 @@ async fn test_multisig_op_version_mismatch() {
     )
     .await;
 
+    let mut instruction_buffer: Vec<u8> = Vec::new();
+    for instruction in inner_instructions.clone() {
+        append_instruction(&instruction, &mut instruction_buffer);
+    }
+    let total_instruction_len = instruction_buffer.len() as u16;
+
     context
         .test_context
         .pt_context
@@ -1069,7 +1130,7 @@ async fn test_multisig_op_version_mismatch() {
                     &context.test_context.pt_context.payer.pubkey(),
                     &context.balance_account_guid_hash,
                     dapp,
-                    inner_instructions.len().as_u8(),
+                    total_instruction_len,
                 ),
             ],
             Some(&context.test_context.pt_context.payer.pubkey()),
@@ -1112,7 +1173,8 @@ async fn test_multisig_op_version_mismatch() {
             &mut context,
             &multisig_op_account,
             0,
-            &vec![inner_instructions[0].clone()]
+            300,
+            &instruction_buffer.clone()[..300].to_vec(),
         )
         .await
         .unwrap_err()
@@ -1128,9 +1190,15 @@ async fn test_multisig_op_version_mismatch() {
         &multisig_op_account_shared_data,
     );
 
-    supply_instructions(&mut context, &multisig_op_account, 0, &inner_instructions)
-        .await
-        .unwrap();
+    supply_instructions(
+        &mut context,
+        &multisig_op_account,
+        0,
+        total_instruction_len,
+        &instruction_buffer.clone(),
+    )
+    .await
+    .unwrap();
 
     // now modify the version again and check that approvals fail
     // have to re-read the multisig op account data as it now has a params hash set

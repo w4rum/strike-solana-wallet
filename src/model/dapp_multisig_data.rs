@@ -1,11 +1,10 @@
 use crate::error::WalletError;
-use crate::instruction::{append_instruction, read_instruction_from_slice};
+use crate::instruction::read_instruction_from_slice;
 use crate::model::address_book::{DAppBookEntry, DAppBookEntryNameHash};
 use crate::model::balance_account::BalanceAccountGuidHash;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 use bitvec::macros::internal::funty::Fundamental;
 use bytes::BufMut;
-use itertools::all;
 use solana_program::entrypoint::ProgramResult;
 use solana_program::hash::{hash, Hash};
 use solana_program::instruction::Instruction;
@@ -15,7 +14,6 @@ use solana_program::program_pack::{IsInitialized, Pack, Sealed};
 use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 
 const INSTRUCTION_DATA_LEN: usize = 2500;
-const MAX_INSTRUCTION_COUNT: usize = 32;
 
 #[derive(Debug)]
 pub struct DAppMultisigData {
@@ -23,10 +21,9 @@ pub struct DAppMultisigData {
     pub wallet_address: Pubkey,
     pub account_guid_hash: BalanceAccountGuidHash,
     pub dapp: DAppBookEntry,
-    pub num_instructions: u8,
-    instruction_offsets: [u16; MAX_INSTRUCTION_COUNT],
+    pub total_instruction_len: u16,
+    pub total_received_len: u16,
     instruction_data: Vec<u8>,
-    position: usize,
 }
 
 impl Default for DAppMultisigData {
@@ -39,10 +36,9 @@ impl Default for DAppMultisigData {
                 address: Pubkey::default(),
                 name_hash: DAppBookEntryNameHash::zero(),
             },
-            num_instructions: 0,
-            instruction_offsets: [0; 32],
+            total_received_len: 0,
+            total_instruction_len: 0,
             instruction_data: vec![],
-            position: 0,
         }
     }
 }
@@ -53,51 +49,54 @@ impl DAppMultisigData {
         wallet_address: Pubkey,
         account_guid_hash: BalanceAccountGuidHash,
         dapp: DAppBookEntry,
-        num_instructions: u8,
+        total_instruction_len: u16,
     ) -> ProgramResult {
         self.is_initialized = true;
         self.wallet_address = wallet_address;
         self.account_guid_hash = account_guid_hash;
         self.dapp = dapp;
-        if num_instructions > MAX_INSTRUCTION_COUNT as u8 {
+        if total_instruction_len > INSTRUCTION_DATA_LEN as u16 {
             return Err(WalletError::DAppInstructionOverflow.into());
         }
-        self.num_instructions = num_instructions;
-        self.instruction_offsets = [0; MAX_INSTRUCTION_COUNT];
+        self.total_instruction_len = total_instruction_len;
+        self.total_received_len = 0;
         self.instruction_data = vec![0; INSTRUCTION_DATA_LEN];
-        self.position = 0;
 
         Ok(())
     }
 
-    pub fn add_instruction(&mut self, index: u8, instruction: &Instruction) -> ProgramResult {
+    pub fn add_instruction(
+        &mut self,
+        instruction_data_offset: u16,
+        instruction_data_len: u16,
+        instruction_data: &Vec<u8>,
+    ) -> ProgramResult {
         if self.is_initialized {
-            if index >= self.num_instructions {
-                msg!("Index {:} too large (>= {:})", index, self.num_instructions);
+            let end_position = instruction_data_offset + instruction_data_len;
+            if end_position > self.total_instruction_len {
+                msg!(
+                    "Offset {:} + size {:} too large (> {:})",
+                    instruction_data_offset,
+                    instruction_data_len,
+                    self.total_instruction_len
+                );
                 return Err(WalletError::DAppInstructionOverflow.into());
             }
-            if self.instruction_offsets[usize::from(index)] != 0 {
+            if !self.instruction_data[instruction_data_offset as usize..end_position as usize]
+                .into_iter()
+                .all(|&byte| byte == 0)
+            {
                 return Err(WalletError::DAppInstructionAlreadySupplied.into());
             }
-            let mut buffer = Vec::<u8>::new();
-            append_instruction(instruction, &mut buffer);
-            // the offset is 1-based, so that an offset of 0 can mean "unset"
-            self.instruction_offsets[usize::from(index)] = (1 + self.position).as_u16();
-            let new_position = self.position + buffer.len();
-            if new_position >= INSTRUCTION_DATA_LEN {
-                msg!("Instruction data exceeded buffer size");
-                return Err(WalletError::DAppInstructionOverflow.into());
-            }
-            self.instruction_data[self.position..new_position].copy_from_slice(&buffer);
-            self.position = new_position;
+            self.instruction_data[instruction_data_offset as usize..end_position as usize]
+                .copy_from_slice(instruction_data);
+            self.total_received_len += instruction_data_len;
         }
         Ok(())
     }
 
     pub fn all_instructions_supplied(&self) -> bool {
-        all(0..self.num_instructions, |x| {
-            self.instruction_offsets[usize::from(x)] != 0
-        })
+        self.total_instruction_len == self.total_received_len
     }
 
     pub fn hash(&self, common_data: Vec<u8>) -> Result<Hash, ProgramError> {
@@ -109,37 +108,28 @@ impl DAppMultisigData {
         let mut buf = vec![0; DAppBookEntry::LEN];
         self.dapp.pack_into_slice(buf.as_mut_slice());
         bytes.extend_from_slice(&buf[..]);
-        bytes.put_u16_le(self.num_instructions.as_u16());
-        // appending the instructions to this vec could use too much memory
-        // instead, we define the hash for a dapp transaction to be an iterated hash this way:
-        // first, take the hash of everything in `bytes` up to this point:
-        let mut result = hash(&bytes);
-        // then, for each instruction, form a buffer with the previous hash followed by that
-        // instruction, and then hash that
-        let instructions = self.instructions()?;
-        for instruction in instructions.into_iter() {
-            let mut instruction_buffer: Vec<u8> = Vec::new();
-            instruction_buffer.extend_from_slice(result.as_ref());
-            append_instruction(&instruction, &mut instruction_buffer);
-            result = hash(&instruction_buffer);
-        }
+        bytes.put_u16_le(self.total_instruction_len);
+        bytes.extend_from_slice(
+            self.instruction_data[0..self.total_instruction_len as usize].as_ref(),
+        );
 
-        Ok(result)
+        Ok(hash(&bytes))
     }
 
     pub fn instructions(&self) -> Result<Vec<Instruction>, ProgramError> {
-        let read_nth_instruction = |index| -> Result<Instruction, ProgramError> {
-            let instruction_offset = self.instruction_offsets.get(usize::from(index)).unwrap();
-            if *instruction_offset == 0 {
-                return Err(WalletError::OperationNotInitialized.into());
-            }
-            let offset = usize::from(instruction_offset - 1);
-            read_instruction_from_slice(&self.instruction_data[offset..])
-        };
+        let mut instructions_vec: Vec<Instruction> = Vec::new();
+        let mut current_offset: usize = 0;
+        if self.total_instruction_len != self.total_received_len {
+            return Err(WalletError::OperationNotInitialized.into());
+        }
+        while current_offset < self.total_instruction_len as usize {
+            let (instruction, instruction_len) =
+                read_instruction_from_slice(&self.instruction_data[current_offset..]).unwrap();
+            current_offset += instruction_len;
+            instructions_vec.push(instruction)
+        }
 
-        (0..self.num_instructions)
-            .map(read_nth_instruction)
-            .collect()
+        Ok(instructions_vec)
     }
 }
 
@@ -152,14 +142,7 @@ impl IsInitialized for DAppMultisigData {
 }
 
 impl Pack for DAppMultisigData {
-    const LEN: usize = 1
-        + PUBKEY_BYTES
-        + 32
-        + DAppBookEntry::LEN
-        + 1
-        + 2 * MAX_INSTRUCTION_COUNT
-        + 2
-        + INSTRUCTION_DATA_LEN;
+    const LEN: usize = 1 + PUBKEY_BYTES + 32 + DAppBookEntry::LEN + 2 + 2 + INSTRUCTION_DATA_LEN;
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, DAppMultisigData::LEN];
@@ -168,9 +151,8 @@ impl Pack for DAppMultisigData {
             wallet_address_dst,
             account_guid_hash_dst,
             dapp_dst,
-            num_instructions_dst,
-            instruction_offsets_dst,
-            position_dst,
+            total_instruction_len_dst,
+            total_received_len_dst,
             instruction_data_dst,
         ) = mut_array_refs![
             dst,
@@ -178,8 +160,7 @@ impl Pack for DAppMultisigData {
             PUBKEY_BYTES,
             32,
             DAppBookEntry::LEN,
-            1,
-            2 * MAX_INSTRUCTION_COUNT,
+            2,
             2,
             INSTRUCTION_DATA_LEN
         ];
@@ -189,9 +170,8 @@ impl Pack for DAppMultisigData {
             wallet_address,
             account_guid_hash,
             dapp,
-            num_instructions,
-            instruction_offsets,
-            position,
+            total_instruction_len,
+            total_received_len,
             instruction_data,
         } = self;
 
@@ -199,16 +179,10 @@ impl Pack for DAppMultisigData {
         *wallet_address_dst = wallet_address.to_bytes();
         account_guid_hash_dst.copy_from_slice(account_guid_hash.to_bytes());
         dapp.pack_into_slice(dapp_dst);
-        num_instructions_dst[0] = *num_instructions;
-        instruction_offsets_dst
-            .chunks_exact_mut(2)
-            .take(MAX_INSTRUCTION_COUNT)
-            .enumerate()
-            .for_each(|(i, chunk)| {
-                chunk.copy_from_slice(&instruction_offsets[i].to_le_bytes()[..2]);
-            });
+        total_instruction_len_dst
+            .copy_from_slice(&total_instruction_len.as_u16().to_le_bytes()[..2]);
+        total_received_len_dst.copy_from_slice(&total_received_len.as_u16().to_le_bytes()[..2]);
         instruction_data_dst.copy_from_slice(instruction_data);
-        position_dst.copy_from_slice(&position.as_u16().to_le_bytes()[..2]);
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -218,9 +192,8 @@ impl Pack for DAppMultisigData {
             wallet_address,
             account_guid_hash,
             dapp,
-            num_instructions,
-            instruction_offsets,
-            position,
+            total_instruction_len,
+            total_received_len,
             instruction_data,
         ) = array_refs![
             src,
@@ -228,8 +201,7 @@ impl Pack for DAppMultisigData {
             PUBKEY_BYTES,
             32,
             DAppBookEntry::LEN,
-            1,
-            2 * MAX_INSTRUCTION_COUNT,
+            2,
             2,
             INSTRUCTION_DATA_LEN
         ];
@@ -240,29 +212,20 @@ impl Pack for DAppMultisigData {
             _ => return Err(ProgramError::InvalidAccountData),
         };
 
-        let mut instruction_offsets_array: [u16; MAX_INSTRUCTION_COUNT] =
-            [0; MAX_INSTRUCTION_COUNT];
-
-        instruction_offsets
-            .chunks_exact(2)
-            .enumerate()
-            .for_each(|(i, chunk)| {
-                instruction_offsets_array[i] = u16::from_le_bytes([chunk[0], chunk[1]])
-            });
-
         let wallet_address = Pubkey::new_from_array(*wallet_address);
         let account_guid_hash = BalanceAccountGuidHash::new(account_guid_hash);
         let dapp = DAppBookEntry::unpack_from_slice(dapp).unwrap();
+        let total_instruction_len = u16::from_le_bytes(*total_instruction_len);
+        let total_received_len = u16::from_le_bytes(*total_received_len);
 
         Ok(DAppMultisigData {
             is_initialized,
             wallet_address,
             account_guid_hash,
             dapp,
-            num_instructions: num_instructions[0],
-            instruction_offsets: instruction_offsets_array,
+            total_instruction_len,
+            total_received_len,
             instruction_data: instruction_data[..].to_owned(),
-            position: usize::from(u16::from_le_bytes(*position)),
         })
     }
 }
@@ -296,9 +259,8 @@ mod test {
                 address: Pubkey::new(&[0; PUBKEY_BYTES]),
                 name_hash: DAppBookEntryNameHash::new(&[0; HASH_LEN]),
             },
-            num_instructions: 0,
-            instruction_offsets: [0; 32],
-            position: 0,
+            total_instruction_len: 0,
+            total_received_len: 0,
             instruction_data: vec![0; INSTRUCTION_DATA_LEN],
         };
         let mut buffer = vec![0; DAppMultisigData::LEN];
@@ -317,12 +279,8 @@ mod test {
                 address: Pubkey::new_unique(),
                 name_hash: DAppBookEntryNameHash::new(&hash_of(b"dapp-name")),
             },
-            num_instructions: 3,
-            instruction_offsets: [
-                1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ],
-            position: 23,
+            total_instruction_len: 100,
+            total_received_len: 102,
             instruction_data: vec![1; INSTRUCTION_DATA_LEN],
         };
         let mut buffer = vec![0; DAppMultisigData::LEN];
@@ -346,9 +304,8 @@ mod test {
             data.dapp.name_hash.to_bytes(),
             data2.dapp.name_hash.to_bytes()
         );
-        assert_eq!(data.num_instructions, data2.num_instructions);
-        assert_eq!(data.instruction_offsets, data2.instruction_offsets);
+        assert_eq!(data.total_instruction_len, data2.total_instruction_len);
+        assert_eq!(data.total_received_len, data2.total_received_len);
         assert_eq!(data.instruction_data, data2.instruction_data);
-        assert_eq!(data.position, data2.position);
     }
 }

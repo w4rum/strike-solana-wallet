@@ -218,7 +218,7 @@ impl Processor {
                 fee_account_guid_hash,
                 ref account_guid_hash,
                 dapp,
-                instruction_count,
+                total_instruction_len,
             } => dapp_transaction_handler::init(
                 program_id,
                 accounts,
@@ -226,17 +226,19 @@ impl Processor {
                 fee_account_guid_hash,
                 account_guid_hash,
                 dapp,
-                instruction_count,
+                total_instruction_len,
             ),
 
             ProgramInstruction::SupplyDAppTransactionInstructions {
-                instructions,
-                starting_index,
+                instruction_data,
+                instruction_data_offset,
+                instruction_data_len,
             } => dapp_transaction_handler::supply_instructions(
                 program_id,
                 accounts,
-                starting_index,
-                instructions,
+                instruction_data_offset,
+                instruction_data_len,
+                instruction_data,
             ),
 
             ProgramInstruction::FinalizeDAppTransaction {} => {

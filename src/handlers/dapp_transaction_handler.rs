@@ -2,7 +2,6 @@ use bitvec::macros::internal::funty::Fundamental;
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::clock::Clock;
 use solana_program::entrypoint::ProgramResult;
-use solana_program::instruction::Instruction;
 use solana_program::msg;
 use solana_program::program::invoke_signed;
 use solana_program::program_error::ProgramError;
@@ -26,6 +25,10 @@ use crate::model::multisig_op::{
 use crate::model::wallet::Wallet;
 use crate::version::{Versioned, VERSION};
 
+mod spl_memo_3_0 {
+    solana_program::declare_id!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+}
+
 pub fn init(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -33,7 +36,7 @@ pub fn init(
     fee_account_guid_hash: Option<BalanceAccountGuidHash>,
     account_guid_hash: &BalanceAccountGuidHash,
     dapp: DAppBookEntry,
-    instruction_count: u8,
+    total_instruction_len: u16,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
@@ -63,7 +66,7 @@ pub fn init(
         *wallet_account_info.key,
         *account_guid_hash,
         dapp,
-        instruction_count,
+        total_instruction_len,
     )?;
     multisig_op.init(
         wallet.wallet_guid_hash,
@@ -90,8 +93,9 @@ pub fn init(
 pub fn supply_instructions(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
-    starting_index: u8,
-    instructions: Vec<Instruction>,
+    instruction_data_offset: u16,
+    instruction_data_len: u16,
+    instruction_data: Vec<u8>,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
@@ -111,7 +115,13 @@ pub fn supply_instructions(
         return Err(WalletError::IncorrectInitiatorAccount.into());
     }
 
-    let params_hash = {
+    multisig_op.add_instruction(
+        instruction_data_offset,
+        instruction_data_len,
+        &instruction_data,
+    )?;
+
+    if multisig_op.all_dapp_instructions_supplied() {
         let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
 
         let whitelisting_on = wallet
@@ -135,24 +145,23 @@ pub fn supply_instructions(
                     solana_program::system_program::id(),
                     spl_token::id(),
                     spl_associated_token_account::id(),
+                    spl_memo_3_0::id(),
                 ],
             ]
             .concat()
         } else {
             vec![]
         };
-        for index in starting_index..starting_index + instructions.len().as_u8() {
-            let instruction = &instructions
-                .get(usize::from(index - starting_index))
-                .unwrap();
+        for instruction in multisig_op.dapp_instructions().unwrap() {
             if whitelisting_on {
                 if !instruction_whitelist.contains(&instruction.program_id) {
                     return Err(WalletError::DAppInstructionForbidden.into());
                 }
             }
-            multisig_op.add_instruction(index, instruction)?;
         }
+    }
 
+    let params_hash = {
         let params_hash = multisig_op
             .dapp_tx_data
             .iter()

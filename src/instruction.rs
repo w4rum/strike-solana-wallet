@@ -233,15 +233,16 @@ pub enum ProgramInstruction {
         fee_account_guid_hash: Option<BalanceAccountGuidHash>,
         account_guid_hash: BalanceAccountGuidHash,
         dapp: DAppBookEntry,
-        instruction_count: u8,
+        total_instruction_len: u16,
     },
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[]` The wallet account
     /// 2. `[signer]` The initiator account
     SupplyDAppTransactionInstructions {
-        instructions: Vec<Instruction>,
-        starting_index: u8,
+        instruction_data: Vec<u8>,
+        instruction_data_offset: u16,
+        instruction_data_len: u16,
     },
 
     /// 0. `[writable]` The multisig operation account
@@ -549,7 +550,7 @@ impl ProgramInstruction {
                 fee_account_guid_hash,
                 ref account_guid_hash,
                 ref dapp,
-                instruction_count,
+                total_instruction_len,
             } => {
                 buf.push(TAG_INIT_DAPP_TRANSACTION);
                 buf.put_u64_le(fee_amount);
@@ -558,7 +559,7 @@ impl ProgramInstruction {
                 let mut buf2 = vec![0; DAppBookEntry::LEN];
                 dapp.pack_into_slice(buf2.as_mut_slice());
                 buf.extend_from_slice(&buf2[..]);
-                buf.put_u8(instruction_count);
+                buf.put_u16_le(total_instruction_len);
             }
             &ProgramInstruction::FinalizeDAppTransaction {} => {
                 buf.push(TAG_FINALIZE_DAPP_TRANSACTION);
@@ -668,10 +669,16 @@ impl ProgramInstruction {
                 buf.extend_from_slice(&update_bytes);
             }
             &ProgramInstruction::SupplyDAppTransactionInstructions {
-                ref instructions,
-                starting_index,
+                ref instruction_data,
+                instruction_data_offset,
+                instruction_data_len,
             } => {
-                pack_supply_dapp_transaction_instructions(starting_index, instructions, &mut buf);
+                pack_supply_dapp_transaction_instructions(
+                    instruction_data_offset,
+                    instruction_data_len,
+                    instruction_data,
+                    &mut buf,
+                );
             }
             &ProgramInstruction::Migrate {} => {
                 buf.push(TAG_MIGRATE);
@@ -1028,13 +1035,13 @@ impl ProgramInstruction {
         let dapp = DAppBookEntry::unpack_from_slice(
             read_slice(iter, DAppBookEntry::LEN).ok_or(ProgramError::InvalidInstructionData)?,
         )?;
-        let instruction_count = read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let total_instruction_len = read_u16(iter).ok_or(ProgramError::InvalidInstructionData)?;
         Ok(Self::InitDAppTransaction {
             fee_amount,
             fee_account_guid_hash,
             account_guid_hash,
             dapp,
-            instruction_count: *instruction_count,
+            total_instruction_len,
         })
     }
 
@@ -1138,10 +1145,16 @@ impl ProgramInstruction {
         bytes: &[u8],
     ) -> Result<ProgramInstruction, ProgramError> {
         let iter = &mut bytes.into_iter();
-        let starting_index = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let instruction_data_offset = read_u16(iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let instruction_data_len = read_u16(iter).ok_or(ProgramError::InvalidInstructionData)?;
+        let instruction_data = read_slice(iter, instruction_data_len.try_into().unwrap())
+            .ok_or(ProgramError::InvalidInstructionData)?
+            .to_vec();
+
         Ok(Self::SupplyDAppTransactionInstructions {
-            starting_index,
-            instructions: read_instructions(iter)?,
+            instruction_data_offset,
+            instruction_data_len,
+            instruction_data,
         })
     }
 
@@ -1203,16 +1216,15 @@ impl ProgramInstruction {
 }
 
 pub fn pack_supply_dapp_transaction_instructions(
-    starting_index: u8,
-    instructions: &Vec<Instruction>,
+    instruction_data_offset: u16,
+    instruction_data_len: u16,
+    instruction_data: &Vec<u8>,
     buf: &mut Vec<u8>,
 ) {
     buf.push(TAG_SUPPLY_DAPP_INSTRUCTIONS);
-    buf.push(starting_index);
-    buf.put_u16_le(instructions.len() as u16);
-    for instruction in instructions.iter() {
-        append_instruction(instruction, buf);
-    }
+    buf.put_u16_le(instruction_data_offset);
+    buf.put_u16_le(instruction_data_len);
+    buf.extend_from_slice(instruction_data);
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -1547,13 +1559,6 @@ fn read_account_guid(iter: &mut Iter<u8>) -> Result<BalanceAccountGuidHash, Prog
     )
 }
 
-fn read_instructions(iter: &mut Iter<u8>) -> Result<Vec<Instruction>, ProgramError> {
-    let instruction_count = read_u16(iter).ok_or(ProgramError::InvalidInstructionData)?;
-    Ok((0..instruction_count)
-        .map(|_| read_instruction(iter).unwrap())
-        .collect())
-}
-
 fn read_account_meta(iter: &mut Iter<u8>) -> Result<AccountMeta, ProgramError> {
     let flags = *read_u8(iter)
         .ok_or(ProgramError::InvalidInstructionData)
@@ -1593,7 +1598,7 @@ pub fn read_instruction(iter: &mut Iter<u8>) -> Result<Instruction, ProgramError
     })
 }
 
-pub fn read_instruction_from_slice(slice: &[u8]) -> Result<Instruction, ProgramError> {
+pub fn read_instruction_from_slice(slice: &[u8]) -> Result<(Instruction, usize), ProgramError> {
     // first check that it is big enough for program id and account meta count
     if slice.len() < PUBKEY_BYTES + 2 {
         return Err(ProgramError::InvalidAccountData);
@@ -1626,11 +1631,14 @@ pub fn read_instruction_from_slice(slice: &[u8]) -> Result<Instruction, ProgramE
         return Err(ProgramError::InvalidAccountData);
     }
 
-    Ok(Instruction {
-        program_id,
-        accounts,
-        data: slice[data_len_start + 2..data_len_start + 2 + data_len].to_vec(),
-    })
+    Ok((
+        Instruction {
+            program_id,
+            accounts,
+            data: slice[data_len_start + 2..data_len_start + 2 + data_len].to_vec(),
+        },
+        data_len_start + 2 + data_len,
+    ))
 }
 
 pub fn append_instruction(instruction: &Instruction, dst: &mut Vec<u8>) {

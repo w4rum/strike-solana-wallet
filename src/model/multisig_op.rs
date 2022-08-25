@@ -408,14 +408,20 @@ impl MultisigOp {
         Ok(false)
     }
 
-    pub fn add_instruction(&mut self, index: u8, instruction: &Instruction) -> ProgramResult {
+    pub fn add_instruction(
+        &mut self,
+        instruction_data_offset: u16,
+        instruction_data_len: u16,
+        instruction_data: &Vec<u8>,
+    ) -> ProgramResult {
         if self.dapp_tx_data.is_none() {
             Err(WalletError::OperationNotInitialized.into())
         } else {
-            self.dapp_tx_data
-                .as_mut()
-                .unwrap()
-                .add_instruction(index, instruction)
+            self.dapp_tx_data.as_mut().unwrap().add_instruction(
+                instruction_data_offset,
+                instruction_data_len,
+                instruction_data,
+            )
         }
     }
 
@@ -432,6 +438,25 @@ impl MultisigOp {
             Some(self.dapp_tx_data.as_ref().unwrap().dapp)
         } else {
             None
+        }
+    }
+
+    pub fn dapp_instructions(&self) -> Result<Vec<Instruction>, ProgramError> {
+        if self.dapp_tx_data.is_none() {
+            Err(WalletError::OperationNotInitialized.into())
+        } else {
+            self.dapp_tx_data.as_ref().unwrap().instructions()
+        }
+    }
+
+    pub fn all_dapp_instructions_supplied(&self) -> bool {
+        if self.dapp_tx_data.is_none() {
+            false
+        } else {
+            self.dapp_tx_data
+                .as_ref()
+                .unwrap()
+                .all_instructions_supplied()
         }
     }
 }
@@ -696,6 +721,7 @@ pub enum MultisigOpParams {
         wallet_address: Pubkey,
         account_guid_hash: BalanceAccountGuidHash,
         dapp: DAppBookEntry,
+        total_instruction_len: u16,
         instructions: Vec<Instruction>,
     },
     UpdateDAppBook {
@@ -863,6 +889,7 @@ impl MultisigOpParams {
                 wallet_address,
                 account_guid_hash,
                 dapp,
+                total_instruction_len,
                 instructions,
             } => {
                 let mut bytes: Vec<u8> = Vec::new();
@@ -873,7 +900,7 @@ impl MultisigOpParams {
                 let mut buf = vec![0; DAppBookEntry::LEN];
                 dapp.pack_into_slice(buf.as_mut_slice());
                 bytes.extend_from_slice(&buf[..]);
-                bytes.put_u16_le(instructions.len().as_u16());
+                bytes.put_u16_le(*total_instruction_len);
                 for instruction in instructions.into_iter() {
                     append_instruction(instruction, &mut bytes);
                 }
