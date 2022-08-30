@@ -18,7 +18,7 @@ use crate::model::balance_account::{
 use crate::model::multisig_op::{
     ApprovalDisposition, BooleanSetting, SlotUpdateType, WrapDirection,
 };
-use crate::model::signer::Signer;
+use crate::model::signer::{NamedSigner, Signer};
 use crate::model::wallet::WalletGuidHash;
 use crate::serialization_utils::{
     append_duration, pack_option, read_account_guid_hash, read_account_name_hash,
@@ -190,8 +190,8 @@ pub enum ProgramInstruction {
         fee_amount: u64,
         fee_account_guid_hash: Option<BalanceAccountGuidHash>,
         slot_update_type: SlotUpdateType,
-        slot_id: SlotId<Signer>,
-        signer: Signer,
+        slot_id: SlotId<NamedSigner>,
+        signer: NamedSigner,
     },
 
     /// 0. `[writable]` The multisig operation account
@@ -201,8 +201,8 @@ pub enum ProgramInstruction {
     /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
     FinalizeUpdateSigner {
         slot_update_type: SlotUpdateType,
-        slot_id: SlotId<Signer>,
-        signer: Signer,
+        slot_id: SlotId<NamedSigner>,
+        signer: NamedSigner,
     },
 
     /// 0  `[writable]` The multisig operation account
@@ -516,6 +516,7 @@ impl ProgramInstruction {
                 buf.push(slot_update_type.to_u8());
                 buf.push(slot_id.value as u8);
                 buf.extend_from_slice(signer.key.as_ref());
+                buf.extend_from_slice(signer.name_hash.as_ref());
             }
             &ProgramInstruction::FinalizeUpdateSigner {
                 ref slot_update_type,
@@ -526,6 +527,7 @@ impl ProgramInstruction {
                 buf.push(slot_update_type.to_u8());
                 buf.push(slot_id.value as u8);
                 buf.extend_from_slice(signer.key.as_ref());
+                buf.extend_from_slice(signer.name_hash.as_ref());
             }
             &ProgramInstruction::InitWalletConfigPolicyUpdate {
                 fee_amount,
@@ -982,7 +984,7 @@ impl ProgramInstruction {
             fee_account_guid_hash,
             slot_update_type: SlotUpdateType::from_u8(*slot_update_type),
             slot_id: SlotId::new(*slot_id as usize),
-            signer: Signer::unpack_from_slice(iter.as_slice())?,
+            signer: NamedSigner::unpack_from_slice(iter.as_slice())?,
         })
     }
 
@@ -998,7 +1000,7 @@ impl ProgramInstruction {
         Ok(Self::FinalizeUpdateSigner {
             slot_update_type: SlotUpdateType::from_u8(*slot_update_type),
             slot_id: SlotId::new(*slot_id as usize),
-            signer: Signer::unpack_from_slice(rest)?,
+            signer: NamedSigner::unpack_from_slice(rest)?,
         })
     }
 
@@ -1231,8 +1233,8 @@ pub fn pack_supply_dapp_transaction_instructions(
 pub struct InitialWalletConfig {
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
-    pub signers: Vec<(SlotId<Signer>, Signer)>,
-    pub config_approvers: Vec<SlotId<Signer>>,
+    pub signers: Vec<(SlotId<NamedSigner>, NamedSigner)>,
+    pub config_approvers: Vec<SlotId<NamedSigner>>,
 }
 
 impl InitialWalletConfig {
@@ -1351,7 +1353,7 @@ impl AddressBookUpdate {
 pub struct WalletConfigPolicyUpdate {
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
-    pub config_approvers: Vec<SlotId<Signer>>,
+    pub config_approvers: Vec<SlotId<NamedSigner>>,
     pub signers_hash: Hash,
 }
 
@@ -1388,7 +1390,7 @@ pub struct BalanceAccountCreation {
     pub name_hash: BalanceAccountNameHash,
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
-    pub transfer_approvers: Vec<SlotId<Signer>>,
+    pub transfer_approvers: Vec<SlotId<NamedSigner>>,
     pub signers_hash: Hash,
     pub whitelist_enabled: BooleanSetting,
     pub dapps_enabled: BooleanSetting,
@@ -1445,7 +1447,7 @@ impl BalanceAccountCreation {
 pub struct BalanceAccountPolicyUpdate {
     pub approvals_required_for_transfer: u8,
     pub approval_timeout_for_transfer: Duration,
-    pub transfer_approvers: Vec<SlotId<Signer>>,
+    pub transfer_approvers: Vec<SlotId<NamedSigner>>,
     pub signers_hash: Hash,
 }
 
@@ -1506,21 +1508,23 @@ impl DAppBookUpdate {
     }
 }
 
-fn read_signers(iter: &mut Iter<u8>) -> Result<Vec<(SlotId<Signer>, Signer)>, ProgramError> {
+fn read_signers(
+    iter: &mut Iter<u8>,
+) -> Result<Vec<(SlotId<NamedSigner>, NamedSigner)>, ProgramError> {
     let signers_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?;
-    read_slice(iter, usize::from(signers_count) * (1 + Signer::LEN))
+    read_slice(iter, usize::from(signers_count) * (1 + NamedSigner::LEN))
         .ok_or(ProgramError::InvalidInstructionData)?
-        .chunks_exact(1 + Signer::LEN)
+        .chunks_exact(1 + NamedSigner::LEN)
         .map(|chunk| {
-            Signer::unpack_from_slice(&chunk[1..1 + Signer::LEN])
+            NamedSigner::unpack_from_slice(&chunk[1..1 + NamedSigner::LEN])
                 .map(|signer| (SlotId::new(usize::from(chunk[0])), signer))
         })
         .collect()
 }
 
-fn read_signer_slots(iter: &mut Iter<u8>) -> Result<Vec<SlotId<Signer>>, ProgramError> {
+fn read_signer_slots(iter: &mut Iter<u8>) -> Result<Vec<SlotId<NamedSigner>>, ProgramError> {
     let signers_count = *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)? as usize;
-    let mut slots: Vec<SlotId<Signer>> = Vec::with_capacity(signers_count);
+    let mut slots: Vec<SlotId<NamedSigner>> = Vec::with_capacity(signers_count);
     for _ in 0..signers_count {
         slots.push(SlotId::new(usize::from(
             *read_u8(iter).ok_or(ProgramError::InvalidInstructionData)?,
@@ -1529,17 +1533,17 @@ fn read_signer_slots(iter: &mut Iter<u8>) -> Result<Vec<SlotId<Signer>>, Program
     Ok(slots)
 }
 
-fn append_signers(signers: &Vec<(SlotId<Signer>, Signer)>, dst: &mut Vec<u8>) {
+fn append_signers(signers: &Vec<(SlotId<NamedSigner>, NamedSigner)>, dst: &mut Vec<u8>) {
     dst.push(signers.len() as u8);
     for (slot_id, signer) in signers.iter() {
-        let mut buf = vec![0; 1 + Signer::LEN];
+        let mut buf = vec![0; 1 + NamedSigner::LEN];
         buf[0] = slot_id.value as u8;
-        signer.pack_into_slice(&mut buf[1..1 + Signer::LEN]);
+        signer.pack_into_slice(&mut buf[1..1 + NamedSigner::LEN]);
         dst.extend_from_slice(buf.as_slice());
     }
 }
 
-fn append_signer_slots(signers: &Vec<SlotId<Signer>>, dst: &mut Vec<u8>) {
+fn append_signer_slots(signers: &Vec<SlotId<NamedSigner>>, dst: &mut Vec<u8>) {
     dst.push(signers.len() as u8);
     for slot_id in signers.iter() {
         dst.push(slot_id.value as u8);

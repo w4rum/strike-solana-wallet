@@ -26,6 +26,7 @@ use std::borrow::BorrowMut;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use strike_wallet::constants::HASH_LEN;
 use strike_wallet::instruction::{
     AddressBookUpdate, BalanceAccountAddressWhitelistUpdate, BalanceAccountCreation,
     BalanceAccountPolicyUpdate, DAppBookUpdate, InitialWalletConfig, WalletConfigPolicyUpdate,
@@ -40,8 +41,8 @@ use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, MultisigOp, MultisigOpParams,
     OperationDisposition, SlotUpdateType, WrapDirection,
 };
-use strike_wallet::model::signer::Signer;
-use strike_wallet::model::wallet::{Signers, WalletGuidHash};
+use strike_wallet::model::signer::NamedSigner;
+use strike_wallet::model::wallet::{NamedSigners, WalletGuidHash};
 use strike_wallet::utils::SlotId;
 use strike_wallet::version::VERSION;
 use uuid::Uuid;
@@ -58,11 +59,17 @@ use {
 };
 
 pub trait SignerKey {
-    fn pubkey_as_signer(&self) -> Signer;
+    fn pubkey_as_signer(&self) -> NamedSigner;
+    fn pubkey_and_name_hash_as_signer(&self, _: [u8; HASH_LEN]) -> NamedSigner;
 }
+
 impl SignerKey for Keypair {
-    fn pubkey_as_signer(&self) -> Signer {
-        Signer::new(self.pubkey())
+    fn pubkey_as_signer(&self) -> NamedSigner {
+        NamedSigner::new(self.pubkey(), [0; HASH_LEN])
+    }
+
+    fn pubkey_and_name_hash_as_signer(&self, name_hash: [u8; HASH_LEN]) -> NamedSigner {
+        NamedSigner::new(self.pubkey(), name_hash)
     }
 }
 
@@ -437,7 +444,7 @@ pub async fn init_update_signer(
     initiator_account: &Keypair,
     slot_update_type: SlotUpdateType,
     slot_id: usize,
-    signer: Signer,
+    signer: NamedSigner,
     fee_amount: Option<u64>,
     fee_account_guid_hash: Option<BalanceAccountGuidHash>,
 ) -> Result<Pubkey, BanksClientError> {
@@ -496,8 +503,8 @@ pub async fn update_signer(
     approvers: Vec<&Keypair>,
     slot_update_type: SlotUpdateType,
     slot_id: usize,
-    signer: Signer,
-    expected_signers: Option<Signers>,
+    signer: NamedSigner,
+    expected_signers: Option<NamedSigners>,
     expected_error: Option<InstructionError>,
     fee_amount: Option<u64>,
     fee_account_guid_hash: Option<BalanceAccountGuidHash>,
@@ -1500,7 +1507,7 @@ pub async fn setup_create_balance_account_failure_tests(
     let mut signers = transfer_approvers
         .iter()
         .enumerate()
-        .map(|(i, pk)| (SlotId::new(i), Signer::new(*pk)))
+        .map(|(i, pk)| (SlotId::new(i), NamedSigner::new(*pk, [0; HASH_LEN])))
         .collect_vec();
     // add a couple random signers to ensure init wallet has a non-zero signers
     // vec in case the given transfer_approvers vec has insufficient length.
@@ -1566,7 +1573,7 @@ pub async fn setup_create_balance_account_failure_tests(
                 hash_signers(
                     &transfer_approvers
                         .iter()
-                        .map(|pk| Signer::new(*pk))
+                        .map(|pk| NamedSigner::new(*pk, [0; HASH_LEN]))
                         .collect_vec(),
                 ),
                 BooleanSetting::Off,
@@ -2698,7 +2705,7 @@ pub fn random_balance_account_guid_hash() -> BalanceAccountGuidHash {
 }
 
 /// Hash vector of signer keys
-pub fn hash_signers(signers: &Vec<Signer>) -> Hash {
+pub fn hash_signers(signers: &Vec<NamedSigner>) -> Hash {
     let mut bytes: Vec<u8> = Vec::new();
     for signer in signers {
         bytes.extend_from_slice(signer.key.as_ref());

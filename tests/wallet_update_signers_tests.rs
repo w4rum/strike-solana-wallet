@@ -17,7 +17,7 @@ use strike_wallet::instruction::InitialWalletConfig;
 use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, OperationDisposition, SlotUpdateType,
 };
-use strike_wallet::model::wallet::Signers;
+use strike_wallet::model::wallet::NamedSigners;
 use strike_wallet::utils::SlotId;
 use {
     solana_program_test::tokio,
@@ -28,28 +28,52 @@ use {
 async fn test_add_and_remove_signer() {
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
 
+    let approver0_name_hash = hash_of(b"Signer 0 Name");
+    let approver1_name_hash = hash_of(b"Signer 1 Name");
+    let approver2_name_hash = hash_of(b"Signer 2 Name");
     let initial_config = InitialWalletConfig {
         approvals_required_for_config: 2,
         approval_timeout_for_config: Duration::from_secs(3600),
         signers: vec![
-            (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
+            (
+                SlotId::new(0),
+                approvers[0].pubkey_and_name_hash_as_signer(approver0_name_hash),
+            ),
+            (
+                SlotId::new(1),
+                approvers[1].pubkey_and_name_hash_as_signer(approver1_name_hash),
+            ),
         ],
         config_approvers: vec![SlotId::new(0), SlotId::new(1)],
     };
 
-    let expected_signers_after_add = Signers::from_vec(vec![
-        (SlotId::new(0), approvers[0].pubkey_as_signer()),
-        (SlotId::new(1), approvers[1].pubkey_as_signer()),
-        (SlotId::new(2), approvers[2].pubkey_as_signer()),
+    let expected_signers_after_add = NamedSigners::from_vec(vec![
+        (
+            SlotId::new(0),
+            approvers[0].pubkey_and_name_hash_as_signer(approver0_name_hash),
+        ),
+        (
+            SlotId::new(1),
+            approvers[1].pubkey_and_name_hash_as_signer(approver1_name_hash),
+        ),
+        (
+            SlotId::new(2),
+            approvers[2].pubkey_and_name_hash_as_signer(approver2_name_hash),
+        ),
     ]);
 
-    let expected_signers_after_remove = Signers::from_vec(vec![
-        (SlotId::new(0), approvers[0].pubkey_as_signer()),
-        (SlotId::new(1), approvers[1].pubkey_as_signer()),
+    let expected_signers_after_remove = NamedSigners::from_vec(vec![
+        (
+            SlotId::new(0),
+            approvers[0].pubkey_and_name_hash_as_signer(approver0_name_hash),
+        ),
+        (
+            SlotId::new(1),
+            approvers[1].pubkey_and_name_hash_as_signer(approver1_name_hash),
+        ),
     ]);
 
-    let signer_to_add_and_remove = approvers[2].pubkey_as_signer();
+    let signer_to_add_and_remove = approvers[2].pubkey_and_name_hash_as_signer(approver2_name_hash);
 
     let mut context = setup_wallet_test(40_000, initial_config).await;
 

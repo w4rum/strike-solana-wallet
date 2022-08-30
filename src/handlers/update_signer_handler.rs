@@ -5,7 +5,7 @@ use crate::handlers::utils::{
 };
 use crate::model::balance_account::BalanceAccountGuidHash;
 use crate::model::multisig_op::{MultisigOpParams, SlotUpdateType};
-use crate::model::signer::Signer;
+use crate::model::signer::NamedSigner;
 use crate::model::wallet::Wallet;
 use crate::utils::SlotId;
 use solana_program::account_info::{next_account_info, AccountInfo};
@@ -21,8 +21,8 @@ pub fn init(
     fee_amount: u64,
     fee_account_guid_hash: Option<BalanceAccountGuidHash>,
     slot_update_type: SlotUpdateType,
-    slot_id: SlotId<Signer>,
-    signer: Signer,
+    slot_id: SlotId<NamedSigner>,
+    signer: NamedSigner,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;
@@ -60,8 +60,8 @@ pub fn finalize(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     slot_update_type: SlotUpdateType,
-    slot_id: SlotId<Signer>,
-    signer: Signer,
+    slot_id: SlotId<NamedSigner>,
+    signer: NamedSigner,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let multisig_op_account_info = next_program_account_info(accounts_iter, program_id)?;

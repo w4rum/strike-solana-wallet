@@ -11,7 +11,7 @@ use crate::model::balance_account::{
     AllowedDestinations, BalanceAccount, BalanceAccountGuidHash, BalanceAccountNameHash,
 };
 use crate::model::multisig_op::BooleanSetting;
-use crate::model::signer::Signer;
+use crate::model::signer::{NamedSigner, Signer};
 use crate::utils::{GetSlotIds, SlotFlags, SlotId, Slots};
 use crate::version::Versioned;
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
@@ -26,7 +26,8 @@ use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
 use std::time::Duration;
 
 pub type Signers = Slots<Signer, { Wallet::MAX_SIGNERS }>;
-pub type Approvers = SlotFlags<Signer, { Signers::FLAGS_STORAGE_SIZE }>;
+pub type NamedSigners = Slots<NamedSigner, { Wallet::MAX_SIGNERS }>;
+pub type Approvers = SlotFlags<NamedSigner, { NamedSigners::FLAGS_STORAGE_SIZE }>;
 pub type BalanceAccounts = Slots<BalanceAccount, { Wallet::MAX_BALANCE_ACCOUNTS }>;
 
 #[derive(Debug, Clone, Eq, PartialEq, Copy, Ord, PartialOrd)]
@@ -52,7 +53,7 @@ pub struct Wallet {
     pub version: u32,
     pub rent_return: Pubkey,
     pub wallet_guid_hash: WalletGuidHash,
-    pub signers: Signers,
+    pub signers: NamedSigners,
     pub address_book: AddressBook,
     pub approvals_required_for_config: u8,
     pub approval_timeout_for_config: Duration,
@@ -213,22 +214,31 @@ impl Wallet {
 
     pub fn validate_remove_signer(
         &self,
-        signer_to_remove: (SlotId<Signer>, Signer),
+        signer_to_remove: (SlotId<NamedSigner>, NamedSigner),
     ) -> ProgramResult {
         let mut self_clone = self.clone();
         self_clone.remove_signers(&vec![signer_to_remove])
     }
 
-    pub fn validate_add_signer(&self, signer_to_add: (SlotId<Signer>, Signer)) -> ProgramResult {
+    pub fn validate_add_signer(
+        &self,
+        signer_to_add: (SlotId<NamedSigner>, NamedSigner),
+    ) -> ProgramResult {
         let mut self_clone = self.clone();
         self_clone.add_signers(&vec![signer_to_add])
     }
 
-    pub fn remove_signer(&mut self, signer_to_remove: (SlotId<Signer>, Signer)) -> ProgramResult {
+    pub fn remove_signer(
+        &mut self,
+        signer_to_remove: (SlotId<NamedSigner>, NamedSigner),
+    ) -> ProgramResult {
         self.remove_signers(&vec![signer_to_remove])
     }
 
-    pub fn add_signer(&mut self, signer_to_add: (SlotId<Signer>, Signer)) -> ProgramResult {
+    pub fn add_signer(
+        &mut self,
+        signer_to_add: (SlotId<NamedSigner>, NamedSigner),
+    ) -> ProgramResult {
         self.add_signers(&vec![signer_to_add])
     }
 
@@ -596,7 +606,10 @@ impl Wallet {
         Ok(())
     }
 
-    fn add_signers(&mut self, signers_to_add: &Vec<(SlotId<Signer>, Signer)>) -> ProgramResult {
+    fn add_signers(
+        &mut self,
+        signers_to_add: &Vec<(SlotId<NamedSigner>, NamedSigner)>,
+    ) -> ProgramResult {
         if !self.signers.can_be_inserted(signers_to_add) {
             msg!("Failed to add signers: at least one slot cannot be inserted");
             return Err(WalletError::SlotCannotBeInserted.into());
@@ -607,7 +620,7 @@ impl Wallet {
 
     fn remove_signers(
         &mut self,
-        signers_to_remove: &Vec<(SlotId<Signer>, Signer)>,
+        signers_to_remove: &Vec<(SlotId<NamedSigner>, NamedSigner)>,
     ) -> ProgramResult {
         if !self.signers.can_be_removed(signers_to_remove) {
             msg!("Failed to remove signers: at least one of the provided signers is not present in the config");
@@ -686,7 +699,7 @@ impl Wallet {
 
     fn enable_config_approvers_by_slots(
         &mut self,
-        signer_slots: &Vec<SlotId<Signer>>,
+        signer_slots: &Vec<SlotId<NamedSigner>>,
     ) -> ProgramResult {
         if !self.signers.contains_slots(signer_slots) {
             msg!("One of the specified config approver slots is not a signer slot");
@@ -700,7 +713,7 @@ impl Wallet {
     fn enable_transfer_approvers_by_slot(
         &mut self,
         balance_account: &mut BalanceAccount,
-        signer_slots: &Vec<SlotId<Signer>>,
+        signer_slots: &Vec<SlotId<NamedSigner>>,
     ) -> ProgramResult {
         if !self.signers.contains_slots(signer_slots) {
             msg!("Failed to enable transfer approvers: one of the given transfer approvers is not configured as signer");
@@ -784,7 +797,7 @@ impl Wallet {
 
     fn validate_signers_hash(
         &self,
-        signer_slots: &Vec<SlotId<Signer>>,
+        signer_slots: &Vec<SlotId<NamedSigner>>,
         provided_hash: &Hash,
     ) -> ProgramResult {
         let mut bytes: Vec<u8> = Vec::new();
@@ -869,7 +882,7 @@ impl Pack for Wallet {
         VERSION_LEN + // version
         PUBKEY_BYTES + // rent return
         HASH_LEN + // wallet guid hash
-        Signers::LEN +
+        NamedSigners::LEN +
         AddressBook::LEN +
         1 + // approvals_required_for_config
         8 + // approval_timeout_for_config
@@ -897,7 +910,7 @@ impl Pack for Wallet {
             VERSION_LEN,
             PUBKEY_BYTES,
             HASH_LEN,
-            Signers::LEN,
+            NamedSigners::LEN,
             AddressBook::LEN,
             1,
             8,
@@ -939,7 +952,7 @@ impl Pack for Wallet {
             VERSION_LEN,
             PUBKEY_BYTES,
             HASH_LEN,
-            Signers::LEN,
+            NamedSigners::LEN,
             AddressBook::LEN,
             1,
             8,
@@ -957,7 +970,7 @@ impl Pack for Wallet {
             version: u32::from_le_bytes(*version),
             rent_return: Pubkey::new_from_array(*rent_return),
             wallet_guid_hash: WalletGuidHash::new(wallet_guid_hash),
-            signers: Signers::unpack_from_slice(signers_src)?,
+            signers: NamedSigners::unpack_from_slice(signers_src)?,
             address_book: AddressBook::unpack_from_slice(address_book_src)?,
             approvals_required_for_config: approvals_required_for_config[0],
             approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(

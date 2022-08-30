@@ -14,7 +14,7 @@ use std::time::Duration;
 use strike_wallet::instruction::InitialWalletConfig;
 use strike_wallet::model::balance_account::{BalanceAccount, BalanceAccountGuidHash};
 use strike_wallet::model::multisig_op::{BooleanSetting, SlotUpdateType};
-use strike_wallet::model::wallet::Signers;
+use strike_wallet::model::wallet::NamedSigners;
 use strike_wallet::utils::SlotId;
 use {solana_program_test::tokio, solana_sdk::signature::Keypair};
 
@@ -34,7 +34,7 @@ async fn test_fee_info_in_multisig_op() {
     };
 
     let mut context = setup_wallet_test(40_000, initial_config).await;
-    let expected_signers_after_add = Signers::from_vec(vec![
+    let expected_signers_after_add = NamedSigners::from_vec(vec![
         (SlotId::new(0), approvers[0].pubkey_as_signer()),
         (SlotId::new(1), approvers[1].pubkey_as_signer()),
         (SlotId::new(2), approvers[2].pubkey_as_signer()),

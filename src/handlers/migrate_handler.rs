@@ -2,10 +2,14 @@ use crate::constants::{HASH_LEN, VERSION_LEN};
 use crate::error::WalletError;
 use crate::handlers::utils::next_program_account_info;
 use crate::model::address_book::{AddressBook, DAppBook};
-use crate::model::signer::Signer;
-use crate::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet, WalletGuidHash};
+use crate::model::signer::NamedSigner;
+use crate::model::wallet::{
+    Approvers, BalanceAccounts, NamedSigners, Signers, Wallet, WalletGuidHash,
+};
+use crate::utils::SlotId;
 use crate::version::{Versioned, VERSION};
 use arrayref::{array_ref, array_refs};
+use itertools::Itertools;
 use solana_program::account_info::{next_account_info, AccountInfo};
 use solana_program::entrypoint::ProgramResult;
 use solana_program::program_error::ProgramError;
@@ -38,18 +42,16 @@ fn migration_test(source: &[u8], destination: &mut [u8], rent_return: &Pubkey) {
     Wallet::pack(destination_account, destination).unwrap();
 }
 
-const V1_WALLET_SIZE: usize = 8726;
+const V2_WALLET_SIZE: usize = 8694;
 
-// this migration removes assistant pubkey from the wallet
-fn v1_to_v2_remove_assistant(source: &[u8], destination: &mut [u8], rent_return: &Pubkey) {
-    let src = array_ref![source, 0, V1_WALLET_SIZE];
+fn v2_to_v3_add_name_to_signers(source: &[u8], destination: &mut [u8], rent_return: &Pubkey) {
+    let src = array_ref![source, 0, V2_WALLET_SIZE];
     let (
         is_initialized,
         _,
         _,
         wallet_guid_hash,
         signers_src,
-        _,
         address_book_src,
         approvals_required_for_config,
         approval_timeout_for_config,
@@ -63,7 +65,6 @@ fn v1_to_v2_remove_assistant(source: &[u8], destination: &mut [u8], rent_return:
         PUBKEY_BYTES,
         HASH_LEN,
         Signers::LEN,
-        Signer::LEN,
         AddressBook::LEN,
         1,
         8,
@@ -72,15 +73,32 @@ fn v1_to_v2_remove_assistant(source: &[u8], destination: &mut [u8], rent_return:
         BalanceAccounts::LEN
     ];
 
+    let signers = Signers::unpack_from_slice(signers_src).unwrap();
+    let mut named_signers = NamedSigners::new();
+    named_signers.insert_many(
+        &signers
+            .filled_slots()
+            .into_iter()
+            .map(|s| {
+                (
+                    SlotId::new(s.0.value),
+                    NamedSigner {
+                        key: s.1.key,
+                        name_hash: [0; HASH_LEN],
+                    },
+                )
+            })
+            .collect_vec(),
+    );
     let destination_account = Wallet {
         is_initialized: match is_initialized {
             [0] => false,
             _ => true,
         },
-        version: 2,
+        version: 3,
         rent_return: *rent_return,
         wallet_guid_hash: WalletGuidHash::new(wallet_guid_hash),
-        signers: Signers::unpack_from_slice(signers_src).unwrap(),
+        signers: named_signers,
         address_book: AddressBook::unpack_from_slice(address_book_src).unwrap(),
         approvals_required_for_config: approvals_required_for_config[0],
         approval_timeout_for_config: Duration::from_secs(u64::from_le_bytes(
@@ -96,7 +114,7 @@ fn v1_to_v2_remove_assistant(source: &[u8], destination: &mut [u8], rent_return:
 fn migrations() -> BTreeMap<u32, MigrationFunction> {
     BTreeMap::from([
         (MIGRATION_TEST_VERSION, migration_test as MigrationFunction),
-        (1, v1_to_v2_remove_assistant as MigrationFunction),
+        (2, v2_to_v3_add_name_to_signers as MigrationFunction),
     ])
 }
 
@@ -130,18 +148,18 @@ pub fn handle(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::model::signer::{NamedSigner, Signer};
     use crate::utils::SlotId;
     use arrayref::{array_mut_ref, mut_array_refs};
     use solana_program::program_pack::{IsInitialized, Sealed};
 
     #[derive(Debug, Clone, Eq, PartialEq)]
-    struct WalletV1 {
+    struct WalletV2 {
         pub is_initialized: bool,
         pub version: u32,
         pub rent_return: Pubkey,
         pub wallet_guid_hash: WalletGuidHash,
         pub signers: Signers,
-        pub assistant: Signer,
         pub address_book: AddressBook,
         pub approvals_required_for_config: u8,
         pub approval_timeout_for_config: Duration,
@@ -150,24 +168,23 @@ mod test {
         pub dapp_book: DAppBook,
     }
 
-    impl Sealed for WalletV1 {}
+    impl Sealed for WalletV2 {}
 
-    impl IsInitialized for WalletV1 {
+    impl IsInitialized for WalletV2 {
         fn is_initialized(&self) -> bool {
             self.is_initialized
         }
     }
 
-    impl WalletV1 {
+    impl WalletV2 {
         fn pack_into_slice(&self, dst: &mut [u8]) {
-            let dst = array_mut_ref![dst, 0, V1_WALLET_SIZE];
+            let dst = array_mut_ref![dst, 0, V2_WALLET_SIZE];
             let (
                 is_initialized_dst,
                 version_dst,
                 rent_return_dst,
                 wallet_guid_hash_dst,
                 signers_dst,
-                assistant_account_dst,
                 address_book_dst,
                 approvals_required_for_config_dst,
                 approval_timeout_for_config_dst,
@@ -181,7 +198,6 @@ mod test {
                 PUBKEY_BYTES,
                 HASH_LEN,
                 Signers::LEN,
-                Signer::LEN,
                 AddressBook::LEN,
                 1,
                 8,
@@ -195,7 +211,6 @@ mod test {
             rent_return_dst.copy_from_slice(self.rent_return.as_ref());
             wallet_guid_hash_dst.copy_from_slice(&self.wallet_guid_hash.to_bytes());
             self.signers.pack_into_slice(signers_dst);
-            self.assistant.pack_into_slice(assistant_account_dst);
             self.address_book.pack_into_slice(address_book_dst);
             approvals_required_for_config_dst[0] = self.approvals_required_for_config;
             *approval_timeout_for_config_dst =
@@ -207,10 +222,10 @@ mod test {
     }
 
     #[test]
-    fn test_v1_to_v2_remove_assistant() {
-        let v1_wallet = WalletV1 {
+    fn test_v2_to_v3_add_signer_name_hash() {
+        let v2_wallet = WalletV2 {
             is_initialized: true,
-            version: 1,
+            version: 2,
             rent_return: Pubkey::new_unique(),
             wallet_guid_hash: WalletGuidHash::new(&Pubkey::new_unique().to_bytes()),
             signers: Signers::from_vec(vec![
@@ -218,7 +233,6 @@ mod test {
                 (SlotId::new(1), Signer::new(Pubkey::new_unique())),
                 (SlotId::new(2), Signer::new(Pubkey::new_unique())),
             ]),
-            assistant: Signer::new(Pubkey::new_unique()),
             address_book: AddressBook::new(),
             approvals_required_for_config: 1,
             approval_timeout_for_config: Duration::from_secs(600),
@@ -227,36 +241,46 @@ mod test {
             dapp_book: DAppBook::from_vec(vec![]),
         };
 
-        let mut v1_wallet_data = vec![0; V1_WALLET_SIZE];
-        v1_wallet.pack_into_slice(v1_wallet_data.as_mut_slice());
+        let mut v2_wallet_data = vec![0; V2_WALLET_SIZE];
+        v2_wallet.pack_into_slice(v2_wallet_data.as_mut_slice());
 
-        let mut v2_wallet_data = vec![0; V1_WALLET_SIZE - 32];
+        let mut v3_wallet_data = vec![0; V2_WALLET_SIZE + (32 * Wallet::MAX_SIGNERS)];
 
-        let v2_rent_return = Pubkey::new_unique();
+        let v3_rent_return = Pubkey::new_unique();
 
-        v1_to_v2_remove_assistant(
-            &*v1_wallet_data,
-            v2_wallet_data.as_mut_slice(),
-            &v2_rent_return,
+        v2_to_v3_add_name_to_signers(
+            &*v2_wallet_data,
+            v3_wallet_data.as_mut_slice(),
+            &v3_rent_return,
         );
 
-        let v2_wallet = Wallet::unpack_from_slice(v2_wallet_data.as_slice()).unwrap();
+        let v3_wallet = Wallet::unpack_from_slice(v3_wallet_data.as_slice()).unwrap();
 
-        assert_eq!(2, v2_wallet.version);
-        assert_eq!(v2_rent_return, v2_wallet.rent_return);
-        assert_eq!(v1_wallet.wallet_guid_hash, v2_wallet.wallet_guid_hash);
-        assert_eq!(v1_wallet.signers, v2_wallet.signers);
-        assert_eq!(v1_wallet.address_book, v2_wallet.address_book);
+        assert_eq!(3, v3_wallet.version);
+        assert_eq!(v3_rent_return, v3_wallet.rent_return);
+        assert_eq!(v2_wallet.wallet_guid_hash, v3_wallet.wallet_guid_hash);
         assert_eq!(
-            v1_wallet.approvals_required_for_config,
-            v2_wallet.approvals_required_for_config
+            v2_wallet
+                .signers
+                .into_iter()
+                .map(|s| NamedSigner {
+                    key: s.key,
+                    name_hash: [0; 32]
+                })
+                .collect::<Vec<NamedSigner>>(),
+            v3_wallet.signers.into_iter().collect::<Vec<NamedSigner>>()
+        );
+        assert_eq!(v2_wallet.address_book, v3_wallet.address_book);
+        assert_eq!(
+            v2_wallet.approvals_required_for_config,
+            v3_wallet.approvals_required_for_config
         );
         assert_eq!(
-            v1_wallet.approval_timeout_for_config,
-            v2_wallet.approval_timeout_for_config
+            v2_wallet.approval_timeout_for_config,
+            v3_wallet.approval_timeout_for_config
         );
-        assert_eq!(v1_wallet.config_approvers, v2_wallet.config_approvers);
-        assert_eq!(v1_wallet.balance_accounts, v2_wallet.balance_accounts);
-        assert_eq!(v1_wallet.dapp_book, v2_wallet.dapp_book);
+        assert_eq!(v2_wallet.config_approvers, v3_wallet.config_approvers);
+        assert_eq!(v2_wallet.balance_accounts, v3_wallet.balance_accounts);
+        assert_eq!(v2_wallet.dapp_book, v3_wallet.dapp_book);
     }
 }

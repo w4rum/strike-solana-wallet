@@ -17,11 +17,14 @@ use uuid::Uuid;
 
 pub use common::instructions::*;
 pub use common::utils::*;
+use strike_wallet::constants::HASH_LEN;
 use strike_wallet::error::WalletError;
 use strike_wallet::instruction::InitialWalletConfig;
 use strike_wallet::model::address_book::{AddressBook, DAppBook};
-use strike_wallet::model::signer::Signer;
-use strike_wallet::model::wallet::{Approvers, BalanceAccounts, Signers, Wallet, WalletGuidHash};
+use strike_wallet::model::signer::NamedSigner;
+use strike_wallet::model::wallet::{
+    Approvers, BalanceAccounts, NamedSigners, Wallet, WalletGuidHash,
+};
 use strike_wallet::utils::SlotId;
 use {
     solana_program_test::{tokio, ProgramTest},
@@ -42,9 +45,18 @@ async fn migrate_account() {
     let approvals_required_for_config = 2;
     let approval_timeout_for_config = Duration::from_secs(3600);
     let signers = vec![
-        (SlotId::new(0), Signer::new(Pubkey::new_unique())),
-        (SlotId::new(1), Signer::new(Pubkey::new_unique())),
-        (SlotId::new(2), Signer::new(Pubkey::new_unique())),
+        (
+            SlotId::new(0),
+            NamedSigner::new(Pubkey::new_unique(), [0; HASH_LEN]),
+        ),
+        (
+            SlotId::new(1),
+            NamedSigner::new(Pubkey::new_unique(), [0; HASH_LEN]),
+        ),
+        (
+            SlotId::new(2),
+            NamedSigner::new(Pubkey::new_unique(), [0; HASH_LEN]),
+        ),
     ];
     let config_approvers = signers.clone();
 
@@ -179,7 +191,7 @@ async fn migrate_account() {
             version: 0,
             rent_return: pt_context.payer.pubkey().clone(),
             wallet_guid_hash,
-            signers: Signers::from_vec(signers),
+            signers: NamedSigners::from_vec(signers),
             address_book: AddressBook::new(),
             approvals_required_for_config,
             approval_timeout_for_config,
@@ -245,9 +257,18 @@ async fn test_migrate_errors() {
     let approvals_required_for_config = 2;
     let approval_timeout_for_config = Duration::from_secs(3600);
     let signers = vec![
-        (SlotId::new(0), Signer::new(Pubkey::new_unique())),
-        (SlotId::new(1), Signer::new(Pubkey::new_unique())),
-        (SlotId::new(2), Signer::new(Pubkey::new_unique())),
+        (
+            SlotId::new(0),
+            NamedSigner::new(Pubkey::new_unique(), [0; HASH_LEN]),
+        ),
+        (
+            SlotId::new(1),
+            NamedSigner::new(Pubkey::new_unique(), [0; HASH_LEN]),
+        ),
+        (
+            SlotId::new(2),
+            NamedSigner::new(Pubkey::new_unique(), [0; HASH_LEN]),
+        ),
     ];
     let config_approvers = signers.clone();
 
@@ -387,7 +408,10 @@ async fn test_migrate_errors() {
 async fn test_cleanup_errors() {
     let approvals_required_for_config = 1;
     let approval_timeout_for_config = Duration::from_secs(3600);
-    let signers = vec![(SlotId::new(0), Signer::new(Pubkey::new_unique()))];
+    let signers = vec![(
+        SlotId::new(0),
+        NamedSigner::new(Pubkey::new_unique(), [0; HASH_LEN]),
+    )];
     let config_approvers = signers.clone();
 
     let mut test_context = setup_test(25_000).await;

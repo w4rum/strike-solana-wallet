@@ -21,7 +21,7 @@ use crate::instruction::{
 use crate::model::address_book::DAppBookEntry;
 use crate::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use crate::model::dapp_multisig_data::DAppMultisigData;
-use crate::model::signer::Signer;
+use crate::model::signer::NamedSigner;
 use crate::model::wallet::{Wallet, WalletGuidHash};
 use crate::serialization_utils::pack_option;
 use crate::utils::SlotId;
@@ -710,8 +710,8 @@ pub enum MultisigOpParams {
     UpdateSigner {
         wallet_address: Pubkey,
         slot_update_type: SlotUpdateType,
-        slot_id: SlotId<Signer>,
-        signer: Signer,
+        slot_id: SlotId<NamedSigner>,
+        signer: NamedSigner,
     },
     UpdateWalletConfigPolicy {
         wallet_address: Pubkey,
