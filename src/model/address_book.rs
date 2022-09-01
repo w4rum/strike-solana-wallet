@@ -59,3 +59,4 @@ impl Pack for AddressBookEntry {
 
 pub type DAppBookEntry = AddressBookEntry;
 pub type DAppBookEntryNameHash = AddressBookEntryNameHash;
+pub type SignerNameHash = AddressBookEntryNameHash;

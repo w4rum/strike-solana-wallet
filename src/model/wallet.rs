@@ -6,6 +6,7 @@ use crate::instruction::{
 };
 use crate::model::address_book::{
     AddressBook, AddressBookEntry, AddressBookEntryNameHash, DAppBook, DAppBookEntry,
+    SignerNameHash,
 };
 use crate::model::balance_account::{
     AllowedDestinations, BalanceAccount, BalanceAccountGuidHash, BalanceAccountNameHash,
@@ -23,6 +24,7 @@ use solana_program::msg;
 use solana_program::program_error::ProgramError;
 use solana_program::program_pack::{IsInitialized, Pack, Sealed};
 use solana_program::pubkey::{Pubkey, PUBKEY_BYTES};
+use spl_token::instruction::MAX_SIGNERS;
 use std::time::Duration;
 
 pub type Signers = Slots<Signer, { Wallet::MAX_SIGNERS }>;
@@ -228,6 +230,14 @@ impl Wallet {
         self_clone.add_signers(&vec![signer_to_add])
     }
 
+    pub fn validate_update_signer(
+        &self,
+        signer_to_update: (SlotId<NamedSigner>, NamedSigner),
+    ) -> ProgramResult {
+        let mut self_clone = self.clone();
+        self_clone.update_signers(&vec![signer_to_update])
+    }
+
     pub fn remove_signer(
         &mut self,
         signer_to_remove: (SlotId<NamedSigner>, NamedSigner),
@@ -240,6 +250,13 @@ impl Wallet {
         signer_to_add: (SlotId<NamedSigner>, NamedSigner),
     ) -> ProgramResult {
         self.add_signers(&vec![signer_to_add])
+    }
+
+    pub fn update_signer(
+        &mut self,
+        signer_to_update: (SlotId<NamedSigner>, NamedSigner),
+    ) -> ProgramResult {
+        self.update_signers(&vec![signer_to_update])
     }
 
     pub fn initialize(&mut self, initial_config: &InitialWalletConfig) -> ProgramResult {
@@ -642,6 +659,18 @@ impl Wallet {
         Ok(())
     }
 
+    fn update_signers(
+        &mut self,
+        signers_to_update: &Vec<(SlotId<NamedSigner>, NamedSigner)>,
+    ) -> ProgramResult {
+        if !self.signers.can_be_updated(signers_to_update) {
+            msg!("Failed to add signers: at least one slot cannot be updated");
+            return Err(WalletError::SlotCannotBeUpdated.into());
+        }
+        self.signers.update_many(signers_to_update);
+        Ok(())
+    }
+
     fn add_address_book_entries(
         &mut self,
         entries_to_add: &Vec<(SlotId<AddressBookEntry>, AddressBookEntry)>,
@@ -979,6 +1008,24 @@ impl Pack for Wallet {
             config_approvers: Approvers::new(*config_approvers_src),
             balance_accounts: BalanceAccounts::unpack_from_slice(balance_accounts_src)?,
             dapp_book: DAppBook::unpack_from_slice(dapp_book_src)?,
+        })
+    }
+}
+
+impl NamedSigners {
+    fn can_be_updated(&self, to_update: &Vec<(SlotId<NamedSigner>, NamedSigner)>) -> bool {
+        let empty_hash = *SignerNameHash::zero().to_bytes();
+        to_update.iter().all(|(id, new_signer)| {
+            if id.value < MAX_SIGNERS {
+                if let Some(old_signer) = self[*id] {
+                    old_signer.name_hash == empty_hash
+                        || old_signer.name_hash == new_signer.name_hash
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         })
     }
 }

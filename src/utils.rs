@@ -93,6 +93,19 @@ impl<A: Copy + PartialEq + Ord, const SIZE: usize> Slots<A, SIZE> {
         }
     }
 
+    pub fn update(&mut self, id: SlotId<A>, item: A) {
+        match self[id] {
+            Some(_) => self.array[id.value] = Some(item),
+            None => panic!("Failed updating: slot is not populated"),
+        }
+    }
+
+    pub fn update_many(&mut self, items: &Vec<(SlotId<A>, A)>) {
+        for (slot_id, value) in items {
+            self.update(*slot_id, *value);
+        }
+    }
+
     pub fn contains(&self, items: &Vec<(SlotId<A>, A)>) -> bool {
         for (id, value) in items {
             if id.value >= SIZE || self[*id] != Some(*value) {

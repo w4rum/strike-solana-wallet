@@ -152,12 +152,15 @@ impl WrapDirection {
 pub enum SlotUpdateType {
     SetIfEmpty = 0,
     Clear = 1,
+    UpdateKey = 2,
 }
 
 impl SlotUpdateType {
     pub fn from_u8(value: u8) -> SlotUpdateType {
         match value {
             0 => SlotUpdateType::SetIfEmpty,
+            1 => SlotUpdateType::Clear,
+            2 => SlotUpdateType::UpdateKey,
             _ => SlotUpdateType::Clear,
         }
     }
@@ -166,6 +169,7 @@ impl SlotUpdateType {
         match self {
             SlotUpdateType::SetIfEmpty => 0,
             SlotUpdateType::Clear => 1,
+            SlotUpdateType::UpdateKey => 2,
         }
     }
 }

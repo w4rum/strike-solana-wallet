@@ -36,6 +36,7 @@ pub fn init(
     match slot_update_type {
         SlotUpdateType::SetIfEmpty => wallet.validate_add_signer((slot_id, signer))?,
         SlotUpdateType::Clear => wallet.validate_remove_signer((slot_id, signer))?,
+        SlotUpdateType::UpdateKey => wallet.validate_update_signer((slot_id, signer))?,
     }
 
     start_multisig_config_op(
@@ -94,6 +95,7 @@ pub fn finalize(
             match slot_update_type {
                 SlotUpdateType::SetIfEmpty => wallet.add_signer((slot_id, signer))?,
                 SlotUpdateType::Clear => wallet.remove_signer((slot_id, signer))?,
+                SlotUpdateType::UpdateKey => wallet.update_signer((slot_id, signer))?,
             }
             Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
             Ok(())

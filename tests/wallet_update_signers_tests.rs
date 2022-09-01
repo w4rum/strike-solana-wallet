@@ -25,8 +25,13 @@ use {
 };
 
 #[tokio::test]
-async fn test_add_and_remove_signer() {
-    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
+async fn test_add_update_and_remove_signer() {
+    let approvers = vec![
+        Keypair::new(),
+        Keypair::new(),
+        Keypair::new(),
+        Keypair::new(),
+    ];
 
     let approver0_name_hash = hash_of(b"Signer 0 Name");
     let approver1_name_hash = hash_of(b"Signer 1 Name");
@@ -62,6 +67,21 @@ async fn test_add_and_remove_signer() {
         ),
     ]);
 
+    let expected_signers_after_update = NamedSigners::from_vec(vec![
+        (
+            SlotId::new(0),
+            approvers[0].pubkey_and_name_hash_as_signer(approver0_name_hash),
+        ),
+        (
+            SlotId::new(1),
+            approvers[1].pubkey_and_name_hash_as_signer(approver1_name_hash),
+        ),
+        (
+            SlotId::new(2),
+            approvers[3].pubkey_and_name_hash_as_signer(approver2_name_hash),
+        ),
+    ]);
+
     let expected_signers_after_remove = NamedSigners::from_vec(vec![
         (
             SlotId::new(0),
@@ -73,7 +93,9 @@ async fn test_add_and_remove_signer() {
         ),
     ]);
 
-    let signer_to_add_and_remove = approvers[2].pubkey_and_name_hash_as_signer(approver2_name_hash);
+    let signer_to_add = approvers[2].pubkey_and_name_hash_as_signer(approver2_name_hash);
+    let signer_to_update_and_remove =
+        approvers[3].pubkey_and_name_hash_as_signer(approver2_name_hash);
 
     let mut context = setup_wallet_test(40_000, initial_config).await;
 
@@ -82,8 +104,21 @@ async fn test_add_and_remove_signer() {
         vec![&approvers[0], &approvers[1]],
         SlotUpdateType::SetIfEmpty,
         2,
-        signer_to_add_and_remove,
+        signer_to_add,
         Some(expected_signers_after_add),
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    update_signer(
+        context.borrow_mut(),
+        vec![&approvers[0], &approvers[1]],
+        SlotUpdateType::UpdateKey,
+        2,
+        signer_to_update_and_remove,
+        Some(expected_signers_after_update),
         None,
         None,
         None,
@@ -95,7 +130,7 @@ async fn test_add_and_remove_signer() {
         vec![&approvers[0], &approvers[1]],
         SlotUpdateType::Clear,
         2,
-        signer_to_add_and_remove,
+        signer_to_update_and_remove,
         Some(expected_signers_after_remove),
         None,
         None,
@@ -105,20 +140,20 @@ async fn test_add_and_remove_signer() {
 }
 
 #[tokio::test]
-async fn test_add_and_remove_signer_init_failures() {
+async fn test_add_update_and_remove_signer_init_failures() {
     let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
 
+    let signer1 = approvers[1].pubkey_and_name_hash_as_signer(hash_of(b"Some Name"));
     let initial_config = InitialWalletConfig {
         approvals_required_for_config: 2,
         approval_timeout_for_config: Duration::from_secs(3600),
         signers: vec![
             (SlotId::new(0), approvers[0].pubkey_as_signer()),
-            (SlotId::new(1), approvers[1].pubkey_as_signer()),
+            (SlotId::new(1), signer1),
         ],
         config_approvers: vec![SlotId::new(0), SlotId::new(1)],
     };
 
-    let signer1 = approvers[1].pubkey_as_signer();
     let signer2 = approvers[2].pubkey_as_signer();
 
     let mut context = setup_wallet_test(40_000, initial_config).await;
@@ -160,6 +195,80 @@ async fn test_add_and_remove_signer_init_failures() {
         signer1,
         None,
         Some(Custom(WalletError::SignerIsConfigApprover as u32)),
+        None,
+        None,
+    )
+    .await;
+
+    // try to update a signer with the wrong name hash
+    update_signer(
+        context.borrow_mut(),
+        vec![&approvers[0], &approvers[1]],
+        SlotUpdateType::UpdateKey,
+        1,
+        approvers[1].pubkey_and_name_hash_as_signer(hash_of(b"Another Name")),
+        None,
+        Some(Custom(WalletError::SlotCannotBeUpdated as u32)),
+        None,
+        None,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_can_update_from_empty_name_hash() {
+    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
+
+    let initial_config = InitialWalletConfig {
+        approvals_required_for_config: 2,
+        approval_timeout_for_config: Duration::from_secs(3600),
+        signers: vec![
+            (SlotId::new(0), approvers[0].pubkey_as_signer()),
+            (SlotId::new(1), approvers[1].pubkey_as_signer()),
+        ],
+        config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+    };
+
+    let mut context = setup_wallet_test(40_000, initial_config).await;
+
+    let name_hash_0 = hash_of(b"Name 0");
+    update_signer(
+        context.borrow_mut(),
+        vec![&approvers[0], &approvers[1]],
+        SlotUpdateType::UpdateKey,
+        0,
+        approvers[0].pubkey_and_name_hash_as_signer(name_hash_0),
+        Some(NamedSigners::from_vec(vec![
+            (
+                SlotId::new(0),
+                approvers[0].pubkey_and_name_hash_as_signer(name_hash_0),
+            ),
+            (SlotId::new(1), approvers[1].pubkey_as_signer()),
+        ])),
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    let name_hash_1 = hash_of(b"Name 1");
+    update_signer(
+        context.borrow_mut(),
+        vec![&approvers[0], &approvers[1]],
+        SlotUpdateType::UpdateKey,
+        1,
+        approvers[2].pubkey_and_name_hash_as_signer(name_hash_1),
+        Some(NamedSigners::from_vec(vec![
+            (
+                SlotId::new(0),
+                approvers[0].pubkey_and_name_hash_as_signer(name_hash_0),
+            ),
+            (
+                SlotId::new(1),
+                approvers[2].pubkey_and_name_hash_as_signer(name_hash_1),
+            ),
+        ])),
+        None,
         None,
         None,
     )

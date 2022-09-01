@@ -155,6 +155,9 @@ pub enum WalletError {
     /// DApp Instruction Forbidden
     #[error("DApp Instruction Forbidden")]
     DAppInstructionForbidden,
+    /// Slot Cannot Be Updated
+    #[error("Slot Cannot Be Updated")]
+    SlotCannotBeUpdated,
 }
 
 impl From<WalletError> for ProgramError {
