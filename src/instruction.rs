@@ -62,6 +62,7 @@ pub const TAG_INIT_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE: u8 = 33;
 pub const TAG_FINALIZE_BALANCE_ACCOUNT_ADDRESS_WHITELIST_UPDATE: u8 = 34;
 pub const TAG_INIT_SIGN_DATA: u8 = 35;
 pub const TAG_FINALIZE_SIGN_DATA: u8 = 36;
+pub const TAG_NOOP: u8 = 37;
 
 #[derive(Debug)]
 pub enum ProgramInstruction {
@@ -221,7 +222,9 @@ pub enum ProgramInstruction {
     /// 2. `[signer, writable]` The rent return account
     /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
     /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
-    FinalizeWalletConfigPolicyUpdate { update: WalletConfigPolicyUpdate },
+    FinalizeWalletConfigPolicyUpdate {
+        update: WalletConfigPolicyUpdate,
+    },
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[]` The wallet account
@@ -292,7 +295,9 @@ pub enum ProgramInstruction {
     /// 2. `[signer, writable]` The rent return account
     /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
     /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
-    FinalizeDAppBookUpdate { update: DAppBookUpdate },
+    FinalizeDAppBookUpdate {
+        update: DAppBookUpdate,
+    },
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[]` The wallet account
@@ -310,7 +315,9 @@ pub enum ProgramInstruction {
     /// 2. `[signer, writable]` The rent return account
     /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
     /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
-    FinalizeAddressBookUpdate { update: AddressBookUpdate },
+    FinalizeAddressBookUpdate {
+        update: AddressBookUpdate,
+    },
 
     /// 0. `[writable]` The multisig operation account
     /// 1. `[]` The wallet account
@@ -404,7 +411,11 @@ pub enum ProgramInstruction {
     /// 2. `[signer, writable]` The rent return account
     /// 3. `[writable]` The fee account, if fee_account_guid_hash was set in the init
     /// 4. `[]` The system program (only needed if fee_account_guid_hash was set in the init)
-    FinalizeSignData { data: Vec<u8> },
+    FinalizeSignData {
+        data: Vec<u8>,
+    },
+
+    Noop {},
 }
 
 impl ProgramInstruction {
@@ -728,6 +739,9 @@ impl ProgramInstruction {
                 buf.put_u16_le(data.len().as_u16());
                 buf.extend_from_slice(data);
             }
+            &ProgramInstruction::Noop {} => {
+                buf.push(TAG_NOOP);
+            }
         }
         buf
     }
@@ -814,6 +828,7 @@ impl ProgramInstruction {
             }
             TAG_INIT_SIGN_DATA => Self::unpack_init_sign_data_instruction(rest)?,
             TAG_FINALIZE_SIGN_DATA => Self::unpack_finalize_sign_data_instruction(rest)?,
+            TAG_NOOP => ProgramInstruction::Noop {},
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }

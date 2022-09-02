@@ -347,6 +347,8 @@ impl Processor {
             ProgramInstruction::FinalizeSignData { ref data } => {
                 sign_data_handler::finalize(program_id, accounts, data)
             }
+
+            ProgramInstruction::Noop {} => Ok(()),
         }
     }
 }

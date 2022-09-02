@@ -1308,14 +1308,17 @@ async fn test_multisig_op_version_mismatch() {
         .pt_context
         .banks_client
         .process_transaction(Transaction::new_signed_with_payer(
-            &[finalize_dapp_transaction(
-                &context.test_context.program_id,
-                &multisig_op_account.pubkey(),
-                &balance_account,
-                &context.test_context.pt_context.payer.pubkey(),
-                &inner_instructions,
-                None,
-            )],
+            &[
+                noop_transaction(&context.test_context.program_id),
+                finalize_dapp_transaction(
+                    &context.test_context.program_id,
+                    &multisig_op_account.pubkey(),
+                    &balance_account,
+                    &context.test_context.pt_context.payer.pubkey(),
+                    &inner_instructions,
+                    None,
+                ),
+            ],
             Some(&context.test_context.pt_context.payer.pubkey()),
             &[
                 &context.test_context.pt_context.payer,

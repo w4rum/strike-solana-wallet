@@ -768,6 +768,16 @@ pub fn finalize_dapp_transaction(
     }
 }
 
+pub fn noop_transaction(program_id: &Pubkey) -> Instruction {
+    let data = ProgramInstruction::Noop {}.borrow().pack();
+    let accounts = vec![];
+    Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    }
+}
+
 pub fn init_account_settings_update(
     program_id: &Pubkey,
     wallet_account: &Pubkey,
