@@ -106,6 +106,7 @@ async fn init_wallet() {
             ),
             balance_accounts: BalanceAccounts::new(),
             dapp_book: DAppBook::from_vec(vec![]),
+            latest_activity_at: 0
         }
     );
 }

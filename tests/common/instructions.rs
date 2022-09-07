@@ -65,7 +65,7 @@ fn init_multisig_op(
     program_instruction: ProgramInstruction,
 ) -> Instruction {
     let mut accounts = vec![AccountMeta::new(*multisig_op_account, false)];
-    accounts.push(AccountMeta::new_readonly(*wallet_account, false));
+    accounts.push(AccountMeta::new(*wallet_account, false));
     accounts.push(AccountMeta::new_readonly(*initiator_account, true));
     accounts.push(AccountMeta::new_readonly(sysvar::clock::id(), false));
     accounts.push(AccountMeta::new_readonly(*rent_return_account, true));
@@ -322,7 +322,7 @@ pub fn init_transfer(
 
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*wallet_account, false),
+        AccountMeta::new(*wallet_account, false),
         AccountMeta::new(*source_account, false),
         AccountMeta::new_readonly(*destination_account, false),
         AccountMeta::new_readonly(*initiator_account, true),
@@ -686,7 +686,7 @@ pub fn init_dapp_transaction(
 
     let accounts = vec![
         AccountMeta::new(*multisig_op_account, false),
-        AccountMeta::new_readonly(*wallet_account, false),
+        AccountMeta::new(*wallet_account, false),
         AccountMeta::new_readonly(*initiator_account, true),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
         AccountMeta::new_readonly(*rent_return_account, true),

@@ -12,9 +12,11 @@ use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use strike_wallet::error::WalletError;
 use strike_wallet::instruction::AddressBookUpdate;
+use strike_wallet::model::address_book::{AddressBookEntry, AddressBookEntryNameHash};
 use strike_wallet::model::multisig_op::{
     ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition,
 };
+use strike_wallet::utils::SlotId;
 
 #[tokio::test]
 async fn test_address_book_update() {
@@ -102,6 +104,53 @@ async fn test_address_book_update() {
         vec![initial_entries[1].1],
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_init_address_book_update_advances_latest_activity_timestamp() {
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000), true).await;
+
+    let initial_latest_activity_timestamp = get_wallet_latest_activity_timestamp(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
+    let initiator_account =
+        Keypair::from_base58_string(&context.initiator_account.to_base58_string());
+
+    init_address_book_update(
+        &mut context,
+        &initiator_account,
+        AddressBookUpdate {
+            add_address_book_entries: vec![(
+                SlotId::new(2),
+                AddressBookEntry {
+                    address: Keypair::new().pubkey(),
+                    name_hash: AddressBookEntryNameHash::new(&hash_of(b"Destination 3 Name")),
+                },
+            )],
+            remove_address_book_entries: vec![],
+            balance_account_whitelist_updates: vec![],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > initial_latest_activity_timestamp
+    );
 }
 
 #[tokio::test]

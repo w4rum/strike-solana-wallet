@@ -113,27 +113,22 @@ async fn wallet_config_policy_update() {
     )
     .await;
 
+    let updated_wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &wallet_account.pubkey(),
+    )
+    .await;
+
     let mut expected_wallet = wallet.clone();
     expected_wallet.approvals_required_for_config = 1;
     expected_wallet.approval_timeout_for_config = Duration::from_secs(7200);
     expected_wallet.config_approvers =
         Approvers::from_enabled_vec(vec![SlotId::new(1), SlotId::new(2)]);
+    expected_wallet.latest_activity_at = updated_wallet.latest_activity_at;
 
-    assert_eq!(
-        expected_wallet,
-        get_wallet(
-            &mut context.pt_context.banks_client,
-            &wallet_account.pubkey()
-        )
-        .await
-    );
+    assert_eq!(expected_wallet, updated_wallet);
 
     // verify updates
-    expected_wallet.approvals_required_for_config = 2;
-    expected_wallet.approval_timeout_for_config = Duration::from_secs(14400);
-    expected_wallet.config_approvers =
-        Approvers::from_enabled_vec(vec![SlotId::new(0), SlotId::new(1), SlotId::new(2)]);
-
     utils::update_wallet_config_policy(
         &mut context,
         wallet_account.pubkey(),
@@ -148,17 +143,19 @@ async fn wallet_config_policy_update() {
     )
     .await;
 
-    assert_eq!(
-        expected_wallet,
-        get_wallet(
-            &mut context.pt_context.banks_client,
-            &wallet_account.pubkey()
-        )
-        .await
-    );
+    let updated_wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &wallet_account.pubkey(),
+    )
+    .await;
 
+    expected_wallet.approvals_required_for_config = 2;
+    expected_wallet.approval_timeout_for_config = Duration::from_secs(14400);
     expected_wallet.config_approvers =
-        Approvers::from_enabled_vec(vec![SlotId::new(0), SlotId::new(1)]);
+        Approvers::from_enabled_vec(vec![SlotId::new(0), SlotId::new(1), SlotId::new(2)]);
+    expected_wallet.latest_activity_at = updated_wallet.latest_activity_at;
+
+    assert_eq!(expected_wallet, updated_wallet);
 
     utils::update_wallet_config_policy(
         &mut context,
@@ -174,14 +171,17 @@ async fn wallet_config_policy_update() {
     )
     .await;
 
-    assert_eq!(
-        expected_wallet,
-        get_wallet(
-            &mut context.pt_context.banks_client,
-            &wallet_account.pubkey()
-        )
-        .await
-    );
+    let updated_wallet = get_wallet(
+        &mut context.pt_context.banks_client,
+        &wallet_account.pubkey(),
+    )
+    .await;
+
+    expected_wallet.config_approvers =
+        Approvers::from_enabled_vec(vec![SlotId::new(0), SlotId::new(1)]);
+    expected_wallet.latest_activity_at = updated_wallet.latest_activity_at;
+
+    assert_eq!(expected_wallet, updated_wallet);
 }
 
 #[tokio::test]
@@ -366,5 +366,68 @@ async fn wallet_config_policy_update_initiator_approval() {
             disposition: ApprovalDisposition::APPROVE,
         }],
         OperationDisposition::APPROVED,
+    );
+}
+
+#[tokio::test]
+async fn wallet_init_config_policy_update_advances_latest_activity_timestamp() {
+    let mut context = setup_test(30_000).await;
+
+    let wallet_account = Keypair::new();
+
+    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
+    let signers = vec![
+        approvers[0].pubkey_as_signer(),
+        approvers[1].pubkey_as_signer(),
+        approvers[2].pubkey_as_signer(),
+    ];
+
+    utils::init_wallet_from_context(
+        &mut context,
+        &wallet_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), signers[0]),
+                (SlotId::new(1), signers[1]),
+                (SlotId::new(2), signers[2]),
+            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+        },
+    )
+    .await
+    .unwrap();
+
+    let initial_latest_activity_timestamp = get_wallet_latest_activity_timestamp(
+        &mut context.pt_context.banks_client,
+        &wallet_account.pubkey(),
+    )
+    .await;
+
+    context.pt_context.warp_to_slot(100_000).unwrap();
+
+    utils::init_wallet_config_policy_update(
+        &mut context,
+        wallet_account.pubkey(),
+        &approvers[0],
+        &WalletConfigPolicyUpdate {
+            approvals_required_for_config: 1,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            config_approvers: vec![SlotId::new(0)],
+            signers_hash: hash_signers(&vec![signers[0]]),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey(),
+        )
+        .await
+            > initial_latest_activity_timestamp
     );
 }

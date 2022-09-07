@@ -40,20 +40,20 @@ async fn test_transfer_sol() {
         .await
         .unwrap();
     let balance_account_rent = rent.minimum_balance(0);
-    let (multisig_op_account, result) = setup_transfer_test(
+    let multisig_op_account = setup_transfer_test(
         context.borrow_mut(),
         initiator,
         &balance_account,
         None,
         balance_account_rent,
     )
-    .await;
-    result.unwrap();
+    .await
+    .unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
         &context.test_context.program_id,
-        &multisig_op_account.pubkey(),
+        &multisig_op_account,
         vec![&context.approvers[0], &context.approvers[1]],
         &context.test_context.pt_context.payer,
         context.test_context.pt_context.last_blockhash,
@@ -109,7 +109,7 @@ async fn test_transfer_sol() {
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
                 &context.test_context.program_id,
-                &multisig_op_account.pubkey(),
+                &multisig_op_account,
                 &context.wallet_account.pubkey(),
                 &balance_account,
                 &context.destination.pubkey(),
@@ -162,20 +162,20 @@ async fn test_transfer_sol_denied() {
         .await
         .unwrap();
     let balance_account_rent = rent.minimum_balance(0);
-    let (multisig_op_account, result) = setup_transfer_test(
+    let multisig_op_account = setup_transfer_test(
         context.borrow_mut(),
         &initiator,
         &balance_account,
         None,
         balance_account_rent,
     )
-    .await;
-    result.unwrap();
+    .await
+    .unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
         &context.test_context.program_id,
-        &multisig_op_account.pubkey(),
+        &multisig_op_account,
         vec![&context.approvers[0], &context.approvers[1]],
         &context.test_context.pt_context.payer,
         context.test_context.pt_context.last_blockhash,
@@ -230,7 +230,7 @@ async fn test_transfer_sol_denied() {
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
                 &context.test_context.program_id,
-                &multisig_op_account.pubkey(),
+                &multisig_op_account,
                 &context.wallet_account.pubkey(),
                 &balance_account,
                 &context.destination.pubkey(),
@@ -296,16 +296,17 @@ async fn test_transfer_wrong_destination_name_hash() {
 
     context.destination_name_hash = AddressBookEntryNameHash::zero();
 
-    let (_, result) = setup_transfer_test(
-        context.borrow_mut(),
-        &initiator,
-        &balance_account,
-        None,
-        123,
-    )
-    .await;
     assert_eq!(
-        result.unwrap_err().unwrap(),
+        setup_transfer_test(
+            context.borrow_mut(),
+            &initiator,
+            &balance_account,
+            None,
+            123,
+        )
+        .await
+        .unwrap_err()
+        .unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
     )
 }
@@ -314,20 +315,20 @@ async fn test_transfer_wrong_destination_name_hash() {
 async fn test_transfer_requires_multisig() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None, true).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (multisig_op_account, result) = setup_transfer_test(
+    let multisig_op_account = setup_transfer_test(
         context.borrow_mut(),
         &initiator,
         &balance_account,
         None,
         123,
     )
-    .await;
-    result.unwrap();
+    .await
+    .unwrap();
 
     approve_or_deny_1_of_2_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
         &context.test_context.program_id,
-        &multisig_op_account.pubkey(),
+        &multisig_op_account,
         &context.approvers[0],
         &context.test_context.pt_context.payer,
         &context.approvers[1].pubkey(),
@@ -344,7 +345,7 @@ async fn test_transfer_requires_multisig() {
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
                     &context.test_context.program_id,
-                    &multisig_op_account.pubkey(),
+                    &multisig_op_account,
                     &context.wallet_account.pubkey(),
                     &balance_account,
                     &context.destination.pubkey(),
@@ -373,15 +374,15 @@ async fn test_transfer_requires_multisig() {
 async fn test_approval_fails_if_incorrect_params_hash() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None, true).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (multisig_op_account, result) = setup_transfer_test(
+    let multisig_op_account = setup_transfer_test(
         context.borrow_mut(),
         &initiator,
         &balance_account,
         None,
         123,
     )
-    .await;
-    result.unwrap();
+    .await
+    .unwrap();
 
     assert_eq!(
         context
@@ -391,7 +392,7 @@ async fn test_approval_fails_if_incorrect_params_hash() {
             .process_transaction(Transaction::new_signed_with_payer(
                 &[set_approval_disposition(
                     &context.test_context.program_id,
-                    &multisig_op_account.pubkey(),
+                    &multisig_op_account,
                     &context.approvers[1].pubkey(),
                     ApprovalDisposition::APPROVE,
                     Hash::new_from_array([0; 32])
@@ -424,20 +425,20 @@ async fn test_transfer_insufficient_balance() {
         .unwrap();
     let balance_account_rent = rent.minimum_balance(0);
 
-    let (multisig_op_account, result) = setup_transfer_test(
+    let multisig_op_account = setup_transfer_test(
         context.borrow_mut(),
         &initiator,
         &balance_account,
         None,
         123,
     )
-    .await;
-    result.unwrap();
+    .await
+    .unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
         &context.test_context.program_id,
-        &multisig_op_account.pubkey(),
+        &multisig_op_account,
         vec![&context.approvers[0], &context.approvers[1]],
         &context.test_context.pt_context.payer,
         context.test_context.pt_context.last_blockhash,
@@ -455,7 +456,7 @@ async fn test_transfer_insufficient_balance() {
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
                     &context.test_context.program_id,
-                    &multisig_op_account.pubkey(),
+                    &multisig_op_account,
                     &context.wallet_account.pubkey(),
                     &balance_account,
                     &context.destination.pubkey(),
@@ -502,7 +503,7 @@ async fn test_transfer_insufficient_balance() {
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
                     &context.test_context.program_id,
-                    &multisig_op_account.pubkey(),
+                    &multisig_op_account,
                     &context.wallet_account.pubkey(),
                     &balance_account,
                     &context.destination.pubkey(),
@@ -539,16 +540,17 @@ async fn test_transfer_unwhitelisted_address() {
     )
     .await;
 
-    let (_, result) = setup_transfer_test(
-        context.borrow_mut(),
-        &initiator,
-        &balance_account,
-        None,
-        123,
-    )
-    .await;
     assert_eq!(
-        result.unwrap_err().unwrap(),
+        setup_transfer_test(
+            context.borrow_mut(),
+            &initiator,
+            &balance_account,
+            None,
+            123,
+        )
+        .await
+        .unwrap_err()
+        .unwrap(),
         TransactionError::InstructionError(1, Custom(WalletError::DestinationNotAllowed as u32)),
     );
 }
@@ -558,14 +560,15 @@ async fn test_transfer_initiator_approval() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None, true).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
 
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, 123).await;
-    result.unwrap();
+    let multisig_op_account =
+        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, 123)
+            .await
+            .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(
             &mut context.test_context.pt_context.banks_client,
-            multisig_op_account.pubkey(),
+            multisig_op_account,
         )
         .await,
         2,
@@ -585,14 +588,15 @@ async fn test_transfer_initiator_approval() {
     let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None, true).await;
     let initiator = &Keypair::from_base58_string(&context.approvers[0].to_base58_string());
 
-    let (multisig_op_account, result) =
-        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, 123).await;
-    result.unwrap();
+    let multisig_op_account =
+        setup_transfer_test(context.borrow_mut(), initiator, &balance_account, None, 123)
+            .await
+            .unwrap();
 
     assert_multisig_op_dispositions(
         &get_multisig_op_data(
             &mut context.test_context.pt_context.banks_client,
-            multisig_op_account.pubkey(),
+            multisig_op_account,
         )
         .await,
         2,
@@ -607,5 +611,36 @@ async fn test_transfer_initiator_approval() {
             },
         ],
         OperationDisposition::NONE,
+    );
+}
+
+#[tokio::test]
+async fn test_init_transfer_advances_latest_activity_timestamp() {
+    let (mut context, balance_account) = setup_balance_account_tests_and_finalize(None, true).await;
+
+    let wallet = get_wallet(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
+    let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+    common::utils::init_transfer(context.borrow_mut(), initiator, &balance_account, None, 123)
+        .await
+        .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > wallet.latest_activity_at
     );
 }

@@ -28,7 +28,7 @@ pub fn init(
     let clock = get_clock_from_next_account(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
 
-    let wallet: Wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+    let mut wallet: Wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
 
     // ensure GUID references valid account for this wallet
     wallet.validate_balance_account_guid_hash(account_guid_hash)?;
@@ -38,6 +38,7 @@ pub fn init(
         account_name_hash,
         program_id,
     )?;
+    wallet.latest_activity_at = clock.unix_timestamp;
 
     start_multisig_config_op(
         &multisig_op_account_info,
@@ -56,7 +57,6 @@ pub fn init(
     )?;
 
     Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
-
     Ok(())
 }
 

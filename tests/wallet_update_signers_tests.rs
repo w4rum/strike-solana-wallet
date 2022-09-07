@@ -415,3 +415,56 @@ async fn test_signers_update_initiator_approval() {
         OperationDisposition::APPROVED,
     );
 }
+
+#[tokio::test]
+async fn test_init_signers_update_advances_latest_activity_timestamp() {
+    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
+
+    let mut context = setup_wallet_test(
+        30_000,
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), approvers[0].pubkey_as_signer()),
+                (SlotId::new(1), approvers[1].pubkey_as_signer()),
+            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+        },
+    )
+    .await;
+
+    let initial_latest_activity_timestamp = get_wallet_latest_activity_timestamp(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
+    let signer_to_add_and_remove = approvers[2].pubkey_as_signer();
+    utils::init_update_signer(
+        context.borrow_mut(),
+        &approvers[0],
+        SlotUpdateType::SetIfEmpty,
+        2,
+        signer_to_add_and_remove,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > initial_latest_activity_timestamp
+    );
+}

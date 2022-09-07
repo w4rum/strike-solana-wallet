@@ -57,8 +57,8 @@ impl Pack for NamedSigner {
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-        let src = array_ref![src, 0, Signer::LEN + HASH_LEN];
-        let (key, name_hash) = array_refs![src, Signer::LEN, HASH_LEN];
+        let src = array_ref![src, 0, PUBKEY_BYTES + HASH_LEN];
+        let (key, name_hash) = array_refs![src, PUBKEY_BYTES, HASH_LEN];
         Ok(NamedSigner {
             key: Pubkey::new_from_array(*key),
             name_hash: *name_hash,

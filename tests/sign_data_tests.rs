@@ -58,6 +58,14 @@ async fn test_sign_data() {
     .await
     .unwrap();
 
+    let initial_latest_activity_timestamp = get_wallet_latest_activity_timestamp(
+        &mut context.pt_context.banks_client,
+        &wallet_account.pubkey(),
+    )
+    .await;
+
+    context.pt_context.warp_to_slot(100_000).unwrap();
+
     let rent = context.pt_context.banks_client.get_rent().await.unwrap();
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
@@ -129,6 +137,16 @@ async fn test_sign_data() {
     assert_eq!(multisig_op.rent_return, context.pt_context.payer.pubkey());
     assert!(multisig_op.fee_account_guid_hash.is_none());
     assert_eq!(multisig_op.fee_amount, 0);
+
+    // verify that latest activity timestamp was updated
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey(),
+        )
+        .await
+            > initial_latest_activity_timestamp
+    );
 
     approve_or_deny_n_of_n_multisig_op(
         context.pt_context.banks_client.borrow_mut(),

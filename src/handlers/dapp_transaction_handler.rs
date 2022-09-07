@@ -45,7 +45,8 @@ pub fn init(
     let clock = get_clock_from_next_account(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
 
-    let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+    let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+    wallet.latest_activity_at = clock.unix_timestamp;
     let balance_account = wallet.get_balance_account(account_guid_hash)?;
 
     if balance_account.are_dapps_disabled() {
@@ -85,8 +86,9 @@ pub fn init(
         fee_account_guid_hash,
         Some(multisig_data),
     )?;
-    MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
 
+    MultisigOp::pack(multisig_op, &mut multisig_op_account_info.data.borrow_mut())?;
+    Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
     Ok(())
 }
 

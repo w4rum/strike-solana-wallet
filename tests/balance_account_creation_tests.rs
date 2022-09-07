@@ -127,6 +127,66 @@ async fn test_balance_account_creation() {
 }
 
 #[tokio::test]
+async fn test_init_balance_account_creation_advances_latest_activity_timestamp() {
+    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
+
+    let mut context = setup_wallet_test(
+        30_000,
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), approvers[0].pubkey_as_signer()),
+                (SlotId::new(1), approvers[1].pubkey_as_signer()),
+                (SlotId::new(2), approvers[2].pubkey_as_signer()),
+            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+        },
+    )
+    .await;
+
+    let wallet = get_wallet(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
+    init_balance_account_creation(
+        &mut context,
+        &approvers[2],
+        BalanceAccountGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
+        BalanceAccountCreation {
+            slot_id: SlotId::new(0),
+            name_hash: BalanceAccountNameHash::new(&hash_of(b"Account Name")),
+            approvals_required_for_transfer: 1,
+            approval_timeout_for_transfer: Duration::from_secs(120),
+            transfer_approvers: vec![SlotId::new(0)],
+            signers_hash: hash_signers(&vec![approvers[0].pubkey_as_signer()]),
+            whitelist_enabled: BooleanSetting::Off,
+            dapps_enabled: BooleanSetting::Off,
+            address_book_slot_id: SlotId::new(32),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > wallet.latest_activity_at
+    );
+}
+
+#[tokio::test]
 async fn test_balance_account_creation_fails_if_timeout_invalid() {
     let invalid_timeout_secs = vec![
         Wallet::MIN_APPROVAL_TIMEOUT.as_secs() - 1,

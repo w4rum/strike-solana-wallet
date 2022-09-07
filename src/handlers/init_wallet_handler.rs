@@ -39,6 +39,7 @@ pub fn handle(
     wallet.version = VERSION;
     wallet.rent_return = *rent_return_account_info.key;
     wallet.wallet_guid_hash = *wallet_guid_hash;
+    wallet.latest_activity_at = 0;
     wallet.initialize(initial_config)?;
     Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
 

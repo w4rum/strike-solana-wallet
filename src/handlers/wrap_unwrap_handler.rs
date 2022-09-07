@@ -47,7 +47,8 @@ pub fn init(
     let clock = get_clock_from_next_account(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
 
-    let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+    let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+    wallet.latest_activity_at = clock.unix_timestamp;
     let balance_account = wallet.get_balance_account(&account_guid_hash)?;
 
     wallet.validate_transfer_initiator(initiator_account)?;
@@ -144,7 +145,10 @@ pub fn init(
         *rent_return_account_info.key,
         fee_amount,
         fee_account_guid_hash,
-    )
+    )?;
+
+    Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
+    Ok(())
 }
 
 pub fn finalize(

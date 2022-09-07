@@ -29,9 +29,10 @@ pub fn init(
     let clock = get_clock_from_next_account(accounts_iter)?;
     let rent_return_account_info = next_signer_account_info(accounts_iter)?;
 
-    let wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
+    let mut wallet = Wallet::unpack(&wallet_account_info.data.borrow())?;
     wallet.validate_config_initiator(initiator_account_info)?;
     wallet.validate_balance_account_policy_update(account_guid_hash, update)?;
+    wallet.latest_activity_at = clock.unix_timestamp;
 
     start_multisig_config_op(
         &multisig_op_account_info,
@@ -49,6 +50,7 @@ pub fn init(
         fee_account_guid_hash,
     )?;
 
+    Wallet::pack(wallet, &mut wallet_account_info.data.borrow_mut())?;
     Ok(())
 }
 

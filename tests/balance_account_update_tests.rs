@@ -19,7 +19,7 @@ use strike_wallet::error::WalletError;
 use strike_wallet::instruction::BalanceAccountPolicyUpdate;
 use strike_wallet::model::balance_account::{BalanceAccountGuidHash, BalanceAccountNameHash};
 use strike_wallet::model::multisig_op::{
-    ApprovalDisposition, ApprovalDispositionRecord, OperationDisposition,
+    ApprovalDisposition, ApprovalDispositionRecord, BooleanSetting, OperationDisposition,
 };
 use strike_wallet::utils::SlotId;
 use {
@@ -243,6 +243,50 @@ async fn test_balance_account_policy_update_initiator_approval() {
             },
         ],
         OperationDisposition::NONE,
+    );
+}
+
+#[tokio::test]
+async fn test_balance_account_policy_update_advances_latest_activity_timestamp() {
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
+
+    let wallet = get_wallet(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
+    let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+    let signers_hash = hash_signers(&vec![
+        context.approvers[1].pubkey_as_signer(),
+        context.approvers[2].pubkey_as_signer(),
+    ]);
+    init_balance_account_policy_update(
+        &mut context,
+        &initiator_account,
+        BalanceAccountPolicyUpdate {
+            approvals_required_for_transfer: 1,
+            approval_timeout_for_transfer: Duration::from_secs(7200),
+            transfer_approvers: vec![SlotId::new(1), SlotId::new(2)],
+            signers_hash,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > wallet.latest_activity_at
     );
 }
 
@@ -629,5 +673,73 @@ async fn test_update_balance_account_name_initiator_approval() {
             },
         ],
         OperationDisposition::NONE,
+    );
+}
+
+#[tokio::test]
+async fn test_init_update_balance_account_name_advances_latest_activity_timestamp() {
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(200000), true).await;
+
+    let wallet = get_wallet(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
+    let name_hash = BalanceAccountNameHash::new(&[1; 32]);
+    let initiator_account = Keypair::from_base58_string(&context.approvers[2].to_base58_string());
+    init_balance_account_name_hash_update(&mut context, &initiator_account, name_hash)
+        .await
+        .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > wallet.latest_activity_at
+    );
+}
+
+#[tokio::test]
+async fn test_init_balance_account_settings_update_advances_latest_activity_timestamp() {
+    let (mut context, _) = setup_balance_account_tests_and_finalize(Some(64000), true).await;
+
+    let wallet = get_wallet(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
+    common::utils::init_account_settings_update(
+        &mut context,
+        Some(BooleanSetting::On),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > wallet.latest_activity_at
     );
 }

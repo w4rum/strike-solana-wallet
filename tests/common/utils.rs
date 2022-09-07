@@ -1,12 +1,13 @@
 use crate::common::instructions;
 use crate::common::instructions::{
     finalize_account_settings_update, finalize_balance_account_name_update, finalize_update_signer,
-    finalize_wallet_config_policy_update_instruction, init_account_settings_update,
-    init_balance_account_creation_instruction, init_balance_account_name_update, init_transfer,
-    init_wallet_config_policy_update_instruction, set_approval_disposition,
+    finalize_wallet_config_policy_update_instruction, init_balance_account_creation_instruction,
+    init_balance_account_name_update, init_wallet_config_policy_update_instruction,
+    set_approval_disposition,
 };
 use crate::{
-    finalize_address_book_update, finalize_balance_account_address_whitelist_update_instruction,
+    common, finalize_address_book_update,
+    finalize_balance_account_address_whitelist_update_instruction,
     finalize_balance_account_policy_update_instruction, init_address_book_update_instruction,
     init_balance_account_address_whitelist_update_instruction,
     init_balance_account_policy_update_instruction,
@@ -685,15 +686,13 @@ pub async fn update_signer(
     );
 }
 
-pub async fn account_settings_update(
+pub async fn init_account_settings_update(
     context: &mut BalanceAccountTestContext,
     whitelist_status: Option<BooleanSetting>,
     dapps_enabled: Option<BooleanSetting>,
-    expected_error: Option<InstructionError>,
     fee_amount: Option<u64>,
     fee_account_guid_hash: Option<BalanceAccountGuidHash>,
-    expected_fee_amount: Option<u64>,
-) {
+) -> Result<Pubkey, BanksClientError> {
     let rent = context
         .test_context
         .pt_context
@@ -703,6 +702,7 @@ pub async fn account_settings_update(
         .unwrap();
     let multisig_op_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
+    let multisig_op_pubkey = multisig_op_account.pubkey();
     let init_transaction = Transaction::new_signed_with_payer(
         &[
             system_instruction::create_account(
@@ -712,7 +712,7 @@ pub async fn account_settings_update(
                 MultisigOp::LEN as u64,
                 &context.test_context.program_id,
             ),
-            init_account_settings_update(
+            common::instructions::init_account_settings_update(
                 &context.test_context.program_id,
                 &context.wallet_account.pubkey(),
                 &multisig_op_account.pubkey(),
@@ -733,29 +733,44 @@ pub async fn account_settings_update(
         ],
         context.test_context.pt_context.last_blockhash,
     );
-    match expected_error {
-        None => context
-            .test_context
-            .pt_context
-            .banks_client
-            .process_transaction(init_transaction)
-            .await
-            .unwrap(),
+
+    context
+        .test_context
+        .pt_context
+        .banks_client
+        .process_transaction(init_transaction)
+        .await
+        .map(|_| multisig_op_pubkey)
+}
+
+pub async fn account_settings_update(
+    context: &mut BalanceAccountTestContext,
+    whitelist_status: Option<BooleanSetting>,
+    dapps_enabled: Option<BooleanSetting>,
+    expected_error: Option<InstructionError>,
+    fee_amount: Option<u64>,
+    fee_account_guid_hash: Option<BalanceAccountGuidHash>,
+    expected_fee_amount: Option<u64>,
+) {
+    let init_multisig_op_result = init_account_settings_update(
+        context,
+        whitelist_status,
+        dapps_enabled,
+        fee_amount,
+        fee_account_guid_hash,
+    )
+    .await;
+
+    let multisig_op_account = match expected_error {
+        None => init_multisig_op_result.unwrap(),
         Some(error) => {
             assert_eq!(
-                context
-                    .test_context
-                    .pt_context
-                    .banks_client
-                    .process_transaction(init_transaction)
-                    .await
-                    .unwrap_err()
-                    .unwrap(),
+                init_multisig_op_result.unwrap_err().unwrap(),
                 TransactionError::InstructionError(1, error),
             );
             return;
         }
-    }
+    };
 
     // verify the multisig op account data
     let multisig_op = MultisigOp::unpack_from_slice(
@@ -763,7 +778,7 @@ pub async fn account_settings_update(
             .test_context
             .pt_context
             .banks_client
-            .get_account(multisig_op_account.pubkey())
+            .get_account(multisig_op_account)
             .await
             .unwrap()
             .unwrap()
@@ -818,7 +833,7 @@ pub async fn account_settings_update(
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
         &context.test_context.program_id,
-        &multisig_op_account.pubkey(),
+        &multisig_op_account,
         vec![&context.approvers[0], &context.approvers[1]],
         &context.test_context.pt_context.payer,
         context.test_context.pt_context.last_blockhash,
@@ -840,7 +855,7 @@ pub async fn account_settings_update(
         &[finalize_account_settings_update(
             &context.test_context.program_id,
             &context.wallet_account.pubkey(),
-            &multisig_op_account.pubkey(),
+            &multisig_op_account,
             &context.test_context.pt_context.payer.pubkey(),
             context.balance_account_guid_hash,
             whitelist_status,
@@ -863,7 +878,7 @@ pub async fn account_settings_update(
         .test_context
         .pt_context
         .banks_client
-        .get_balance(multisig_op_account.pubkey())
+        .get_balance(multisig_op_account)
         .await
         .unwrap();
     context
@@ -879,7 +894,7 @@ pub async fn account_settings_update(
         .test_context
         .pt_context
         .banks_client
-        .get_account(multisig_op_account.pubkey())
+        .get_account(multisig_op_account)
         .await
         .unwrap()
         .is_none());
@@ -1696,13 +1711,13 @@ pub async fn setup_balance_account_tests_and_finalize(
     (context, source_account)
 }
 
-pub async fn setup_transfer_test(
+pub async fn init_transfer(
     context: &mut BalanceAccountTestContext,
     initiator_account: &Keypair,
     balance_account: &Pubkey,
     token_mint: Option<&Pubkey>,
     amount: u64,
-) -> (Keypair, Result<(), BanksClientError>) {
+) -> Result<Pubkey, BanksClientError> {
     let rent = context
         .test_context
         .pt_context
@@ -1712,9 +1727,9 @@ pub async fn setup_transfer_test(
         .unwrap();
     let multisig_account_rent = rent.minimum_balance(MultisigOp::LEN);
     let multisig_op_account = Keypair::new();
-    let initialized_at = SystemTime::now();
+    let multisig_op_pubkey = multisig_op_account.pubkey();
 
-    let result = context
+    context
         .test_context
         .pt_context
         .banks_client
@@ -1722,15 +1737,15 @@ pub async fn setup_transfer_test(
             &[
                 system_instruction::create_account(
                     &context.test_context.pt_context.payer.pubkey(),
-                    &multisig_op_account.pubkey(),
+                    &multisig_op_pubkey,
                     multisig_account_rent,
                     MultisigOp::LEN as u64,
                     &context.test_context.program_id,
                 ),
-                init_transfer(
+                common::instructions::init_transfer(
                     &context.test_context.program_id,
                     &context.wallet_account.pubkey(),
-                    &multisig_op_account.pubkey(),
+                    &multisig_op_pubkey,
                     &initiator_account.pubkey(),
                     &balance_account,
                     &context.destination.pubkey(),
@@ -1749,13 +1764,32 @@ pub async fn setup_transfer_test(
             ],
             context.test_context.pt_context.last_blockhash,
         ))
-        .await;
+        .await
+        .map(|_| multisig_op_pubkey)
+}
+
+pub async fn setup_transfer_test(
+    context: &mut BalanceAccountTestContext,
+    initiator_account: &Keypair,
+    balance_account: &Pubkey,
+    token_mint: Option<&Pubkey>,
+    amount: u64,
+) -> Result<Pubkey, BanksClientError> {
+    let initialized_at = SystemTime::now();
+    let result = init_transfer(
+        context,
+        initiator_account,
+        balance_account,
+        token_mint,
+        amount,
+    )
+    .await;
 
     if result.is_ok() {
         assert_multisig_op_timestamps(
             &get_multisig_op_data(
                 &mut context.test_context.pt_context.banks_client,
-                multisig_op_account.pubkey(),
+                *result.as_ref().unwrap(),
             )
             .await,
             initialized_at,
@@ -1763,7 +1797,7 @@ pub async fn setup_transfer_test(
         );
     }
 
-    (multisig_op_account, result)
+    result
 }
 
 pub async fn init_address_book_update(
@@ -2380,6 +2414,15 @@ pub async fn get_wallet(banks_client: &mut BanksClient, account: &Pubkey) -> Wal
             .data(),
     )
     .unwrap()
+}
+
+pub async fn get_wallet_latest_activity_timestamp(
+    banks_client: &mut BanksClient,
+    wallet_account: &Pubkey,
+) -> i64 {
+    get_wallet(banks_client, wallet_account)
+        .await
+        .latest_activity_at
 }
 
 pub fn assert_multisig_op_timestamps(

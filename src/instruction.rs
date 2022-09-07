@@ -18,7 +18,7 @@ use crate::model::balance_account::{
 use crate::model::multisig_op::{
     ApprovalDisposition, BooleanSetting, SlotUpdateType, WrapDirection,
 };
-use crate::model::signer::{NamedSigner, Signer};
+use crate::model::signer::NamedSigner;
 use crate::model::wallet::WalletGuidHash;
 use crate::serialization_utils::{
     append_duration, pack_option, read_account_guid_hash, read_account_name_hash,
@@ -75,7 +75,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The rent return account
@@ -97,7 +97,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[writable]` The source account
     /// 3. `[]` The destination account
     /// 4. `[signer]` The initiator account
@@ -145,7 +145,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[writable]` The balance account
     /// 3. `[writable]` The associated wrapped SOL account
     /// 4. `[]` The native mint account
@@ -183,7 +183,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The rent return account
@@ -227,7 +227,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The rent return account
@@ -256,7 +256,7 @@ pub enum ProgramInstruction {
     FinalizeDAppTransaction {},
 
     /// 0  `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The initiator account
@@ -280,7 +280,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The rent return account
@@ -300,7 +300,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The rent return account
@@ -320,7 +320,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The rent return account
@@ -396,7 +396,7 @@ pub enum ProgramInstruction {
     },
 
     /// 0. `[writable]` The multisig operation account
-    /// 1. `[]` The wallet account
+    /// 1. `[writable]` The wallet account
     /// 2. `[signer]` The initiator account
     /// 3. `[]` The sysvar clock account
     /// 4. `[signer]` The rent return account
@@ -1664,7 +1664,7 @@ pub fn append_instruction(instruction: &Instruction, dst: &mut Vec<u8>) {
     dst.extend_from_slice(instruction.program_id.as_ref());
     dst.put_u16_le(instruction.accounts.len() as u16);
     for account in instruction.accounts.iter() {
-        let mut buf = vec![0; 1 + Signer::LEN];
+        let mut buf = vec![0; 1 + PUBKEY_BYTES];
         buf[0] = 0;
         if account.is_signer {
             buf[0] |= 2;
@@ -1672,7 +1672,7 @@ pub fn append_instruction(instruction: &Instruction, dst: &mut Vec<u8>) {
         if account.is_writable {
             buf[0] |= 1;
         }
-        Signer::new(account.pubkey).pack_into_slice(&mut buf[1..1 + Signer::LEN]);
+        buf[1..1 + PUBKEY_BYTES].copy_from_slice(account.pubkey.as_ref());
         dst.extend_from_slice(buf.as_slice());
     }
     dst.put_u16_le(instruction.data.len().as_u16());

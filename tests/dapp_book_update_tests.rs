@@ -261,3 +261,70 @@ async fn test_dapp_book_update_initiator_approval() {
         OperationDisposition::NONE,
     );
 }
+
+#[tokio::test]
+async fn test_init_dapp_book_update_advances_latest_activity_timestamp() {
+    let mut context = setup_test(30_000).await;
+
+    let wallet_account = Keypair::new();
+
+    let approvers = vec![Keypair::new(), Keypair::new(), Keypair::new()];
+    let signers = vec![
+        approvers[0].pubkey_as_signer(),
+        approvers[1].pubkey_as_signer(),
+        approvers[2].pubkey_as_signer(),
+    ];
+
+    utils::init_wallet_from_context(
+        &mut context,
+        &wallet_account,
+        WalletGuidHash::new(&hash_of(Uuid::new_v4().as_bytes())),
+        InitialWalletConfig {
+            approvals_required_for_config: 2,
+            approval_timeout_for_config: Duration::from_secs(3600),
+            signers: vec![
+                (SlotId::new(0), signers[0]),
+                (SlotId::new(1), signers[1]),
+                (SlotId::new(2), signers[2]),
+            ],
+            config_approvers: vec![SlotId::new(0), SlotId::new(1)],
+        },
+    )
+    .await
+    .unwrap();
+
+    let initial_latest_activity_timestamp = get_wallet_latest_activity_timestamp(
+        &mut context.pt_context.banks_client,
+        &wallet_account.pubkey(),
+    )
+    .await;
+
+    context.pt_context.warp_to_slot(100_000).unwrap();
+
+    utils::init_dapp_book_update(
+        &mut context,
+        wallet_account.pubkey(),
+        &approvers[2],
+        DAppBookUpdate {
+            add_dapps: vec![(
+                SlotId::new(0),
+                DAppBookEntry {
+                    address: Keypair::new().pubkey(),
+                    name_hash: DAppBookEntryNameHash::new(&hash_of(b"DApp Name")),
+                },
+            )],
+            remove_dapps: vec![],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.pt_context.banks_client,
+            &wallet_account.pubkey(),
+        )
+        .await
+            > initial_latest_activity_timestamp
+    );
+}

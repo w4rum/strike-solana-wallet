@@ -122,6 +122,18 @@ async fn setup_dapp_test() -> DAppTest {
     }
     let total_instruction_len = instruction_buffer.len() as u16;
 
+    let wallet = get_wallet(
+        &mut context.test_context.pt_context.banks_client,
+        &context.wallet_account.pubkey(),
+    )
+    .await;
+
+    context
+        .test_context
+        .pt_context
+        .warp_to_slot(100_000)
+        .unwrap();
+
     context
         .test_context
         .pt_context
@@ -156,6 +168,15 @@ async fn setup_dapp_test() -> DAppTest {
         ))
         .await
         .unwrap();
+
+    assert!(
+        get_wallet_latest_activity_timestamp(
+            &mut context.test_context.pt_context.banks_client,
+            &context.wallet_account.pubkey(),
+        )
+        .await
+            > wallet.latest_activity_at
+    );
 
     // supply the instructions
     // send them in two separate transactions, with the second one sent first

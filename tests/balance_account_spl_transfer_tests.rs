@@ -298,20 +298,20 @@ async fn test_transfer_spl(
     }
 
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (multisig_op_account, result) = setup_transfer_test(
+    let multisig_op_account = setup_transfer_test(
         context.borrow_mut(),
         initiator,
         &balance_account,
         Some(&spl_context.mint.pubkey()),
         123,
     )
-    .await;
-    result.unwrap();
+    .await
+    .unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
         &context.test_context.program_id,
-        &multisig_op_account.pubkey(),
+        &multisig_op_account,
         vec![&context.approvers[0], &context.approvers[1]],
         &context.test_context.pt_context.payer,
         context.test_context.pt_context.last_blockhash,
@@ -336,7 +336,7 @@ async fn test_transfer_spl(
         .process_transaction(Transaction::new_signed_with_payer(
             &[finalize_transfer(
                 &context.test_context.program_id,
-                &multisig_op_account.pubkey(),
+                &multisig_op_account,
                 &context.wallet_account.pubkey(),
                 &balance_account,
                 &context.allowed_destination.address,
@@ -371,20 +371,20 @@ async fn test_transfer_spl_insufficient_balance() {
     let spl_context = setup_spl_transfer_test(&mut context, &balance_account, true).await;
 
     let initiator = &Keypair::from_base58_string(&context.approvers[2].to_base58_string());
-    let (multisig_op_account, result) = setup_transfer_test(
+    let multisig_op_account = setup_transfer_test(
         context.borrow_mut(),
         initiator,
         &balance_account,
         Some(&spl_context.mint.pubkey()),
         1230,
     )
-    .await;
-    result.unwrap();
+    .await
+    .unwrap();
 
     approve_or_deny_n_of_n_multisig_op(
         context.test_context.pt_context.banks_client.borrow_mut(),
         &context.test_context.program_id,
-        &multisig_op_account.pubkey(),
+        &multisig_op_account,
         vec![&context.approvers[0], &context.approvers[1]],
         &context.test_context.pt_context.payer,
         context.test_context.pt_context.last_blockhash,
@@ -410,7 +410,7 @@ async fn test_transfer_spl_insufficient_balance() {
             .process_transaction(Transaction::new_signed_with_payer(
                 &[finalize_transfer(
                     &context.test_context.program_id,
-                    &multisig_op_account.pubkey(),
+                    &multisig_op_account,
                     &context.wallet_account.pubkey(),
                     &balance_account,
                     &context.allowed_destination.address,

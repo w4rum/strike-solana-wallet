@@ -62,6 +62,7 @@ pub struct Wallet {
     pub config_approvers: Approvers,
     pub balance_accounts: BalanceAccounts,
     pub dapp_book: DAppBook,
+    pub latest_activity_at: i64,
 }
 
 impl Sealed for Wallet {}
@@ -917,7 +918,8 @@ impl Pack for Wallet {
         8 + // approval_timeout_for_config
         Approvers::STORAGE_SIZE + // config approvers
         DAppBook::LEN +
-        BalanceAccounts::LEN;
+        BalanceAccounts::LEN +
+        8; // latest_activity_at
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, Wallet::LEN];
@@ -933,6 +935,7 @@ impl Pack for Wallet {
             config_approvers_dst,
             dapp_book_dst,
             balance_accounts_dst,
+            latest_activity_at_dst,
         ) = mut_array_refs![
             dst,
             1,
@@ -945,7 +948,8 @@ impl Pack for Wallet {
             8,
             Approvers::STORAGE_SIZE,
             DAppBook::LEN,
-            BalanceAccounts::LEN
+            BalanceAccounts::LEN,
+            8
         ];
 
         is_initialized_dst[0] = self.is_initialized as u8;
@@ -959,6 +963,7 @@ impl Pack for Wallet {
         config_approvers_dst.copy_from_slice(self.config_approvers.as_bytes());
         self.dapp_book.pack_into_slice(dapp_book_dst);
         self.balance_accounts.pack_into_slice(balance_accounts_dst);
+        *latest_activity_at_dst = self.latest_activity_at.to_le_bytes()
     }
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
@@ -975,6 +980,7 @@ impl Pack for Wallet {
             config_approvers_src,
             dapp_book_src,
             balance_accounts_src,
+            latest_activity_at_src,
         ) = array_refs![
             src,
             1,
@@ -987,7 +993,8 @@ impl Pack for Wallet {
             8,
             Approvers::STORAGE_SIZE,
             DAppBook::LEN,
-            BalanceAccounts::LEN
+            BalanceAccounts::LEN,
+            8
         ];
 
         Ok(Wallet {
@@ -1008,6 +1015,7 @@ impl Pack for Wallet {
             config_approvers: Approvers::new(*config_approvers_src),
             balance_accounts: BalanceAccounts::unpack_from_slice(balance_accounts_src)?,
             dapp_book: DAppBook::unpack_from_slice(dapp_book_src)?,
+            latest_activity_at: i64::from_le_bytes(*latest_activity_at_src),
         })
     }
 }
