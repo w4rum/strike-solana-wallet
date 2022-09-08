@@ -266,7 +266,7 @@ fn v3_to_v4_add_latest_activity_at(source: &[u8], destination: &mut [u8], rent_r
             [0] => false,
             _ => true,
         },
-        version: 3,
+        version: 4,
         rent_return: *rent_return,
         wallet_guid_hash: WalletGuidHash::new(wallet_guid_hash),
         signers: NamedSigners::unpack_from_slice(signers_src).unwrap(),
@@ -461,7 +461,7 @@ mod test {
     fn test_v3_to_v4_add_latest_activity_at() {
         let v3_wallet = WalletV3 {
             is_initialized: true,
-            version: 2,
+            version: 3,
             rent_return: Pubkey::new_unique(),
             wallet_guid_hash: WalletGuidHash::new(&Pubkey::new_unique().to_bytes()),
             signers: NamedSigners::from_vec(vec![
@@ -501,7 +501,7 @@ mod test {
 
         let v4_wallet = Wallet::unpack_from_slice(v4_wallet_data.as_slice()).unwrap();
 
-        assert_eq!(3, v4_wallet.version);
+        assert_eq!(4, v4_wallet.version);
         assert_eq!(v4_rent_return, v4_wallet.rent_return);
         assert_eq!(v3_wallet.wallet_guid_hash, v4_wallet.wallet_guid_hash);
         assert_eq!(v3_wallet.signers, v4_wallet.signers);
