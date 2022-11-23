@@ -1,5 +1,6 @@
 use solana_security_txt::security_txt;
 
+#[cfg(not(feature = "no-entrypoint"))]
 security_txt! {
     name: "Strike Wallet",
     project_url: "https://strikeprotocols.com",
